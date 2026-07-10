@@ -1,4 +1,4 @@
 # NepPOS
 
-Hybrid Edge Multi-Store POS — modernization of legacy VB6/VB.NET WinForms POS system.
+Hybrid Edge Multi-Store POS — 
 See docs/architecture-v2.2.md for the full design.
