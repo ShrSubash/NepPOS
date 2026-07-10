@@ -20,6 +20,7 @@
           "net9.0"
         ],
         "sources": {
+          "/usr/local/share/dotnet/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -95,6 +96,7 @@
           "net9.0"
         ],
         "sources": {
+          "/usr/local/share/dotnet/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -166,6 +168,7 @@
           "net9.0"
         ],
         "sources": {
+          "/usr/local/share/dotnet/library-packs": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
@@ -175,6 +178,9 @@
             "projectReferences": {
               "/Users/subashshrestha/NepPOS/src/NepPOS.Application/NepPOS.Application.csproj": {
                 "projectPath": "/Users/subashshrestha/NepPOS/src/NepPOS.Application/NepPOS.Application.csproj"
+              },
+              "/Users/subashshrestha/NepPOS/src/NepPOS.Domain/NepPOS.Domain.csproj": {
+                "projectPath": "/Users/subashshrestha/NepPOS/src/NepPOS.Domain/NepPOS.Domain.csproj"
               }
             }
           }
@@ -195,6 +201,26 @@
         "net9.0": {
           "framework": "net9.0",
           "targetAlias": "net9.0",
+          "dependencies": {
+            "Microsoft.EntityFrameworkCore.Design": {
+              "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
+              "suppressParent": "All",
+              "target": "Package",
+              "version": "[9.0.9, )"
+            },
+            "Microsoft.EntityFrameworkCore.Sqlite": {
+              "target": "Package",
+              "version": "[9.0.9, )"
+            },
+            "Microsoft.Extensions.DependencyInjection.Abstractions": {
+              "target": "Package",
+              "version": "[10.0.9, )"
+            },
+            "SQLitePCLRaw.bundle_e_sqlite3": {
+              "target": "Package",
+              "version": "[2.1.11, )"
+            }
+          },
           "imports": [
             "net461",
             "net462",
