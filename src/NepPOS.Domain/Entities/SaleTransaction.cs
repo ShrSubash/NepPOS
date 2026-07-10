@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace NepPOS.Domain.Entities;
 
 /// <summary>
@@ -13,8 +15,8 @@ public sealed class SaleTransaction
     // Null until the sale is finalized. Gapless, per-store sequential — required for tax compliance.
     public long? InvoiceNumber { get; private set; }
 
-    public string StoreId { get; private set; }
-    public string RegisterId { get; private set; }
+    public string StoreId { get; private set; } = null!;
+    public string RegisterId { get; private set; } = null!;
     public DateTimeOffset CreatedAtUtc { get; private set; }
     public SaleTransactionStatus Status { get; private set; }
 

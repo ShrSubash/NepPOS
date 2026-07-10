@@ -7,8 +7,8 @@ namespace NepPOS.Domain.Entities;
 public sealed class SaleLineItem
 {
     public Guid Id { get; private set; }
-    public string Sku { get; private set; }
-    public string ProductName { get; private set; }
+    public string Sku { get; private set; } = null!;
+    public string ProductName { get; private set; } = null!;
     public int Quantity { get; private set; }
     public decimal UnitPriceIncGst { get; private set; }
     public decimal GstRate { get; private set; }
@@ -18,6 +18,7 @@ public sealed class SaleLineItem
     public decimal GstAmount => LineTotalIncGst - LineTotalIncGst / (1 + GstRate);
     public decimal LineTotalExGst => LineTotalIncGst - GstAmount;
 
+    // EF Core requires a parameterless constructor for materialization.
     private SaleLineItem() { }
 
     public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate)
