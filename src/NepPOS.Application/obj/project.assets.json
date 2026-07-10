@@ -1,11 +1,30 @@
 {
-  "version": 3,
+  "version": 4,
   "targets": {
-    "net9.0": {}
+    "net9.0": {
+      "NepPOS.Domain/1.0.0": {
+        "type": "project",
+        "framework": ".NETCoreApp,Version=v9.0",
+        "compile": {
+          "bin/placeholder/NepPOS.Domain.dll": {}
+        },
+        "runtime": {
+          "bin/placeholder/NepPOS.Domain.dll": {}
+        }
+      }
+    }
   },
-  "libraries": {},
+  "libraries": {
+    "NepPOS.Domain/1.0.0": {
+      "type": "project",
+      "path": "../NepPOS.Domain/NepPOS.Domain.csproj",
+      "msbuildProject": "../NepPOS.Domain/NepPOS.Domain.csproj"
+    }
+  },
   "projectFileDependencyGroups": {
-    "net9.0": []
+    "net9.0": [
+      "NepPOS.Domain >= 1.0.0"
+    ]
   },
   "packageFolders": {
     "/Users/subashshrestha/.nuget/packages/": {}
@@ -30,8 +49,13 @@
       },
       "frameworks": {
         "net9.0": {
+          "framework": "net9.0",
           "targetAlias": "net9.0",
-          "projectReferences": {}
+          "projectReferences": {
+            "/Users/subashshrestha/NepPOS/src/NepPOS.Domain/NepPOS.Domain.csproj": {
+              "projectPath": "/Users/subashshrestha/NepPOS/src/NepPOS.Domain/NepPOS.Domain.csproj"
+            }
+          }
         }
       },
       "warningProperties": {
@@ -44,10 +68,11 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "9.0.300"
+      "SdkAnalysisLevel": "10.0.300"
     },
     "frameworks": {
       "net9.0": {
+        "framework": "net9.0",
         "targetAlias": "net9.0",
         "imports": [
           "net461",
@@ -60,12 +85,22 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
+        "downloadDependencies": [
+          {
+            "name": "Microsoft.AspNetCore.App.Ref",
+            "version": "[9.0.17, 9.0.17]"
+          },
+          {
+            "name": "Microsoft.NETCore.App.Ref",
+            "version": "[9.0.17, 9.0.17]"
+          }
+        ],
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/9.0.304/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
