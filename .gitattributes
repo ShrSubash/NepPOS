@@ -1,0 +1,15 @@
+# Store all text files with LF in the repo; Git converts to the OS's
+# line ending on checkout (CRLF on Windows). Stops whole-file diffs.
+* text=auto
+
+# Visual Studio expects CRLF in solution files
+*.sln text eol=crlf
+
+# Never touch binary files
+*.png  binary
+*.jpg  binary
+*.ico  binary
+*.ttf  binary
+*.woff binary
+*.woff2 binary
+*.db   binary
