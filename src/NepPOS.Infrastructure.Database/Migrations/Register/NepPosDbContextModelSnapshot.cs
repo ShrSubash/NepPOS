@@ -141,10 +141,66 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("SaleLineItems");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.SalePayment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AuthCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CardType")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Change")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MaskedPan")
+                        .HasMaxLength(25)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ResponseText")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SaleTransactionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenderType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Tendered")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SaleTransactionId");
+
+                    b.ToTable("SalePayments");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleTransaction", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("CashRounding")
+                        .HasPrecision(18, 2)
                         .HasColumnType("TEXT");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
@@ -195,9 +251,20 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasForeignKey("SaleTransactionId");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.SalePayment", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.SaleTransaction", null)
+                        .WithMany("Payments")
+                        .HasForeignKey("SaleTransactionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleTransaction", b =>
                 {
                     b.Navigation("LineItems");
+
+                    b.Navigation("Payments");
                 });
 #pragma warning restore 612, 618
         }

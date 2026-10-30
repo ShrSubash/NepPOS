@@ -28,6 +28,16 @@ public sealed class SaleTransaction
     public decimal GstTotal => _lineItems.Sum(li => li.GstAmount);
     public decimal GrandTotal => SubtotalExGst + GstTotal;
 
+    private readonly List<SalePayment> _payments = new();
+
+    public IReadOnlyCollection<SalePayment> Payments => _payments.AsReadOnly();
+
+    /// <summary>
+    /// Australian 5c cash rounding applied when cash finalised the sale (e.g. +0.02 or -0.01).
+    /// Payments always add up to GrandTotal (to the cent) plus this amount.
+    /// </summary>
+    public decimal CashRounding { get; private set; }
+
     // EF Core requires a parameterless constructor for materialization.
     private SaleTransaction() { }
 
@@ -57,6 +67,31 @@ public sealed class SaleTransaction
 
         ArgumentNullException.ThrowIfNull(lineItem);
         _lineItems.Add(lineItem);
+    }
+
+    /// <summary>
+    /// Records how the sale was paid. Called once, before Complete, with every tender
+    /// (several for a split sale) and the cash rounding that settled it.
+    /// </summary>
+    public void RecordPayments(IEnumerable<SalePayment> payments, decimal cashRounding)
+    {
+        if (Status != SaleTransactionStatus.InProgress)
+            throw new InvalidOperationException(
+                $"Cannot record payments for a sale in status '{Status}'.");
+        if (_payments.Count > 0)
+            throw new InvalidOperationException("Payments have already been recorded for this sale.");
+
+        ArgumentNullException.ThrowIfNull(payments);
+        var paymentList = payments.ToList();
+
+        var expected = decimal.Round(GrandTotal, 2, MidpointRounding.AwayFromZero) + cashRounding;
+        var paid = paymentList.Sum(p => p.Amount);
+        if (paid != expected)
+            throw new InvalidOperationException(
+                $"Payments total {paid:0.00} but the sale requires {expected:0.00}.");
+
+        _payments.AddRange(paymentList);
+        CashRounding = cashRounding;
     }
 
     /// <summary>
