@@ -86,15 +86,15 @@
                     {
                         <div class="order-line">
                             <div class="line-info">
-                                <div class="line-name">@line.Product.Name</div>
-                                <div class="line-unit-price">@line.Product.Price.ToString("C") each</div>
+                                <div class="line-name">@line.Name</div>
+                                <div class="line-unit-price">@line.UnitPrice.ToString("C") each</div>
                             </div>
                             <div class="line-qty-controls">
                                 <button @onclick="() => DecrementLine(line)">−</button>
                                 <span>@line.Quantity</span>
                                 <button @onclick="() => IncrementLine(line)">+</button>
                             </div>
-                            <div class="line-total">@((line.Product.Price * line.Quantity).ToString("C"))</div>
+                            <div class="line-total">@((line.UnitPrice * line.Quantity).ToString("C"))</div>
                         </div>
                     }
                 }
@@ -125,7 +125,7 @@
     private string? SelectedCategory;
 
     private List<CartLine> CartLines = new();
-    private decimal GrandTotal => CartLines.Sum(l => l.Product.Price * l.Quantity);
+    private decimal GrandTotal => CartLines.Sum(l => l.UnitPrice * l.Quantity);
 
     [Inject] private ScanResolutionService ScanResolver { get; set; } = default!;
     [Inject] private OnScreenKeyboardService Keyboard { get; set; } = default!;
@@ -148,16 +148,23 @@
         Products = await Catalog.GetProductsByCategoryAsync(category);
     }
 
-    private void AddToCart(Product product)
+    private void AddToCart(Product product) =>
+        AddLine($"P:{product.Id}", product, product.Name, product.Price);
+
+    // A pack size (6-pack, carton…) sells at its own price but is still the same base product.
+    private void AddToCart(ProductVariant variant) =>
+        AddLine($"V:{variant.Id}", variant.Product, $"{variant.Product.Name} ({variant.PackType})", variant.Price);
+
+    private void AddLine(string key, Product product, string name, decimal unitPrice)
     {
-        var existing = CartLines.FirstOrDefault(l => l.Product.Id == product.Id);
+        var existing = CartLines.FirstOrDefault(l => l.Key == key);
         if (existing is not null)
         {
             existing.Quantity++;
         }
         else
         {
-            CartLines.Add(new CartLine { Product = product, Quantity = 1 });
+            CartLines.Add(new CartLine { Key = key, Product = product, Name = name, UnitPrice = unitPrice, Quantity = 1 });
         }
     }
 
@@ -191,9 +198,19 @@
         var result = await ScanResolver.ResolveAsync(ScanInput);
         ScanError = result.Type == ScanResultType.NotFound ? result.Message : null;
 
+        // ProductScanResolver returns either a Product or a ProductVariant (pack-size barcode).
+        // A hard cast to Product crashed the register on any pack-size scan.
         if (result.Type == ScanResultType.Product)
         {
-            AddToCart((Product)result.Payload!);
+            switch (result.Payload)
+            {
+                case ProductVariant variant:
+                    AddToCart(variant);
+                    break;
+                case Product product:
+                    AddToCart(product);
+                    break;
+            }
         }
 
         ScanInput = string.Empty;
@@ -202,7 +219,11 @@
 
     private sealed class CartLine
     {
+        /// <summary>"P:{productId}" or "V:{variantId}" — the same product in two pack sizes is two lines.</summary>
+        public required string Key { get; init; }
         public required Product Product { get; init; }
+        public required string Name { get; init; }
+        public required decimal UnitPrice { get; init; }
         public int Quantity { get; set; }
     }
 }
