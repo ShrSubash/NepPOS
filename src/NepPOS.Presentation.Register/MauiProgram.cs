@@ -10,7 +10,6 @@ using NepPOS.Infrastructure.Database.Catalog;
 using NepPOS.Infrastructure.Database.Scanning;
 using NepPOS.Infrastructure.Database.Seeding;
 using NepPOS.Presentation.Register.Services;
-using NepPOS.Presentation.Register.WinUI;
 
 namespace NepPOS.Presentation.Register;
 
