@@ -87,6 +87,7 @@ public static class MauiProgram
 #if DEBUG
                 // Dev-only test logins. Release builds must create the owner via first-run setup.
                 WorkforceDbSeeder.SeedAsync(workforceDb, logger).GetAwaiter().GetResult();
+                RegisterDbSeeder.SeedAsync(registerDb, logger).GetAwaiter().GetResult();
 #endif
             }
             catch (Exception ex)
