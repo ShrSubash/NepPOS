@@ -1,0 +1,113 @@
+﻿@page "/login"
+@layout EmptyLayout
+@using NepPOS.Application.Authentication
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IAuthenticationService AuthService
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+<div class="login-shell">
+    <div class="login-card">
+        <div class="brand">
+            <span class="brand-mark">N</span>
+            <h1>NepPOS</h1>
+            <p class="subtitle">Register Sign In</p>
+        </div>
+
+        <div class="method-tabs">
+            <button class="method-tab @(SelectedMethod == AuthenticationMethod.Pin ? "active" : "")"
+                    @onclick="() => SelectedMethod = AuthenticationMethod.Pin">
+                PIN
+            </button>
+            <button class="method-tab" disabled title="Coming soon">
+                Fingerprint
+            </button>
+            <button class="method-tab" disabled title="Coming soon">
+                RFID
+            </button>
+        </div>
+
+        @if (SelectedMethod == AuthenticationMethod.Pin)
+        {
+            <div class="pin-display" aria-live="polite">
+                @for (var i = 0; i < 6; i++)
+                {
+                    <span class="pin-dot @(i < EnteredPin.Length ? "filled" : "")"></span>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(ErrorMessage))
+            {
+                <p class="error-message">@ErrorMessage</p>
+            }
+
+            <div class="pin-pad">
+                @foreach (var digit in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9" })
+                {
+                    <button class="pin-key" @onclick="() => AppendDigit(digit)" disabled="@IsBusy">@digit</button>
+                }
+                <button class="pin-key pin-key-action" @onclick="ClearPin" disabled="@IsBusy">Clear</button>
+                <button class="pin-key" @onclick='() => AppendDigit("0")' disabled="@IsBusy">0</button>
+                <button class="pin-key pin-key-action" @onclick="Backspace" disabled="@IsBusy">⌫</button>
+                <button class="pin-key pin-key-submit" @onclick="SubmitPin" disabled="@(IsBusy || EnteredPin.Length == 0)">↵ Enter</button>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private AuthenticationMethod SelectedMethod = AuthenticationMethod.Pin;
+    private string EnteredPin = string.Empty;
+    private string? ErrorMessage;
+    private bool IsBusy;
+
+    private const int MaxPinLength = 6;
+
+    private void AppendDigit(string digit)
+    {
+        if (IsBusy || EnteredPin.Length >= MaxPinLength) return;
+
+        EnteredPin += digit;
+        ErrorMessage = null;
+    }
+
+    private async Task SubmitPin()
+    {
+        if (IsBusy || EnteredPin.Length == 0) return;
+        await TryAuthenticateAsync();
+    }
+
+    private void Backspace()
+    {
+        if (IsBusy || EnteredPin.Length == 0) return;
+        EnteredPin = EnteredPin[..^1];
+    }
+
+    private void ClearPin()
+    {
+        EnteredPin = string.Empty;
+        ErrorMessage = null;
+    }
+
+    private async Task TryAuthenticateAsync()
+    {
+        IsBusy = true;
+        StateHasChanged();
+
+        var result = await AuthService.AuthenticateByPinAsync(EnteredPin);
+
+        if (result.Succeeded && result.Employee is not null)
+        {
+            Session.SignIn(result.Employee);
+            Nav.NavigateTo(LandingRouteFor(result.Employee.Role), replace: true);
+            return;
+        }
+
+        ErrorMessage = result.ErrorMessage;
+        EnteredPin = string.Empty;
+        IsBusy = false;
+    }
+
+    private static string LandingRouteFor(EmployeeRole role) => "/register";
+}

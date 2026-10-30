@@ -21,6 +21,7 @@ public sealed class SaleTransaction
     public SaleTransactionStatus Status { get; private set; }
 
     private readonly List<SaleLineItem> _lineItems = new();
+
     public IReadOnlyCollection<SaleLineItem> LineItems => _lineItems.AsReadOnly();
 
     public decimal SubtotalExGst => _lineItems.Sum(li => li.LineTotalExGst);

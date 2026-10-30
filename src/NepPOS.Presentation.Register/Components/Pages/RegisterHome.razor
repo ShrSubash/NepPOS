@@ -1,0 +1,208 @@
+﻿@page "/register"
+@layout EmptyLayout
+@using NepPOS.Application.Catalog
+@using NepPOS.Domain.Entities
+@using NepPOS.Presentation.Register.Services
+@using NepPOS.Application.Scanning
+@using NepPOS.Domain.Enums
+@inject NavigationManager Nav
+@inject IProductCatalogService Catalog
+@inject CurrentUserSession Session
+
+<div class="pos-shell">
+
+    <div class="pos-topbar">
+        <div class="topbar-left">
+            <span class="brand-dot">N</span>
+            <span class="brand-text">NepPOS</span>
+        </div>
+        <div class="topbar-categories">
+            @foreach (var category in Categories)
+            {
+                <button class="category-pill @(category == SelectedCategory ? "active" : "")"
+                        @onclick="() => SelectCategoryAsync(category)">
+                    @category
+                </button>
+            }
+        </div>
+        <div class="topbar-right">
+            @if (Session.Employee?.Role >= EmployeeRole.Manager)
+            {
+                <button class="manage-link" @onclick='() => Nav.NavigateTo("/manage")'>Manage</button>
+            }
+            <span class="employee-name">@Session.Employee?.FullName</span>
+            <span class="employee-role-badge">@Session.Employee?.Role</span>
+        </div>
+    </div>
+
+    <div class="pos-body">
+
+        <div class="product-grid-area">
+
+            <div class="scan-entry-bar" @onclick="OpenScanKeyboard">
+                <span class="scan-display">@(string.IsNullOrEmpty(ScanInput) ? "Tap to scan or enter code..." : ScanInput)</span>
+                @if (!string.IsNullOrEmpty(ScanError))
+                {
+                    <span class="scan-error">@ScanError</span>
+                }
+            </div>
+
+            <div class="product-grid">
+                @foreach (var product in Products)
+                {
+                    <button class="product-tile" @onclick="() => AddToCart(product)">
+                        <div class="product-image">
+                            @if (!string.IsNullOrEmpty(product.ImageUrl))
+                            {
+                                <img src="@product.ImageUrl" alt="@product.Name" />
+                            }
+                            else
+                            {
+                                <div class="image-placeholder">@product.Name.Substring(0, 1)</div>
+                            }
+                        </div>
+                        <div class="product-name">@product.Name</div>
+                        <div class="product-price">@product.Price.ToString("C")</div>
+                    </button>
+                }
+            </div>
+
+        </div>
+
+        <div class="order-panel">
+            <div class="order-header">Current Order</div>
+
+            <div class="order-lines">
+                @if (CartLines.Count == 0)
+                {
+                    <div class="empty-cart">
+                        <span class="empty-icon">🛒</span>
+                        <p>No items yet</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var line in CartLines)
+                    {
+                        <div class="order-line">
+                            <div class="line-info">
+                                <div class="line-name">@line.Product.Name</div>
+                                <div class="line-unit-price">@line.Product.Price.ToString("C") each</div>
+                            </div>
+                            <div class="line-qty-controls">
+                                <button @onclick="() => DecrementLine(line)">−</button>
+                                <span>@line.Quantity</span>
+                                <button @onclick="() => IncrementLine(line)">+</button>
+                            </div>
+                            <div class="line-total">@((line.Product.Price * line.Quantity).ToString("C"))</div>
+                        </div>
+                    }
+                }
+            </div>
+
+            <div class="order-footer">
+                <div class="summary-row">
+                    <span>Total</span>
+                    <span>@GrandTotal.ToString("C")</span>
+                </div>
+
+                <div class="function-buttons">
+                    <button class="fn-btn fn-secondary" @onclick="ClearCart" disabled="@(CartLines.Count == 0)">Void</button>
+                    <button class="fn-btn fn-secondary" disabled="@(CartLines.Count == 0)">Hold</button>
+                </div>
+                <button class="fn-btn fn-primary" disabled="@(CartLines.Count == 0)">
+                    Charge @GrandTotal.ToString("C")
+                </button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@code {
+    private IReadOnlyList<string> Categories = new List<string>();
+    private IReadOnlyList<Product> Products = new List<Product>();
+    private string? SelectedCategory;
+
+    private List<CartLine> CartLines = new();
+    private decimal GrandTotal => CartLines.Sum(l => l.Product.Price * l.Quantity);
+
+    [Inject] private ScanResolutionService ScanResolver { get; set; } = default!;
+    [Inject] private OnScreenKeyboardService Keyboard { get; set; } = default!;
+
+    private string ScanInput = string.Empty;
+    private string? ScanError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Categories = await Catalog.GetCategoriesAsync();
+        if (Categories.Count > 0)
+        {
+            await SelectCategoryAsync(Categories[0]);
+        }
+    }
+
+    private async Task SelectCategoryAsync(string category)
+    {
+        SelectedCategory = category;
+        Products = await Catalog.GetProductsByCategoryAsync(category);
+    }
+
+    private void AddToCart(Product product)
+    {
+        var existing = CartLines.FirstOrDefault(l => l.Product.Id == product.Id);
+        if (existing is not null)
+        {
+            existing.Quantity++;
+        }
+        else
+        {
+            CartLines.Add(new CartLine { Product = product, Quantity = 1 });
+        }
+    }
+
+    private void IncrementLine(CartLine line) => line.Quantity++;
+
+    private void DecrementLine(CartLine line)
+    {
+        line.Quantity--;
+        if (line.Quantity <= 0)
+        {
+            CartLines.Remove(line);
+        }
+    }
+
+    private void ClearCart() => CartLines.Clear();
+
+    private void OpenScanKeyboard()
+    {
+        Keyboard.RequestInput(
+            initialValue: ScanInput,
+            numericOnly: false,
+            onValueChanged: value => { ScanInput = value; InvokeAsync(StateHasChanged); },
+            onSubmit: () => _ = ProcessScanAsync()
+        );
+    }
+
+    private async Task ProcessScanAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ScanInput)) return;
+
+        var result = await ScanResolver.ResolveAsync(ScanInput);
+        ScanError = result.Type == ScanResultType.NotFound ? result.Message : null;
+
+        if (result.Type == ScanResultType.Product)
+        {
+            AddToCart((Product)result.Payload!);
+        }
+
+        ScanInput = string.Empty;
+        StateHasChanged();
+    }
+
+    private sealed class CartLine
+    {
+        public required Product Product { get; init; }
+        public int Quantity { get; set; }
+    }
+}

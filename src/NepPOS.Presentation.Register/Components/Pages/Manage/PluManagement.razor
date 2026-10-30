@@ -1,0 +1,192 @@
+﻿@page "/manage/plu"
+@layout EmptyLayout
+@using NepPOS.Application.Catalog
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IProductManagementService ProductService
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <p>Manager access required.</p>
+}
+else
+{
+    <div class="plu-shell">
+        <div class="plu-topbar">
+            <button class="back-btn" @onclick="GoToManage">← Manage</button>
+            <span class="brand-text">PLU / Product Management</span>
+            @if (CanCreate)
+            {
+                <button class="add-btn" @onclick="StartNew">+ New Product</button>
+            }
+        </div>
+
+        <div class="plu-table-wrap">
+            <table class="plu-table">
+                <thead>
+                    <tr>
+                        <th>PLU</th>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Stock</th>
+                        <th>Active</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var p in Products)
+                    {
+                        <tr>
+                            <td>@p.Plu</td>
+                            <td>@p.Name</td>
+                            <td>@p.Category</td>
+                            <td>@p.Price.ToString("C")</td>
+                            <td>@p.StockOnHand</td>
+                            <td>@(p.IsActive ? "Yes" : "No")</td>
+                            <td>
+                                <button @onclick="() => Edit(p)">Edit</button>
+                                @if (CanDeactivate && p.IsActive)
+                                {
+                                    <button @onclick="() => Deactivate(p)">Deactivate</button>
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (Editing is not null)
+        {
+            <div class="plu-editor-overlay">
+                <div class="plu-editor">
+                    <div class="editor-tabs">
+                        <button class="editor-tab @(ActiveTab == "details" ? "active" : "")" @onclick='() => ActiveTab = "details"'>Details</button>
+                        <button class="editor-tab @(ActiveTab == "more" ? "active" : "")" @onclick='() => ActiveTab = "more"'>More Details</button>
+                        <button class="editor-tab" disabled title="Requires sale history — coming soon">Figures</button>
+                        <button class="editor-tab" disabled title="Requires sale history — coming soon">History</button>
+                    </div>
+
+                    @if (ActiveTab == "details")
+                    {
+                        <div class="tab-panel">
+                            <label>Name <input @bind="Editing.Name" disabled="@(!CanEditFullDetails)" /></label>
+                            <label>PLU <input @bind="Editing.Plu" disabled="@(!CanEditFullDetails)" /></label>
+                            <label>Barcode <input @bind="Editing.Barcode" disabled="@(!CanEditFullDetails)" /></label>
+                            <label>Category <input @bind="Editing.Category" disabled="@(!CanEditFullDetails)" /></label>
+
+                            <label>
+                                Image path
+                                <input @bind="Editing.ImageUrl" disabled="@(!CanEditFullDetails)" placeholder="images/products/example.png" />
+                            </label>
+                            @if (!string.IsNullOrEmpty(Editing.ImageUrl))
+                            {
+                                <img src="@Editing.ImageUrl" class="editor-image-preview" alt="preview" />
+                            }
+
+                            <label>Price <input type="number" step="0.01" @bind="Editing.Price" disabled="@(!CanEditPrice)" /></label>
+
+                            @if (CanSeeCostPrice)
+                            {
+                                <label>Cost Price <input type="number" step="0.01" @bind="Editing.CostPrice" /></label>
+                            }
+
+                            <label>Stock on Hand <input type="number" step="1" @bind="Editing.StockOnHand" disabled="@(!CanEditFullDetails)" /></label>
+                        </div>
+                    }
+                    else if (ActiveTab == "more")
+                    {
+                        <div class="tab-panel">
+                            <label>Product URL <input @bind="Editing.ProductUrl" disabled="@(!CanEditFullDetails)" /></label>
+                            <label>Loyalty Points (per unit) <input type="number" @bind="Editing.PointsPerUnit" disabled="@(!CanEditFullDetails)" /></label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="Editing.EnableOnWebsite" disabled="@(!CanEditFullDetails)" />
+                                Enable on website
+                            </label>
+                        </div>
+                    }
+
+                    <div class="editor-actions">
+                        <button @onclick="Cancel">Cancel</button>
+                        <button @onclick="Save">Save</button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private List<Product> Products = new();
+    private Product? Editing;
+    private string ActiveTab = "details";
+
+    private ManagerAccessLevel ManagerAccess = ManagerAccessLevel.SellPricesOnly;
+
+    private bool CanCreate => Session.Employee!.Role == EmployeeRole.Owner;
+    private bool CanDeactivate => Session.Employee!.Role == EmployeeRole.Owner;
+    private bool CanEditFullDetails =>
+        Session.Employee!.Role == EmployeeRole.Owner || ManagerAccess == ManagerAccessLevel.Full;
+    private bool CanEditPrice =>
+        Session.Employee!.Role == EmployeeRole.Owner ||
+        ManagerAccess is ManagerAccessLevel.SellPricesOnly or ManagerAccessLevel.Full;
+    private bool CanSeeCostPrice => Session.Employee!.Role == EmployeeRole.Owner;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync() => Products = (await ProductService.GetAllAsync()).ToList();
+
+    private void GoToManage() => Nav.NavigateTo("/manage");
+
+    private void StartNew()
+    {
+        Editing = new Product { IsActive = true };
+        ActiveTab = "details";
+    }
+
+    private void Edit(Product p)
+    {
+        Editing = new Product
+        {
+            Id = p.Id,
+            Name = p.Name,
+            Plu = p.Plu,
+            Barcode = p.Barcode,
+            Category = p.Category,
+            Price = p.Price,
+            CostPrice = p.CostPrice,
+            ImageUrl = p.ImageUrl,
+            IsActive = p.IsActive,
+            StockOnHand = p.StockOnHand,
+            ProductUrl = p.ProductUrl,
+            PointsPerUnit = p.PointsPerUnit,
+            EnableOnWebsite = p.EnableOnWebsite
+        };
+        ActiveTab = "details";
+    }
+
+    private void Cancel() => Editing = null;
+
+    private async Task Save()
+    {
+        if (Editing is null) return;
+
+        if (Editing.Id == 0)
+            await ProductService.CreateAsync(Editing);
+        else
+            await ProductService.UpdateAsync(Editing);
+
+        Editing = null;
+        await LoadAsync();
+    }
+
+    private async Task Deactivate(Product p)
+    {
+        await ProductService.DeactivateAsync(p.Id);
+        await LoadAsync();
+    }
+}

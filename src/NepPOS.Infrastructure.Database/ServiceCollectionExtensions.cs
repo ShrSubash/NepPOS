@@ -16,6 +16,9 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<NepPosDbContext>(options =>
             options.UseSqlite(sqliteConnectionString));
 
+        services.AddDbContext<WorkforceDbContext>(options =>
+    options.UseSqlite(sqliteConnectionString));
+
         services.AddScoped<ISaleTransactionRepository, SaleTransactionRepository>();
 
         return services;

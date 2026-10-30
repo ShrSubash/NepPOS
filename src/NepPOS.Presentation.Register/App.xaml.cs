@@ -1,14 +1,14 @@
 ﻿namespace NepPOS.Presentation.Register;
 
-public partial class App : Application
+public partial class App : Microsoft.Maui.Controls.Application
 {
-	public App()
-	{
-		InitializeComponent();
-	}
+    public App()
+    {
+        InitializeComponent();
+    }
 
-	protected override Window CreateWindow(IActivationState? activationState)
-	{
-		return new Window(new MainPage()) { Title = "NepPOS.Presentation.Register" };
-	}
+    protected override Window CreateWindow(IActivationState? activationState)
+    {
+        return new Window(new MainPage()) { Title = "NepPOS.Presentation.Register" };
+    }
 }

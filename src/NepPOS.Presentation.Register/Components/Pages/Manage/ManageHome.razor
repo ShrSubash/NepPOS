@@ -1,0 +1,50 @@
+﻿@page "/manage"
+@layout EmptyLayout
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="manage-denied">
+        <p>Manager access required.</p>
+        <button @onclick="GoToRegister">Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="manage-shell">
+        <div class="manage-topbar">
+            <span class="brand-text">NepPOS Management</span>
+            <button class="back-btn" @onclick="GoToRegister">← Register</button>
+        </div>
+
+        <div class="manage-grid">
+            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/plu")'>
+                <span class="tile-icon">🏷️</span>
+                <span class="tile-label">PLU / Products</span>
+            </button>
+            <button class="manage-tile" disabled>
+                <span class="tile-icon">👤</span>
+                <span class="tile-label">Customers</span>
+            </button>
+            <button class="manage-tile" disabled>
+                <span class="tile-icon">💳</span>
+                <span class="tile-label">Debtors</span>
+            </button>
+            <button class="manage-tile" disabled>
+                <span class="tile-icon">🚚</span>
+                <span class="tile-label">Suppliers</span>
+            </button>
+            <button class="manage-tile" disabled>
+                <span class="tile-icon">💰</span>
+                <span class="tile-label">Tender / Payment Setup</span>
+            </button>
+        </div>
+    </div>
+}
+
+@code {
+    private void GoToRegister() => Nav.NavigateTo("/register");
+}

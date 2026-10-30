@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 3,
   "targets": {
     "net9.0": {
       "coverlet.collector/6.0.2": {
@@ -959,33 +959,40 @@
     ]
   },
   "packageFolders": {
-    "/Users/subashshrestha/.nuget/packages/": {}
+    "C:\\Users\\Subash\\.nuget\\packages\\": {},
+    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "/Users/subashshrestha/NepPOS/tests/NepPOS.Domain.Tests/NepPOS.Domain.Tests.csproj",
+      "projectUniqueName": "C:\\Users\\Subash\\source\\repos\\NepPOS\\tests\\NepPOS.Domain.Tests\\NepPOS.Domain.Tests.csproj",
       "projectName": "NepPOS.Domain.Tests",
-      "projectPath": "/Users/subashshrestha/NepPOS/tests/NepPOS.Domain.Tests/NepPOS.Domain.Tests.csproj",
-      "packagesPath": "/Users/subashshrestha/.nuget/packages/",
-      "outputPath": "/Users/subashshrestha/NepPOS/tests/NepPOS.Domain.Tests/obj/",
+      "projectPath": "C:\\Users\\Subash\\source\\repos\\NepPOS\\tests\\NepPOS.Domain.Tests\\NepPOS.Domain.Tests.csproj",
+      "packagesPath": "C:\\Users\\Subash\\.nuget\\packages\\",
+      "outputPath": "C:\\Users\\Subash\\source\\repos\\NepPOS\\tests\\NepPOS.Domain.Tests\\obj\\",
       "projectStyle": "PackageReference",
+      "fallbackFolders": [
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
+      ],
       "configFilePaths": [
-        "/Users/subashshrestha/.nuget/NuGet/NuGet.Config"
+        "C:\\Users\\Subash\\AppData\\Roaming\\NuGet\\NuGet.Config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
+        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
         "net9.0"
       ],
       "sources": {
+        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
+        "C:\\Program Files\\dotnet\\library-packs": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
         "net9.0": {
-          "framework": "net9.0",
           "targetAlias": "net9.0",
           "projectReferences": {
-            "/Users/subashshrestha/NepPOS/src/NepPOS.Domain/NepPOS.Domain.csproj": {
-              "projectPath": "/Users/subashshrestha/NepPOS/src/NepPOS.Domain/NepPOS.Domain.csproj"
+            "C:\\Users\\Subash\\source\\repos\\NepPOS\\src\\NepPOS.Domain\\NepPOS.Domain.csproj": {
+              "projectPath": "C:\\Users\\Subash\\source\\repos\\NepPOS\\src\\NepPOS.Domain\\NepPOS.Domain.csproj"
             }
           }
         }
@@ -1000,11 +1007,10 @@
         "auditLevel": "low",
         "auditMode": "direct"
       },
-      "SdkAnalysisLevel": "10.0.300"
+      "SdkAnalysisLevel": "10.0.100"
     },
     "frameworks": {
       "net9.0": {
-        "framework": "net9.0",
         "targetAlias": "net9.0",
         "dependencies": {
           "Microsoft.NET.Test.Sdk": {
@@ -1038,11 +1044,15 @@
         "downloadDependencies": [
           {
             "name": "Microsoft.AspNetCore.App.Ref",
-            "version": "[9.0.17, 9.0.17]"
+            "version": "[9.0.11, 9.0.11]"
           },
           {
             "name": "Microsoft.NETCore.App.Ref",
-            "version": "[9.0.17, 9.0.17]"
+            "version": "[9.0.11, 9.0.11]"
+          },
+          {
+            "name": "Microsoft.WindowsDesktop.App.Ref",
+            "version": "[9.0.11, 9.0.11]"
           }
         ],
         "frameworkReferences": {
@@ -1050,7 +1060,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/10.0.301/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.100/PortableRuntimeIdentifierGraph.json"
       }
     }
   }

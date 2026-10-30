@@ -1,0 +1,67 @@
+﻿@using NepPOS.Presentation.Register.Services
+@inject OnScreenKeyboardService KeyboardService
+@implements IDisposable
+
+@if (KeyboardService.IsVisible)
+{
+    <div class="keyboard-overlay">
+        <div class="keyboard-panel">
+            <div class="keyboard-display">@KeyboardService.CurrentValue</div>
+
+            @if (KeyboardService.IsNumericOnly)
+            {
+                <div class="key-grid numeric">
+                    @foreach (var digit in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9" })
+                    {
+                        <button class="key" @onclick="() => KeyboardService.AppendKey(digit)">@digit</button>
+                    }
+                    <button class="key key-action" @onclick="KeyboardService.Backspace">⌫</button>
+                    <button class="key" @onclick='() => KeyboardService.AppendKey("0")'>0</button>
+                    <button class="key key-submit" @onclick="KeyboardService.Submit">↵</button>
+                </div>
+            }
+            else
+            {
+                <div class="key-grid alpha">
+                    @foreach (var row in AlphaRows)
+                    {
+                        <div class="key-row">
+                            @foreach (var ch in row)
+                            {
+                                <button class="key" @onclick="() => KeyboardService.AppendKey(ch.ToString())">@ch</button>
+                            }
+                        </div>
+                    }
+                    <div class="key-row">
+                        <button class="key key-wide" @onclick='() => KeyboardService.AppendKey(" ")'>Space</button>
+                        <button class="key key-action" @onclick="KeyboardService.Backspace">⌫</button>
+                        <button class="key key-submit" @onclick="KeyboardService.Submit">Done</button>
+                    </div>
+                </div>
+            }
+
+            <button class="keyboard-close" @onclick="KeyboardService.Close">✕</button>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] AlphaRows =
+    {
+        "QWERTYUIOP",
+        "ASDFGHJKL",
+        "ZXCVBNM"
+    };
+
+    protected override void OnInitialized()
+    {
+        KeyboardService.StateChanged += OnKeyboardStateChanged;
+    }
+
+    private void OnKeyboardStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        KeyboardService.StateChanged -= OnKeyboardStateChanged;
+    }
+}

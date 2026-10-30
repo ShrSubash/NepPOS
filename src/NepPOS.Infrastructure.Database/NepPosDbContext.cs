@@ -12,6 +12,8 @@ public sealed class NepPosDbContext : DbContext
 {
     public DbSet<SaleTransaction> SaleTransactions => Set<SaleTransaction>();
     public DbSet<SaleLineItem> SaleLineItems => Set<SaleLineItem>();
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
 
     public NepPosDbContext(DbContextOptions<NepPosDbContext> options) : base(options)
     {
@@ -45,6 +47,17 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(li => li.ProductName).IsRequired().HasMaxLength(200);
             entity.Property(li => li.UnitPriceIncGst).HasPrecision(18, 4);
             entity.Property(li => li.GstRate).HasPrecision(5, 4);
+        });
+
+        modelBuilder.Entity<ProductVariant>(entity =>
+        {
+            entity.HasOne(v => v.Product)
+                  .WithMany()
+                  .HasForeignKey(v => v.ProductId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(v => v.Barcode);
+            entity.HasIndex(v => v.Plu);
         });
     }
 }

@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              xmlns:local="clr-namespace:NepPOS.Presentation.Register"
              xmlns:components="clr-namespace:NepPOS.Presentation.Register.Components"
-             x:Class="NepPOS.Presentation.Register.MainPage">
+             x:Class="NepPOS.Presentation.Register.MainPage"
+             Title="NepPOS">
 
     <BlazorWebView x:Name="blazorWebView" HostPage="wwwroot/index.html">
         <BlazorWebView.RootComponents>

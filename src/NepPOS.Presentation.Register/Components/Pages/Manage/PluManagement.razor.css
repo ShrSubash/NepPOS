@@ -1,0 +1,181 @@
+﻿.plu-shell {
+    height: 100vh;
+    background: #f4f5f9;
+    font-family: "Segoe UI", sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+.plu-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    background: #14162b;
+    color: #fff;
+}
+
+.brand-text {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.back-btn, .add-btn {
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.82rem;
+}
+
+.editor-image-preview {
+    width: 100%;
+    height: 100px;
+    object-fit: cover;
+    border-radius: 8px;
+    background: #f4f5f9;
+    margin-top: -0.3rem;
+}
+
+.add-btn {
+    background: linear-gradient(135deg, #6a5cff, #3ee0d8);
+    color: #0d0f22;
+    font-weight: 700;
+}
+
+.plu-table-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem 1.5rem;
+}
+
+.editor-tabs {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid #e8e9f2;
+    padding-bottom: 0.6rem;
+}
+
+.editor-tab {
+    background: transparent;
+    border: none;
+    padding: 0.4rem 0.8rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #8b8fb0;
+    cursor: pointer;
+}
+
+    .editor-tab.active {
+        background: linear-gradient(135deg, #6a5cff, #3ee0d8);
+        color: #0d0f22;
+    }
+
+    .editor-tab:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+    }
+
+.tab-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.checkbox-label {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.5rem !important;
+}
+
+.plu-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+    .plu-table th {
+        text-align: left;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        color: #8b8fb0;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid #e8e9f2;
+    }
+
+    .plu-table td {
+        padding: 0.7rem 1rem;
+        font-size: 0.85rem;
+        color: #14162b;
+        border-bottom: 1px solid #f4f5fa;
+    }
+
+    .plu-table button {
+        background: #f4f5f9;
+        border: 1px solid #e4e5f0;
+        border-radius: 6px;
+        padding: 0.35rem 0.7rem;
+        cursor: pointer;
+        font-size: 0.78rem;
+    }
+
+.plu-editor-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(13,15,34,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.plu-editor {
+    background: #fff;
+    border-radius: 14px;
+    padding: 1.5rem;
+    width: 340px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+    .plu-editor label {
+        font-size: 0.78rem;
+        color: #8b8fb0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+    }
+
+    .plu-editor input {
+        padding: 0.55rem 0.7rem;
+        border-radius: 8px;
+        border: 1px solid #e4e5f0;
+        font-size: 0.85rem;
+    }
+
+.editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.6rem;
+    margin-top: 0.5rem;
+}
+
+    .editor-actions button {
+        padding: 0.55rem 1.1rem;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 0.82rem;
+    }
+
+        .editor-actions button:last-child {
+            background: linear-gradient(135deg, #6a5cff, #3ee0d8);
+            color: #0d0f22;
+        }

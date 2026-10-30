@@ -1,11 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "NYBw5Bjc6uA=",
+  "dgSpecHash": "vSQfO0ySJW8=",
   "success": true,
-  "projectFilePath": "/Users/subashshrestha/NepPOS/src/NepPOS.Application/NepPOS.Application.csproj",
+  "projectFilePath": "C:\\Users\\Subash\\source\\repos\\NepPOS\\src\\NepPOS.Application\\NepPOS.Application.csproj",
   "expectedPackageFiles": [
-    "/Users/subashshrestha/.nuget/packages/microsoft.netcore.app.ref/9.0.17/microsoft.netcore.app.ref.9.0.17.nupkg.sha512",
-    "/Users/subashshrestha/.nuget/packages/microsoft.aspnetcore.app.ref/9.0.17/microsoft.aspnetcore.app.ref.9.0.17.nupkg.sha512"
+    "C:\\Users\\Subash\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.11\\microsoft.windowsdesktop.app.ref.9.0.11.nupkg.sha512",
+    "C:\\Users\\Subash\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.11\\microsoft.netcore.app.ref.9.0.11.nupkg.sha512",
+    "C:\\Users\\Subash\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.11\\microsoft.aspnetcore.app.ref.9.0.11.nupkg.sha512"
   ],
   "logs": []
 }
