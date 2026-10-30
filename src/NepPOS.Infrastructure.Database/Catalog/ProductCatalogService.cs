@@ -11,6 +11,8 @@ namespace NepPOS.Infrastructure.Database.Catalog;
 /// </summary>
 public sealed class ProductCatalogService : IProductCatalogService
 {
+    private const string LikeEscape = "\\";
+
     private readonly NepPosDbContext _dbContext;
 
     public ProductCatalogService(NepPosDbContext dbContext)
@@ -39,6 +41,32 @@ public sealed class ProductCatalogService : IProductCatalogService
             .AsNoTracking()
             .Where(p => p.IsActive && p.Category == category)
             .OrderBy(p => p.Name)
+            .ToListAsync();
+    }
+
+    public async Task<IReadOnlyList<Product>> SearchAsync(string term, int maxResults = 60)
+    {
+        term = term?.Trim() ?? string.Empty;
+        if (term.Length == 0 || maxResults <= 0)
+        {
+            return Array.Empty<Product>();
+        }
+
+        // Escape LIKE wildcards so "50%" or "6_PK" match literally.
+        var escaped = term.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
+        var contains = $"%{escaped}%";
+        var startsWith = $"{escaped}%";
+
+        // SQLite LIKE is case-insensitive for ASCII, so "hein" finds "Heineken".
+        return await _dbContext.Products
+            .AsNoTracking()
+            .Where(p => p.IsActive &&
+                        (EF.Functions.Like(p.Name, contains, LikeEscape) ||
+                         (p.Plu != null && EF.Functions.Like(p.Plu, startsWith, LikeEscape)) ||
+                         (p.Barcode != null && EF.Functions.Like(p.Barcode, startsWith, LikeEscape))))
+            .OrderBy(p => EF.Functions.Like(p.Name, startsWith, LikeEscape) ? 0 : 1)
+            .ThenBy(p => p.Name)
+            .Take(maxResults)
             .ToListAsync();
     }
 }

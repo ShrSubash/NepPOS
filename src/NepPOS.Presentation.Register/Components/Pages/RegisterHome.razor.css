@@ -366,3 +366,24 @@
     font-size: 0.78rem;
     font-weight: 600;
 }
+
+/* Name-search results header (shown instead of a category's products) */
+.search-results-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #1b1d36;
+}
+
+.search-clear {
+    border: 1px solid #e8e9f2;
+    background: #fff;
+    border-radius: 999px;
+    padding: 0.4rem 1rem;
+    font-weight: 600;
+    color: #5b6cff;
+    cursor: pointer;
+}
