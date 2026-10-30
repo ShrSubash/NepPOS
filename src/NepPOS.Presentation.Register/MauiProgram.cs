@@ -50,7 +50,7 @@ public static class MauiProgram
         // Session + auth wiring for the login flow
         builder.Services.AddSingleton<CurrentUserSession>();
         builder.Services.AddScoped<IAuthenticationService, PinAuthenticationService>();
-        builder.Services.AddScoped<IProductCatalogService, InMemoryProductCatalogService>();
+        builder.Services.AddScoped<IProductCatalogService, ProductCatalogService>();
         builder.Services.AddSingleton<OnScreenKeyboardService>();
         builder.Services.AddScoped<IScanResolver, ProductScanResolver>();
         builder.Services.AddScoped<IScanResolver, VoucherScanResolver>();
@@ -76,6 +76,7 @@ public static class MauiProgram
 #if DEBUG
                 // Dev-only test logins. Release builds must create the owner via first-run setup.
                 WorkforceDbSeeder.SeedAsync(workforceDb, logger).GetAwaiter().GetResult();
+                RegisterDbSeeder.SeedAsync(registerDb, logger).GetAwaiter().GetResult();
 #endif
             }
             catch (Exception ex)
