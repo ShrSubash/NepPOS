@@ -5,6 +5,9 @@
 @using NepPOS.Presentation.Register.Services
 @using NepPOS.Application.Scanning
 @using NepPOS.Domain.Enums
+@using NepPOS.Application.Abstractions
+@using NepPOS.Application.Payments
+@using NepPOS.Presentation.Register.Components.Shared
 @inject NavigationManager Nav
 @inject IProductCatalogService Catalog
 @inject CurrentUserSession Session
@@ -118,13 +121,21 @@
                     <button class="fn-btn fn-secondary" @onclick="ClearCart" disabled="@(CartLines.Count == 0)">Void</button>
                     <button class="fn-btn fn-secondary" disabled="@(CartLines.Count == 0)">Hold</button>
                 </div>
-                <button class="fn-btn fn-primary" disabled="@(CartLines.Count == 0)">
+                <button class="fn-btn fn-primary" disabled="@(CartLines.Count == 0)" @onclick="OpenCharge">
                     Charge @GrandTotal.ToString("C")
                 </button>
             </div>
         </div>
 
     </div>
+
+    @if (ActiveSale is not null)
+    {
+        <TenderPanel Sale="ActiveSale"
+                     CompleteSale="CompleteSaleAsync"
+                     OnFinished="FinishSale"
+                     OnCancel="CancelCharge" />
+    }
 </div>
 
 @code {
@@ -140,6 +151,15 @@
 
     [Inject] private ScanResolutionService ScanResolver { get; set; } = default!;
     [Inject] private OnScreenKeyboardService Keyboard { get; set; } = default!;
+    [Inject] private ICheckoutService Checkout { get; set; } = default!;
+    [Inject] private RegisterTerminal Terminal { get; set; } = default!;
+
+    // Every product is GST-taxable at 10% for now.
+    // TODO: per-product GST flag (GST-free items) once Product has one.
+    private const decimal GstRate = 0.10m;
+
+    // The sale being paid for while the tender panel is open; null otherwise.
+    private SaleTransaction? ActiveSale;
 
     private string ScanInput = string.Empty;
     private string? ScanError;
@@ -176,13 +196,21 @@
     }
 
     private void AddToCart(Product product) =>
-        AddLine($"P:{product.Id}", product, product.Name, product.Price);
+        AddLine($"P:{product.Id}", SkuFor(product.Plu, product.Barcode, $"P{product.Id}"),
+                product, product.Name, product.Price);
 
     // A pack size (6-pack, carton…) sells at its own price but is still the same base product.
     private void AddToCart(ProductVariant variant) =>
-        AddLine($"V:{variant.Id}", variant.Product, $"{variant.Product.Name} ({variant.PackType})", variant.Price);
+        AddLine($"V:{variant.Id}", SkuFor(variant.Plu, variant.Barcode, $"V{variant.Id}"),
+                variant.Product, $"{variant.Product.Name} ({variant.PackType})", variant.Price);
 
-    private void AddLine(string key, Product product, string name, decimal unitPrice)
+    // PLU first, then barcode, then the internal id — PLU-screen edits can leave "" rather than null.
+    private static string SkuFor(string? plu, string? barcode, string fallback) =>
+        !string.IsNullOrWhiteSpace(plu) ? plu
+        : !string.IsNullOrWhiteSpace(barcode) ? barcode
+        : fallback;
+
+    private void AddLine(string key, string sku, Product product, string name, decimal unitPrice)
     {
         var existing = CartLines.FirstOrDefault(l => l.Key == key);
         if (existing is not null)
@@ -191,9 +219,39 @@
         }
         else
         {
-            CartLines.Add(new CartLine { Key = key, Product = product, Name = name, UnitPrice = unitPrice, Quantity = 1 });
+            CartLines.Add(new CartLine { Key = key, Sku = sku, Product = product, Name = name, UnitPrice = unitPrice, Quantity = 1 });
         }
     }
+
+    // ---- Charge ----
+
+    private void OpenCharge()
+    {
+        if (CartLines.Count == 0 || GrandTotal <= 0) return;
+
+        // Build the sale from the cart. Its GUID goes to the EFTPOS terminal as the reference.
+        var sale = new SaleTransaction(Terminal.StoreId, Terminal.RegisterId);
+        foreach (var line in CartLines)
+        {
+            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice, GstRate));
+        }
+
+        ActiveSale = sale;
+    }
+
+    // Called by the tender panel once fully paid. If it throws, the panel shows "Retry Save".
+    private Task<long> CompleteSaleAsync(TenderSession tender) =>
+        Checkout.CompleteSaleAsync(ActiveSale!, tender);
+
+    private void FinishSale()
+    {
+        ActiveSale = null;
+        CartLines.Clear();
+        ScanError = null;
+    }
+
+    // Back to Order before any payment: the sale was never saved, the cart is untouched.
+    private void CancelCharge() => ActiveSale = null;
 
     private void IncrementLine(CartLine line) => line.Quantity++;
 
@@ -269,7 +327,6 @@
                 ScanError = $"No match for '{term}'.";
                 break;
 
-
             default:
                 // Name search never auto-adds: always show matches so the cashier picks.
                 SearchTerm = term;
@@ -282,6 +339,7 @@
     {
         /// <summary>"P:{productId}" or "V:{variantId}" — the same product in two pack sizes is two lines.</summary>
         public required string Key { get; init; }
+        public required string Sku { get; init; }
         public required Product Product { get; init; }
         public required string Name { get; init; }
         public required decimal UnitPrice { get; init; }

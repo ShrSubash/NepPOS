@@ -40,6 +40,7 @@
         <MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
     </ItemGroup>
 
+
     <ItemGroup>
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
@@ -50,6 +51,7 @@
       <ProjectReference Include="..\NepPOS.Infrastructure.Database\NepPOS.Infrastructure.Database.csproj" />
       <ProjectReference Include="..\NepPOS.Application\NepPOS.Application.csproj" />
       <ProjectReference Include="..\NepPOS.Domain\NepPOS.Domain.csproj" />
+      <ProjectReference Include="..\NepPOS.Infrastructure.Adapters\NepPOS.Infrastructure.Adapters.csproj" />
     </ItemGroup>
 
     <ItemGroup>
