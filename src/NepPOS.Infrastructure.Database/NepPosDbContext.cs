@@ -12,6 +12,7 @@ public sealed class NepPosDbContext : DbContext
 {
     public DbSet<SaleTransaction> SaleTransactions => Set<SaleTransaction>();
     public DbSet<SaleLineItem> SaleLineItems => Set<SaleLineItem>();
+    public DbSet<SalePayment> SalePayments => Set<SalePayment>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
 
@@ -38,6 +39,28 @@ public sealed class NepPosDbContext : DbContext
             // without being told explicitly which field backs the navigation.
             entity.Metadata.FindNavigation(nameof(SaleTransaction.LineItems))!
     .SetPropertyAccessMode(PropertyAccessMode.Field);
+
+            entity.Property(st => st.CashRounding).HasPrecision(18, 2);
+
+            entity.HasMany(st => st.Payments)
+                  .WithOne()
+                  .HasForeignKey(p => p.SaleTransactionId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            entity.Metadata.FindNavigation(nameof(SaleTransaction.Payments))!
+                  .SetPropertyAccessMode(PropertyAccessMode.Field);
+        });
+
+        modelBuilder.Entity<SalePayment>(entity =>
+        {
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.TenderType).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.Amount).HasPrecision(18, 2);
+            entity.Property(p => p.Tendered).HasPrecision(18, 2);
+            entity.Property(p => p.Change).HasPrecision(18, 2);
+            entity.Property(p => p.AuthCode).HasMaxLength(20);
+            entity.Property(p => p.CardType).HasMaxLength(20);
+            entity.Property(p => p.MaskedPan).HasMaxLength(25);
+            entity.Property(p => p.ResponseText).HasMaxLength(100);
         });
 
         modelBuilder.Entity<SaleLineItem>(entity =>
