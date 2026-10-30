@@ -6,7 +6,7 @@ namespace NepPOS.Infrastructure.Database;
 /// <summary>
 /// EF Core context for the Register tier (SQLite). Master and Cloud tiers use the
 /// same entity configurations against SQL Server via a separate provider registration
-/// in Infrastructure.Config's DI setup — this class itself is provider-agnostic.
+/// in ServiceCollectionExtensions — this class itself is provider-agnostic.
 /// </summary>
 public sealed class NepPosDbContext : DbContext
 {
