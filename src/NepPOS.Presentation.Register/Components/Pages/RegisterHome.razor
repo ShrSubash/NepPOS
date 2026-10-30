@@ -19,7 +19,7 @@
         <div class="topbar-categories">
             @foreach (var category in Categories)
             {
-                <button class="category-pill @(category == SelectedCategory ? "active" : "")"
+                <button class="category-pill @(category == SelectedCategory && SearchTerm is null ? "active" : "")"
                         @onclick="() => SelectCategoryAsync(category)">
                     @category
                 </button>
@@ -40,12 +40,20 @@
         <div class="product-grid-area">
 
             <div class="scan-entry-bar" @onclick="OpenScanKeyboard">
-                <span class="scan-display">@(string.IsNullOrEmpty(ScanInput) ? "Tap to scan or enter code..." : ScanInput)</span>
+                <span class="scan-display">@(string.IsNullOrEmpty(ScanInput) ? "Tap to scan, enter a code or search by name..." : ScanInput)</span>
                 @if (!string.IsNullOrEmpty(ScanError))
                 {
                     <span class="scan-error">@ScanError</span>
                 }
             </div>
+
+            @if (SearchTerm is not null)
+            {
+                <div class="search-results-bar">
+                    <span>Results for "@SearchTerm" (@Products.Count)</span>
+                    <button class="search-clear" @onclick="ClearSearchAsync">Clear</button>
+                </div>
+            }
 
             <div class="product-grid">
                 @foreach (var product in Products)
@@ -124,6 +132,9 @@
     private IReadOnlyList<Product> Products = new List<Product>();
     private string? SelectedCategory;
 
+    // Non-null while the grid is showing name-search results instead of a category.
+    private string? SearchTerm;
+
     private List<CartLine> CartLines = new();
     private decimal GrandTotal => CartLines.Sum(l => l.UnitPrice * l.Quantity);
 
@@ -144,8 +155,24 @@
 
     private async Task SelectCategoryAsync(string category)
     {
+        SearchTerm = null;
         SelectedCategory = category;
         Products = await Catalog.GetProductsByCategoryAsync(category);
+    }
+
+    private async Task ClearSearchAsync()
+    {
+        SearchTerm = null;
+        ScanError = null;
+
+        if (SelectedCategory is not null)
+        {
+            await SelectCategoryAsync(SelectedCategory);
+        }
+        else
+        {
+            Products = new List<Product>();
+        }
     }
 
     private void AddToCart(Product product) =>
@@ -193,28 +220,62 @@
 
     private async Task ProcessScanAsync()
     {
-        if (string.IsNullOrWhiteSpace(ScanInput)) return;
+        var input = ScanInput.Trim();
+        if (input.Length == 0) return;
 
-        var result = await ScanResolver.ResolveAsync(ScanInput);
-        ScanError = result.Type == ScanResultType.NotFound ? result.Message : null;
+        ScanError = null;
 
-        // ProductScanResolver returns either a Product or a ProductVariant (pack-size barcode).
-        // A hard cast to Product crashed the register on any pack-size scan.
-        if (result.Type == ScanResultType.Product)
+        try
         {
-            switch (result.Payload)
+            // 1. Exact code first (PLU, barcode, voucher, customer card) — this is the scanner path.
+            var result = await ScanResolver.ResolveAsync(input);
+
+            if (result.Type == ScanResultType.Product)
             {
-                case ProductVariant variant:
-                    AddToCart(variant);
-                    break;
-                case Product product:
-                    AddToCart(product);
-                    break;
+                // ProductScanResolver returns either a Product or a ProductVariant (pack-size barcode).
+                switch (result.Payload)
+                {
+                    case ProductVariant variant:
+                        AddToCart(variant);
+                        break;
+                    case Product product:
+                        AddToCart(product);
+                        break;
+                }
             }
+            else if (result.Type == ScanResultType.NotFound)
+            {
+                // 2. Not an exact code: search by name / partial code
+                //    (legacy: IsNumeric → IndexSearch, otherwise SearchNameIndex).
+                await SearchByNameAsync(input);
+            }
+        }
+        catch (Exception)
+        {
+            ScanError = "Search failed. Please try again.";
         }
 
         ScanInput = string.Empty;
         StateHasChanged();
+    }
+
+    private async Task SearchByNameAsync(string term)
+    {
+        var matches = await Catalog.SearchAsync(term);
+
+        switch (matches.Count)
+        {
+            case 0:
+                ScanError = $"No match for '{term}'.";
+                break;
+
+
+            default:
+                // Name search never auto-adds: always show matches so the cashier picks.
+                SearchTerm = term;
+                Products = matches;
+                break;
+        }
     }
 
     private sealed class CartLine
