@@ -73,7 +73,10 @@ public static class MauiProgram
             {
                 registerDb.Database.Migrate();
                 workforceDb.Database.Migrate();
+#if DEBUG
+                // Dev-only test logins. Release builds must create the owner via first-run setup.
                 WorkforceDbSeeder.SeedAsync(workforceDb, logger).GetAwaiter().GetResult();
+#endif
             }
             catch (Exception ex)
             {

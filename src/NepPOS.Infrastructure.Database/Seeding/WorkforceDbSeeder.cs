@@ -26,7 +26,7 @@ public static class WorkforceDbSeeder
                 new Employee { FullName = "Test Cashier", Role = EmployeeRole.Cashier, PinHash = cashierHash, PinSalt = cashierSalt, IsActive = true });
 
             await dbContext.SaveChangesAsync();
-            logger.LogInformation("Workforce seed data created: Owner PIN 123456, Cashier PIN 1111.");
+            logger.LogInformation("Workforce dev seed data created (test Owner and Cashier logins).");
         }
         catch (Exception ex)
         {
