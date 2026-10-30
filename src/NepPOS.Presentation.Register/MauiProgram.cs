@@ -4,6 +4,9 @@ using Microsoft.Extensions.Logging;
 using NepPOS.Application.Authentication;
 using NepPOS.Application.Catalog;
 using NepPOS.Application.Scanning;
+using NepPOS.Application.Abstractions;
+using NepPOS.Application.Payments;
+using NepPOS.Infrastructure.Adapters.Payments;
 using NepPOS.Infrastructure.Database;
 using NepPOS.Infrastructure.Database.Authentication;
 using NepPOS.Infrastructure.Database.Catalog;
@@ -58,6 +61,14 @@ public static class MauiProgram
         builder.Services.AddScoped<ScanResolutionService>();
         builder.Services.AddScoped<IProductManagementService, ProductManagementService>();
 
+        // Checkout: this register's identity, saving paid sales, and the EFTPOS terminal.
+        builder.Services.AddSingleton(new RegisterTerminal(StoreId: "STORE-001", RegisterId: "REG-001"));
+        builder.Services.AddScoped<ICheckoutService, CheckoutService>();
+        // EFTPOS: mx51 Spice running on this PC.
+        // No terminal handy? Swap SpicePaymentGateway for SimulatedPaymentGateway on the line below.
+        builder.Services.AddSingleton(new SpiceOptions(Host: "localhost", Port: 8282, PosId: ""));
+        builder.Services.AddSingleton<IPaymentGateway, SpicePaymentGateway>();
+
         var app = builder.Build();
 
         // Apply pending migrations and seed test data on startup.
@@ -76,7 +87,6 @@ public static class MauiProgram
 #if DEBUG
                 // Dev-only test logins. Release builds must create the owner via first-run setup.
                 WorkforceDbSeeder.SeedAsync(workforceDb, logger).GetAwaiter().GetResult();
-                RegisterDbSeeder.SeedAsync(registerDb, logger).GetAwaiter().GetResult();
 #endif
             }
             catch (Exception ex)

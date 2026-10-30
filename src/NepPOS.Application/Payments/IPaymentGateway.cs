@@ -10,8 +10,9 @@ public interface IPaymentGateway
 
     /// <summary>
     /// Sends a purchase to the terminal and waits for the customer to finish.
-    /// A decline is a normal result (Approved = false), never an exception;
-    /// throw only for terminal/connection faults.
+    /// A decline is a normal result (Approved = false), never an exception.
+    /// Throw <see cref="PaymentOutcomeUnknownException"/> when the request reached the
+    /// terminal but its result could not be confirmed — the card MAY have been charged.
     /// </summary>
     Task<PaymentResult> PurchaseAsync(PaymentRequest request, CancellationToken cancellationToken = default);
 }
@@ -26,3 +27,19 @@ public sealed record PaymentResult(
     string? AuthCode = null,
     string? CardType = null,
     string? MaskedPan = null);
+
+/// <summary>
+/// The purchase was sent but the result could not be confirmed (connection lost mid-transaction
+/// and the status lookup also failed). The cashier must check the terminal before charging again.
+/// </summary>
+public sealed class PaymentOutcomeUnknownException : Exception
+{
+    public PaymentOutcomeUnknownException(string terminalReference, Exception? innerException = null)
+        : base($"EFTPOS result could not be confirmed (reference {terminalReference}).", innerException)
+    {
+        TerminalReference = terminalReference;
+    }
+
+    /// <summary>The reference the terminal knows this attempt by (Spice posRefId), for looking it up.</summary>
+    public string TerminalReference { get; }
+}

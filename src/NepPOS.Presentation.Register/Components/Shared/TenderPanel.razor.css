@@ -1,0 +1,255 @@
+﻿.tender-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    background: rgba(13, 15, 34, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.tender-shell {
+    position: relative;
+    width: min(1100px, 96vw);
+    height: min(680px, 92vh);
+    background: #f4f5f9;
+    border-radius: 18px;
+    overflow: hidden;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    padding: 24px;
+    user-select: none;
+}
+
+/* ---------- keypad ---------- */
+.keypad-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.entry {
+    background: #fff;
+    border-radius: 12px;
+    padding: 14px 18px;
+    font-size: 2rem;
+    font-weight: 700;
+    text-align: right;
+    color: #14162b;
+}
+
+.keypad {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    flex: 1;
+}
+
+.quick-cash {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+}
+
+.key {
+    border: 0;
+    border-radius: 12px;
+    background: #fff;
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: #14162b;
+    min-height: 64px;
+    touch-action: manipulation;
+    cursor: pointer;
+}
+
+    .key:active {
+        background: #e8e9f2;
+    }
+
+    .key.quick {
+        font-size: 1.1rem;
+        background: #14162b;
+        color: #fff;
+    }
+
+    .key.exact {
+        background: #6a5cff;
+        font-size: 0.95rem;
+    }
+
+/* ---------- summary ---------- */
+.summary-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.due-block {
+    background: #fff;
+    border-radius: 12px;
+    padding: 18px;
+}
+
+.due {
+    font-size: 3rem;
+    font-weight: 800;
+    color: #14162b;
+    line-height: 1.1;
+}
+
+.muted {
+    color: #8a8daa;
+    font-size: 0.95rem;
+}
+
+.paid-list {
+    list-style: none;
+    margin: 0;
+    padding: 12px 16px;
+    background: #fff;
+    border-radius: 12px;
+}
+
+    .paid-list li {
+        display: flex;
+        justify-content: space-between;
+        padding: 4px 0;
+        color: #14162b;
+    }
+
+.msg {
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: #e8f6ef;
+    color: #17734a;
+}
+
+    .msg.error {
+        background: #fdecec;
+        color: #b42323;
+    }
+
+.tender-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    flex: 1;
+}
+
+.tender {
+    border: 0;
+    border-radius: 14px;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+    .tender.eftpos {
+        background: linear-gradient(135deg, #6a5cff, #3ee0d8);
+    }
+
+    .tender.cash {
+        background: linear-gradient(135deg, #1fa37a, #57d39b);
+    }
+
+    .tender:active {
+        filter: brightness(0.92);
+    }
+
+.t-title {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+}
+
+.t-sub {
+    font-size: 1.1rem;
+    opacity: 0.9;
+}
+
+button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.btn-back {
+    border: 0;
+    border-radius: 12px;
+    background: #fff;
+    padding: 14px;
+    font-weight: 600;
+    color: #14162b;
+    cursor: pointer;
+}
+
+.btn-grad {
+    border: 0;
+    border-radius: 12px;
+    color: #0d0f22;
+    background: linear-gradient(135deg, #6a5cff, #3ee0d8);
+    font-weight: 700;
+    padding: 14px;
+    cursor: pointer;
+}
+
+    .btn-grad.big {
+        font-size: 1.3rem;
+        padding: 18px 48px;
+    }
+
+/* ---------- waiting for terminal / done ---------- */
+.busy {
+    position: absolute;
+    inset: 0;
+    background: rgba(244, 245, 249, 0.95);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    font-size: 1.3rem;
+    color: #14162b;
+}
+
+.spinner {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    border: 5px solid #d9dbea;
+    border-top-color: #6a5cff;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.done {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+.done-label {
+    font-size: 1.4rem;
+    color: #8a8daa;
+}
+
+.done-amount {
+    font-size: 5rem;
+    font-weight: 800;
+    color: #14162b;
+}

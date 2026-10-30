@@ -1,0 +1,269 @@
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using NepPOS.Application.Payments
+@using NepPOS.Domain.Entities
+@inject IPaymentGateway PaymentGateway
+@inject ILogger<TenderPanel> Logger
+
+@* Full-screen tender overlay opened by the Charge button. It only closes itself once the sale is saved. *@
+<div class="tender-overlay">
+    <div class="tender-shell">
+
+        @if (_stage == Stage.Done)
+        {
+            <div class="done">
+                <div class="done-label">@(_session.ChangeDue > 0 ? "Change" : "Paid")</div>
+                <div class="done-amount">@((_session.ChangeDue > 0 ? _session.ChangeDue : _session.Paid).ToString("C"))</div>
+                @if (_session.RoundingAdjustment != 0)
+                {
+                    <div class="muted">Cash rounding @_session.RoundingAdjustment.ToString("+0.00;-0.00", CultureInfo.InvariantCulture)</div>
+                }
+                <div class="muted">Invoice #@_invoiceNumber</div>
+                <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
+            </div>
+        }
+        else
+        {
+            <!-- LEFT: amount entry -->
+            <section class="keypad-col">
+                <div class="entry">@EntryAmount.ToString("C")</div>
+
+                <div class="keypad">
+                    @foreach (var key in Keys)
+                    {
+                        <button class="key" disabled="@IsBusy" @onclick="() => Press(key)">@key</button>
+                    }
+                    <button class="key" disabled="@IsBusy" @onclick="ClearEntry">C</button>
+                    <button class="key" disabled="@IsBusy" @onclick='() => Press("0")'>0</button>
+                    <button class="key" disabled="@IsBusy" @onclick='() => Press("00")'>00</button>
+                </div>
+
+                <div class="quick-cash">
+                    @foreach (var note in QuickCash)
+                    {
+                        <button class="key quick" disabled="@IsBusy" @onclick="() => PayCashAsync(note)">@note.ToString("C0")</button>
+                    }
+                    <button class="key quick exact" disabled="@IsBusy" @onclick="() => PayCashAsync(_session.RemainingCash)">
+                        Exact @_session.RemainingCash.ToString("C")
+                    </button>
+                </div>
+            </section>
+
+            <!-- RIGHT: amount due, payments taken, tender buttons -->
+            <section class="summary-col">
+                <div class="due-block">
+                    <div class="muted">Due</div>
+                    <div class="due">@_session.Remaining.ToString("C")</div>
+                    @if (_session.RemainingCash != _session.Remaining)
+                    {
+                        <div class="muted">Cash: @_session.RemainingCash.ToString("C")</div>
+                    }
+                </div>
+
+                @if (_session.Payments.Count > 0)
+                {
+                    <ul class="paid-list">
+                        @foreach (var payment in _session.Payments)
+                        {
+                            <li>
+                                <span>@payment.TenderType @(payment.AuthCode is null ? "" : $"· auth {payment.AuthCode}")</span>
+                                <span>@payment.Amount.ToString("C")</span>
+                            </li>
+                        }
+                    </ul>
+                }
+
+                @if (!string.IsNullOrEmpty(_message))
+                {
+                    <div class="msg @(_isError ? "error" : "")">@_message</div>
+                }
+
+                <div class="tender-buttons">
+                    <button class="tender eftpos" disabled="@IsBusy" @onclick="PayEftposAsync">
+                        <span class="t-title">EFTPOS</span>
+                        <span class="t-sub">@((EntryAmount > 0 ? EntryAmount : _session.Remaining).ToString("C"))</span>
+                    </button>
+                    <button class="tender cash" disabled="@IsBusy" @onclick="() => PayCashAsync(EntryAmount > 0 ? EntryAmount : _session.RemainingCash)">
+                        <span class="t-title">CASH</span>
+                        <span class="t-sub">@((EntryAmount > 0 ? EntryAmount : _session.RemainingCash).ToString("C"))</span>
+                    </button>
+                </div>
+
+                @if (_stage == Stage.SaveFailed)
+                {
+                    <button class="btn-grad big" @onclick="SaveAsync">Retry Save</button>
+                }
+                else
+                {
+                    @* Once any payment is taken, backing out would need a refund — not allowed here. *@
+                    <button class="btn-back" disabled="@(IsBusy || _session.Payments.Count > 0)" @onclick="() => OnCancel.InvokeAsync()">
+                        Back to Order
+                    </button>
+                }
+            </section>
+        }
+
+        @if (_stage == Stage.WaitingForTerminal)
+        {
+            <div class="busy">
+                <div class="spinner"></div>
+                <div>Follow the prompts on the EFTPOS terminal…</div>
+                <div class="muted">To cancel, press Cancel on the terminal (or the Spice window).</div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private enum Stage { Tendering, WaitingForTerminal, Saving, SaveFailed, Done }
+
+    private static readonly string[] Keys = { "7", "8", "9", "4", "5", "6", "1", "2", "3" };
+    private static readonly decimal[] QuickCash = { 100m, 50m, 20m, 10m };
+
+    /// <summary>The in-progress sale being paid for (built from the cart).</summary>
+    [Parameter, EditorRequired] public SaleTransaction Sale { get; set; } = default!;
+
+    /// <summary>Saves the paid sale and returns its invoice number. If it throws, the panel shows Retry Save — the card is never charged again.</summary>
+    [Parameter, EditorRequired] public Func<TenderSession, Task<long>> CompleteSale { get; set; } = default!;
+
+    /// <summary>Raised when the cashier taps New Sale after a successful save.</summary>
+    [Parameter] public EventCallback OnFinished { get; set; }
+
+    /// <summary>Raised on Back to Order (only possible before any payment is taken).</summary>
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private TenderSession _session = default!;
+    private Stage _stage = Stage.Tendering;
+    private string _entryDigits = string.Empty;   // cents-style entry like the legacy keypad: "2000" => $20.00
+    private string? _message;
+    private bool _isError;
+    private long _invoiceNumber;
+
+    private bool IsBusy => _stage is Stage.WaitingForTerminal or Stage.Saving or Stage.SaveFailed;
+
+    private decimal EntryAmount =>
+        _entryDigits.Length == 0 ? 0m : decimal.Parse(_entryDigits, CultureInfo.InvariantCulture) / 100m;
+
+    protected override void OnInitialized() => _session = new TenderSession(Sale.Id, Sale.GrandTotal);
+
+    private void Press(string digits)
+    {
+        if (_entryDigits.Length + digits.Length > 7) return; // max $99,999.99
+        _entryDigits = (_entryDigits + digits).TrimStart('0');
+        _message = null;
+    }
+
+    private void ClearEntry()
+    {
+        _entryDigits = string.Empty;
+        _message = null;
+    }
+
+    private async Task PayCashAsync(decimal tendered)
+    {
+        if (IsBusy) return;
+
+        try
+        {
+            _session.AddCash(tendered);
+            _entryDigits = string.Empty;
+
+            if (_session.IsComplete)
+                await SaveAsync();
+            else
+                ShowInfo($"Cash {tendered:C} taken. {_session.Remaining:C} still due.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
+    private async Task PayEftposAsync()
+    {
+        if (IsBusy) return; // stops a double-tap sending two purchases
+
+        var amount = EntryAmount > 0 ? EntryAmount : _session.Remaining;
+
+        try
+        {
+            _session.ValidateCardAmount(amount);
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowError(ex.Message);
+            return;
+        }
+
+        _stage = Stage.WaitingForTerminal;
+        _message = null;
+        StateHasChanged();
+
+        try
+        {
+            // No POS-side timeout or cancel: once sent, only the terminal decides. It answers
+            // with a decline if the customer or cashier cancels there.
+            var result = await PaymentGateway.PurchaseAsync(new PaymentRequest(Sale.Id, amount));
+            _stage = Stage.Tendering;
+
+            if (!result.Approved)
+            {
+                ShowError($"Card declined: {result.ResponseText}");
+                return;
+            }
+
+            _session.AddEftpos(amount, result);
+            _entryDigits = string.Empty;
+
+            if (_session.IsComplete)
+                await SaveAsync();
+            else
+                ShowInfo($"Card approved {amount:C}. {_session.Remaining:C} still due.");
+        }
+        catch (PaymentOutcomeUnknownException ex)
+        {
+            // The card MAY have been charged. Never invite a blind retry.
+            _stage = Stage.Tendering;
+            Logger.LogCritical(ex, "EFTPOS outcome unknown for sale {SaleId}, ref {Ref}", Sale.Id, ex.TerminalReference);
+            ShowError($"Card result unknown (ref {ex.TerminalReference}). Check the terminal / Spice history " +
+                      "BEFORE charging again. If it was approved, take payment another way and refund later.");
+        }
+        catch (Exception ex)
+        {
+            _stage = Stage.Tendering;
+            Logger.LogError(ex, "EFTPOS purchase failed for sale {SaleId}", Sale.Id);
+            ShowError("EFTPOS terminal error. Check the terminal before trying again.");
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _stage = Stage.Saving;
+        StateHasChanged();
+
+        try
+        {
+            _invoiceNumber = await CompleteSale(_session);
+            _stage = Stage.Done;
+            // TODO: open cash drawer (when cash was taken) and print receipt via ILocalHardwareService.
+        }
+        catch (Exception ex)
+        {
+            Logger.LogCritical(ex, "Sale {SaleId} was PAID but failed to save", Sale.Id);
+            _stage = Stage.SaveFailed;
+            ShowError("Payment taken but the sale did not save. Tap Retry Save — do NOT charge again.");
+        }
+    }
+
+    private void ShowError(string message)
+    {
+        _message = message;
+        _isError = true;
+    }
+
+    private void ShowInfo(string message)
+    {
+        _message = message;
+        _isError = false;
+    }
+}
