@@ -1,6 +1,8 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Serilog;
+using Serilog.Events;
 using NepPOS.Application.Authentication;
 using NepPOS.Application.Catalog;
 using NepPOS.Application.Scanning;
@@ -34,6 +36,32 @@ public static class MauiProgram
         builder.Services.AddBlazorWebViewDeveloperTools();
         builder.Logging.AddDebug();
 #endif
+
+        // ---- Logging: daily files in %LOCALAPPDATA%\NepPOS\Logs, kept 30 days ----
+        // Every ILogger call in the app (and Blazor/EF errors) lands here, so problems
+        // in a store can be diagnosed after the fact.
+        var logFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NepPOS", "Logs");
+
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)   // framework noise: warnings and errors only
+            .Enrich.FromLogContext()
+            .WriteTo.File(
+                Path.Combine(logFolder, "neppos-.log"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 30,
+                fileSizeLimitBytes: 20_000_000,
+                rollOnFileSizeLimit: true,
+                shared: true,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
+
+        builder.Logging.AddSerilog(dispose: true);
+        GlobalExceptionLogging.Register();
+
+        Log.Information("NepPOS register starting. Version {Version}",
+            typeof(MauiProgram).Assembly.GetName().Version);
 
         // SQLite file lives in the app's local data directory —
         // survives app updates, isolated per-device, matches the
