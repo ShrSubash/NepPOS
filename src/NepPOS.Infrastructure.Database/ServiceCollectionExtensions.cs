@@ -1,6 +1,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NepPOS.Application.Abstractions;
+using NepPOS.Application.Journal;
+using NepPOS.Infrastructure.Database.Journal;
 
 namespace NepPOS.Infrastructure.Database;
 
@@ -20,6 +22,7 @@ public static class ServiceCollectionExtensions
     options.UseSqlite(sqliteConnectionString));
 
         services.AddScoped<ISaleTransactionRepository, SaleTransactionRepository>();
+        services.AddScoped<IJournal, JournalService>();
 
         return services;
     }
