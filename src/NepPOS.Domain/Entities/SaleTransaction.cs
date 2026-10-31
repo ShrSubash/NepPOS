@@ -18,6 +18,11 @@ public sealed class SaleTransaction
     public string StoreId { get; private set; } = null!;
     public string RegisterId { get; private set; } = null!;
     public DateTimeOffset CreatedAtUtc { get; private set; }
+
+    // Who rang up the sale (null for system-created sales such as external orders).
+    // Name is a snapshot so reports stay correct after an employee is renamed.
+    public int? EmployeeId { get; private set; }
+    public string? EmployeeName { get; private set; }
     public SaleTransactionStatus Status { get; private set; }
 
     private readonly List<SaleLineItem> _lineItems = new();
@@ -41,7 +46,7 @@ public sealed class SaleTransaction
     // EF Core requires a parameterless constructor for materialization.
     private SaleTransaction() { }
 
-    public SaleTransaction(string storeId, string registerId)
+    public SaleTransaction(string storeId, string registerId, int? employeeId = null, string? employeeName = null)
     {
         if (string.IsNullOrWhiteSpace(storeId))
             throw new ArgumentException("Store ID is required.", nameof(storeId));
@@ -51,6 +56,8 @@ public sealed class SaleTransaction
         Id = Guid.NewGuid();
         StoreId = storeId;
         RegisterId = registerId;
+        EmployeeId = employeeId;
+        EmployeeName = employeeName;
         CreatedAtUtc = DateTimeOffset.UtcNow;
         Status = SaleTransactionStatus.InProgress;
     }

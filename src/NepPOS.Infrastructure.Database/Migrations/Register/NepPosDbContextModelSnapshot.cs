@@ -265,6 +265,13 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<int?>("EmployeeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EmployeeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.Property<long?>("InvoiceNumber")
                         .HasColumnType("INTEGER");
 

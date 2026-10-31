@@ -1,0 +1,171 @@
+using System.Globalization;
+using System.Text.RegularExpressions;
+using NepPOS.Domain.Entities;
+using NepPOS.Domain.Enums;
+
+namespace NepPOS.Application.Hardware;
+
+/// <summary>
+/// Lays out a completed sale as an Australian tax invoice (ATO, sales under $1,000):
+/// "TAX INVOICE", seller name + ABN, date, each item with quantity and price,
+/// the GST amount, and "Total price includes GST". GST-free lines are marked with *.
+/// Pure text — no printer code — so it is fully unit tested and shared by every printer.
+/// </summary>
+public static class ReceiptBuilder
+{
+    private static readonly CultureInfo Au = CultureInfo.GetCultureInfo("en-AU");
+
+    public static ReceiptDocument Build(SaleTransaction sale, StoreProfile store, int lineWidth, bool reprint = false)
+    {
+        ArgumentNullException.ThrowIfNull(sale);
+        ArgumentNullException.ThrowIfNull(store);
+        if (lineWidth < 24)
+            throw new ArgumentOutOfRangeException(nameof(lineWidth), "Receipts need at least 24 characters per line.");
+        if (sale.Status != SaleTransactionStatus.Completed || sale.InvoiceNumber is null)
+            throw new InvalidOperationException("Only completed sales can be printed as tax invoices.");
+
+        var lines = new List<ReceiptLine>();
+        var separator = new ReceiptLine(new string('-', lineWidth));
+
+        // ---- seller ----
+        if (!string.IsNullOrWhiteSpace(store.BusinessName))
+            lines.Add(new ReceiptLine(store.BusinessName.Trim(), ReceiptAlign.Center, Bold: true, Large: true));
+        foreach (var addressLine in store.AddressLines.Where(a => !string.IsNullOrWhiteSpace(a)))
+            lines.Add(new ReceiptLine(addressLine.Trim(), ReceiptAlign.Center));
+        if (!string.IsNullOrWhiteSpace(store.Phone))
+            lines.Add(new ReceiptLine("Ph " + store.Phone.Trim(), ReceiptAlign.Center));
+        if (!string.IsNullOrWhiteSpace(store.Abn))
+            lines.Add(new ReceiptLine("ABN " + FormatAbn(store.Abn), ReceiptAlign.Center));
+
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine(reprint ? "TAX INVOICE (REPRINT)" : "TAX INVOICE", ReceiptAlign.Center, Bold: true));
+        lines.Add(new ReceiptLine(""));
+
+        // ---- invoice details ----
+        var local = sale.CreatedAtUtc.ToLocalTime();
+        lines.Add(TwoColumn($"Invoice #{sale.InvoiceNumber}", local.ToString("dd/MM/yyyy HH:mm", Au), lineWidth));
+        var registerLine = string.IsNullOrWhiteSpace(sale.EmployeeName)
+            ? $"Register {sale.RegisterId}"
+            : $"Register {sale.RegisterId} - {sale.EmployeeName}";
+        lines.Add(new ReceiptLine(registerLine.Length > lineWidth ? registerLine[..lineWidth] : registerLine));
+        lines.Add(separator);
+
+        // ---- items ----
+        var hasGstFree = false;
+        foreach (var item in sale.LineItems)
+        {
+            var gstFree = item.GstRate == 0;
+            hasGstFree |= gstFree;
+            var name = (gstFree ? "*" : "") + item.ProductName;
+            var lineTotal = Money(item.LineTotalIncGst);
+
+            if (item.Quantity == 1)
+            {
+                AddWrapped(lines, name, lineTotal, lineWidth);
+            }
+            else
+            {
+                foreach (var part in Wrap(name, lineWidth))
+                    lines.Add(new ReceiptLine(part));
+                lines.Add(TwoColumn($"  {item.Quantity} x {Money(item.UnitPriceIncGst)}", lineTotal, lineWidth));
+            }
+        }
+
+        lines.Add(separator);
+
+        // ---- totals ----
+        var total = decimal.Round(sale.GrandTotal, 2, MidpointRounding.AwayFromZero);
+        var gst = decimal.Round(sale.GstTotal, 2, MidpointRounding.AwayFromZero);
+
+        lines.Add(TwoColumn("TOTAL", Money(total), lineWidth, bold: true));
+        lines.Add(TwoColumn("GST included", Money(gst), lineWidth));
+        if (sale.CashRounding != 0)
+            lines.Add(TwoColumn("Cash rounding", sale.CashRounding.ToString("+0.00;-0.00", Au), lineWidth));
+
+        // ---- payments ----
+        if (sale.Payments.Count > 0)
+        {
+            lines.Add(new ReceiptLine(""));
+            foreach (var payment in sale.Payments)
+            {
+                if (payment.TenderType == TenderType.Cash)
+                {
+                    lines.Add(TwoColumn("Cash", Money(payment.Tendered), lineWidth));
+                    if (payment.Change > 0)
+                        lines.Add(TwoColumn("Change", Money(payment.Change), lineWidth));
+                }
+                else
+                {
+                    var card = string.Join(" ", new[] { payment.CardType, LastFour(payment.MaskedPan) }
+                        .Where(s => !string.IsNullOrWhiteSpace(s)));
+                    lines.Add(TwoColumn(string.IsNullOrEmpty(card) ? "EFTPOS" : $"EFTPOS {card}", Money(payment.Amount), lineWidth));
+                }
+            }
+        }
+
+        // ---- GST statement (ATO) ----
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine("Total price includes GST", ReceiptAlign.Center));
+        if (hasGstFree)
+            lines.Add(new ReceiptLine("* GST-free item", ReceiptAlign.Center));
+
+        if (!string.IsNullOrWhiteSpace(store.Footer))
+        {
+            lines.Add(new ReceiptLine(""));
+            foreach (var part in Wrap(store.Footer.Trim(), lineWidth))
+                lines.Add(new ReceiptLine(part, ReceiptAlign.Center));
+        }
+
+        return new ReceiptDocument(lineWidth, lines);
+    }
+
+    /// <summary>"12345678901" → "12 345 678 901". Anything that isn't 11 digits is printed as entered.</summary>
+    public static string FormatAbn(string abn)
+    {
+        var digits = Regex.Replace(abn ?? "", @"\D", "");
+        return digits.Length == 11
+            ? $"{digits[..2]} {digits[2..5]} {digits[5..8]} {digits[8..]}"
+            : (abn ?? "").Trim();
+    }
+
+    private static string Money(decimal amount) => amount.ToString("C", Au);
+
+    private static string? LastFour(string? maskedPan)
+    {
+        if (string.IsNullOrWhiteSpace(maskedPan)) return null;
+        var digits = Regex.Replace(maskedPan, @"\D", "");
+        return digits.Length >= 4 ? "..." + digits[^4..] : null;
+    }
+
+    /// <summary>Text on the left, amount on the right, padded to the full width.</summary>
+    private static ReceiptLine TwoColumn(string left, string right, int width, bool bold = false)
+    {
+        var space = width - right.Length - 1;
+        if (left.Length > space) left = left[..Math.Max(0, space)];
+        return new ReceiptLine(left.PadRight(width - right.Length) + right, ReceiptAlign.Left, bold);
+    }
+
+    /// <summary>Name with the price on its last line; long names wrap onto extra lines.</summary>
+    private static void AddWrapped(List<ReceiptLine> lines, string name, string amount, int width)
+    {
+        var parts = Wrap(name, width - amount.Length - 1);
+        for (var i = 0; i < parts.Count - 1; i++)
+            lines.Add(new ReceiptLine(parts[i]));
+        lines.Add(TwoColumn(parts[^1], amount, width));
+    }
+
+    private static List<string> Wrap(string text, int width)
+    {
+        var result = new List<string>();
+        var current = "";
+        foreach (var word in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var w = word.Length > width ? word[..width] : word;
+            if (current.Length == 0) current = w;
+            else if (current.Length + 1 + w.Length <= width) current += " " + w;
+            else { result.Add(current); current = w; }
+        }
+        result.Add(current);
+        return result;
+    }
+}
