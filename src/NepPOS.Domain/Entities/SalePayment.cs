@@ -23,6 +23,9 @@ public sealed class SalePayment
     public string? MaskedPan { get; private set; }
     public string? ResponseText { get; private set; }
 
+    /// <summary>The bank's card slip text (customer copy), kept so it can be reprinted later.</summary>
+    public string? CustomerReceipt { get; private set; }
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     // EF Core requires a parameterless constructor for materialization.
@@ -36,7 +39,8 @@ public sealed class SalePayment
         string? authCode = null,
         string? cardType = null,
         string? maskedPan = null,
-        string? responseText = null)
+        string? responseText = null,
+        string? customerReceipt = null)
     {
         if (amount <= 0)
             throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount must be positive.");
@@ -54,6 +58,7 @@ public sealed class SalePayment
         CardType = cardType;
         MaskedPan = maskedPan;
         ResponseText = responseText;
+        CustomerReceipt = customerReceipt;
         CreatedAtUtc = DateTimeOffset.UtcNow;
     }
 }

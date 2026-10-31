@@ -194,7 +194,17 @@ public sealed class SpicePaymentGateway : IPaymentGateway, IDisposable
             text,
             AuthCode: GetString(node, "auth_code"),
             CardType: GetString(node, "scheme_name"),
-            MaskedPan: GetString(node, "masked_pan"));
+            MaskedPan: GetString(node, "masked_pan"),
+            CustomerReceipt: SlipToPrint(node, "customer_receipt"),
+            MerchantReceipt: SlipToPrint(node, "merchant_receipt"));
+    }
+
+    /// <summary>mx51: only print a slip when "&lt;name&gt;_printed" is false or absent (the terminal didn't print it).</summary>
+    private static string? SlipToPrint(JsonElement node, string name)
+    {
+        var alreadyPrinted = node.TryGetProperty(name + "_printed", out var printed) && printed.ValueKind == JsonValueKind.True;
+        var text = GetString(node, name);
+        return alreadyPrinted || string.IsNullOrWhiteSpace(text) ? null : text;
     }
 
     private static JsonElement? ParseResponseNode(string body)

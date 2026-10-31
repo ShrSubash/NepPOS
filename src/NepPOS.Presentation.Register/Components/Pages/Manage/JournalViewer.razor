@@ -175,6 +175,7 @@ else
         ReceiptMessage = null;
         PrintMessage = null;
         OpenEntry = entry;
+        OpenSale = null;
         ReceiptOpen = true;
 
         try
@@ -190,6 +191,7 @@ else
             // Same store details and paper width as the printed receipt (Manage → Receipt & Printer).
             var settings = SettingsStore.Load();
             Receipt = ReceiptBuilder.Build(sale, settings.Store, settings.Printer.LineWidth, reprint: true);
+            OpenSale = sale;
         }
         catch (Exception)
         {
@@ -200,6 +202,7 @@ else
     private void CloseReceipt() => ReceiptOpen = false;
 
     private JournalEntry? OpenEntry;
+    private SaleTransaction? OpenSale;
     private string? PrintMessage;
     private bool Printing;
 
@@ -218,6 +221,19 @@ else
             }
 
             PrintMessage = result.Message ?? "Reprinted.";
+
+            // Reprint the customer's EFTPOS slip(s) too, from the copy saved with the payment.
+            if (OpenSale is not null)
+            {
+                foreach (var payment in OpenSale.Payments.Where(p => !string.IsNullOrWhiteSpace(p.CustomerReceipt)))
+                {
+                    var slip = await Hardware.PrintReceiptAsync(
+                        ReceiptBuilder.BuildCardSlip(payment.CustomerReceipt!, Receipt.LineWidth));
+                    if (!slip.Succeeded)
+                        PrintMessage += " Card slip didn't print: " + slip.Message;
+                }
+            }
+
             await JournalService.WriteAsync(JournalEventType.ReceiptReprinted,
                 $"Invoice #{OpenEntry.InvoiceNumber} reprinted from the journal",
                 OpenEntry.SaleId, OpenEntry.InvoiceNumber, OpenEntry.Amount);

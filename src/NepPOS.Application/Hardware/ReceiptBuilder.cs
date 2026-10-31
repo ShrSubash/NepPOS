@@ -119,6 +119,37 @@ public static class ReceiptBuilder
         return new ReceiptDocument(lineWidth, lines);
     }
 
+    /// <summary>
+    /// Lays out the bank's EFTPOS slip (already formatted by the terminal, ~20 characters wide)
+    /// centred on the receipt paper. Lines wider than the paper are cut, never wrapped,
+    /// so the terminal's own layout is kept.
+    /// </summary>
+    public static ReceiptDocument BuildCardSlip(string slipText, int lineWidth)
+    {
+        if (lineWidth < 24)
+            throw new ArgumentOutOfRangeException(nameof(lineWidth), "Receipts need at least 24 characters per line.");
+
+        var lines = (slipText ?? "")
+            .Replace("\r\n", "\n").Replace('\r', '\n')
+            .Split('\n')
+            .Select(l => l.TrimEnd())
+            .ToList();
+
+        // Drop blank lines at the top and bottom; keep the ones inside the slip.
+        while (lines.Count > 0 && lines[0].Length == 0) lines.RemoveAt(0);
+        while (lines.Count > 0 && lines[^1].Length == 0) lines.RemoveAt(lines.Count - 1);
+
+        var blockWidth = lines.Count == 0 ? 0 : lines.Max(l => l.Length);
+        var indent = new string(' ', Math.Max(0, (lineWidth - blockWidth) / 2));
+
+        var receiptLines = lines
+            .Select(l => indent + l)
+            .Select(l => new ReceiptLine(l.Length > lineWidth ? l[..lineWidth] : l))
+            .ToList();
+
+        return new ReceiptDocument(lineWidth, receiptLines);
+    }
+
     /// <summary>"12345678901" → "12 345 678 901". Anything that isn't 11 digits is printed as entered.</summary>
     public static string FormatAbn(string abn)
     {

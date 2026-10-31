@@ -20,13 +20,17 @@ public interface IPaymentGateway
 /// <param name="TransactionId">The sale's GUID, sent as the merchant reference so terminal logs tie back to the sale.</param>
 public sealed record PaymentRequest(Guid TransactionId, decimal Amount);
 
+/// <param name="CustomerReceipt">Card slip for the customer, if the POS should print it (null if the terminal printed it itself).</param>
+/// <param name="MerchantReceipt">Card slip for the store, if the POS should print it.</param>
 public sealed record PaymentResult(
     bool Approved,
     string ResponseCode,
     string ResponseText,
     string? AuthCode = null,
     string? CardType = null,
-    string? MaskedPan = null);
+    string? MaskedPan = null,
+    string? CustomerReceipt = null,
+    string? MerchantReceipt = null);
 
 /// <summary>
 /// The purchase was sent but the result could not be confirmed (connection lost mid-transaction

@@ -63,6 +63,7 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(p => p.CardType).HasMaxLength(20);
             entity.Property(p => p.MaskedPan).HasMaxLength(25);
             entity.Property(p => p.ResponseText).HasMaxLength(100);
+            entity.Property(p => p.CustomerReceipt).HasMaxLength(4000);
         });
 
         modelBuilder.Entity<SaleLineItem>(entity =>
