@@ -1,0 +1,172 @@
+@page "/manage/journal"
+@layout EmptyLayout
+@using System.Globalization
+@using System.Text.RegularExpressions
+@using NepPOS.Application.Journal
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IJournal JournalService
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="journal-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="journal-shell">
+        <div class="journal-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">Journal</span>
+            <span class="count">@Visible.Count entries</span>
+        </div>
+
+        <div class="filters">
+            <div class="quick">
+                <button class="chip" @onclick="() => SetRangeAsync(0, 0)">Today</button>
+                <button class="chip" @onclick="() => SetRangeAsync(-1, -1)">Yesterday</button>
+                <button class="chip" @onclick="() => SetRangeAsync(-6, 0)">Last 7 days</button>
+            </div>
+
+            <label>From <input type="date" @bind="From" @bind:after="LoadAsync" /></label>
+            <label>To <input type="date" @bind="To" @bind:after="LoadAsync" /></label>
+
+            <label>
+                Employee
+                <select @bind="EmployeeFilter">
+                    <option value="">All</option>
+                    @foreach (var name in EmployeeNames)
+                    {
+                        <option value="@name">@name</option>
+                    }
+                </select>
+            </label>
+
+            <label>
+                Event
+                <select @bind="EventFilter">
+                    <option value="">All</option>
+                    @foreach (var type in Enum.GetValues<JournalEventType>())
+                    {
+                        <option value="@type">@Describe(type)</option>
+                    }
+                </select>
+            </label>
+
+            <button class="chip refresh" @onclick="LoadAsync">⟳ Refresh</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Error))
+        {
+            <div class="error">@Error</div>
+        }
+
+        <div class="table-wrap">
+            <table class="journal-table">
+                <thead>
+                    <tr>
+                        <th>JNL#</th>
+                        <th>Time</th>
+                        <th>Employee</th>
+                        <th>Event</th>
+                        <th>Invoice</th>
+                        <th class="num">Amount</th>
+                        <th>Detail</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (Visible.Count == 0)
+                    {
+                        <tr><td colspan="7" class="empty">No journal entries for this selection.</td></tr>
+                    }
+                    @foreach (var entry in Visible)
+                    {
+                        <tr>
+                            <td>@entry.Sequence</td>
+                            <td>@entry.OccurredAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture)</td>
+                            <td>@(entry.EmployeeName ?? "—")</td>
+                            <td><span class="badge @BadgeClass(entry.EventType)">@Describe(entry.EventType)</span></td>
+                            <td>@(entry.InvoiceNumber?.ToString(CultureInfo.InvariantCulture) ?? "")</td>
+                            <td class="num">@(entry.Amount?.ToString("C") ?? "")</td>
+                            <td class="detail">@entry.Detail</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private DateOnly From = DateOnly.FromDateTime(DateTime.Now);
+    private DateOnly To = DateOnly.FromDateTime(DateTime.Now);
+    private string EmployeeFilter = "";
+    private string EventFilter = "";
+
+    private IReadOnlyList<JournalEntry> Entries = Array.Empty<JournalEntry>();
+    private string? Error;
+
+    // Employee and event filters apply to what's loaded for the date range, so they switch instantly.
+    private List<JournalEntry> Visible => Entries
+        .Where(e => EmployeeFilter == "" || e.EmployeeName == EmployeeFilter)
+        .Where(e => EventFilter == "" || e.EventType.ToString() == EventFilter)
+        .ToList();
+
+    private IEnumerable<string> EmployeeNames => Entries
+        .Select(e => e.EmployeeName)
+        .Where(n => !string.IsNullOrEmpty(n))
+        .Distinct()
+        .OrderBy(n => n)!;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task SetRangeAsync(int fromOffsetDays, int toOffsetDays)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        From = today.AddDays(fromOffsetDays);
+        To = today.AddDays(toOffsetDays);
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
+
+        if (To < From)
+            (From, To) = (To, From);
+
+        try
+        {
+            Error = null;
+            Entries = await JournalService.QueryAsync(new JournalQuery(From, To, MaxResults: 5000));
+        }
+        catch (Exception)
+        {
+            Error = "Could not load the journal. Details are in the log file.";
+            Entries = Array.Empty<JournalEntry>();
+        }
+    }
+
+    // "SaleCompleted" -> "Sale completed"
+    private static string Describe(JournalEventType type)
+    {
+        var words = Regex.Replace(type.ToString(), "(?<!^)([A-Z])", " $1").ToLowerInvariant();
+        return char.ToUpperInvariant(words[0]) + words[1..];
+    }
+
+    // Events a manager should look at twice are highlighted.
+    private static string BadgeClass(JournalEventType type) => type switch
+    {
+        JournalEventType.SaleCompleted => "ok",
+        JournalEventType.SignIn or JournalEventType.SignOut => "info",
+        JournalEventType.CardOutcomeUnknown or JournalEventType.SaleSaveFailed => "danger",
+        JournalEventType.SaleVoided or JournalEventType.LineRemoved or JournalEventType.NoSale
+            or JournalEventType.CardDeclined or JournalEventType.ReceiptReprinted => "warn",
+        _ => "info"
+    };
+}

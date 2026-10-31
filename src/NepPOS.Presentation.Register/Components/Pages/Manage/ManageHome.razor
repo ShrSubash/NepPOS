@@ -1,4 +1,4 @@
-﻿@page "/manage"
+@page "/manage"
 @layout EmptyLayout
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
@@ -24,6 +24,10 @@ else
             <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/plu")'>
                 <span class="tile-icon">🏷️</span>
                 <span class="tile-label">PLU / Products</span>
+            </button>
+            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/journal")'>
+                <span class="tile-icon">📒</span>
+                <span class="tile-label">Journal</span>
             </button>
             <button class="manage-tile" disabled>
                 <span class="tile-icon">👤</span>

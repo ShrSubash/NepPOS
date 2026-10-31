@@ -1,4 +1,4 @@
-﻿@page "/register"
+@page "/register"
 @layout EmptyLayout
 @using NepPOS.Application.Catalog
 @using NepPOS.Domain.Entities
@@ -7,6 +7,7 @@
 @using NepPOS.Domain.Enums
 @using NepPOS.Application.Abstractions
 @using NepPOS.Application.Payments
+@using NepPOS.Application.Journal
 @using NepPOS.Presentation.Register.Components.Shared
 @inject NavigationManager Nav
 @inject IProductCatalogService Catalog
@@ -35,6 +36,7 @@
             }
             <span class="employee-name">@Session.Employee?.FullName</span>
             <span class="employee-role-badge">@Session.Employee?.Role</span>
+            <button class="manage-link" @onclick="SignOutAsync" disabled="@(ActiveSale is not null)">Sign out</button>
         </div>
     </div>
 
@@ -153,6 +155,7 @@
     [Inject] private OnScreenKeyboardService Keyboard { get; set; } = default!;
     [Inject] private ICheckoutService Checkout { get; set; } = default!;
     [Inject] private RegisterTerminal Terminal { get; set; } = default!;
+    [Inject] private IJournal Journal { get; set; } = default!;
 
     // Every product is GST-taxable at 10% for now.
     // TODO: per-product GST flag (GST-free items) once Product has one.
@@ -252,6 +255,22 @@
 
     // Back to Order before any payment: the sale was never saved, the cart is untouched.
     private void CancelCharge() => ActiveSale = null;
+
+    private async Task SignOutAsync()
+    {
+        if (ActiveSale is not null) return;
+
+        if (CartLines.Count > 0)
+        {
+            ScanError = "Finish or void the current sale before signing out.";
+            return;
+        }
+
+        // Journal first, while the employee is still signed in, so the entry is stamped with them.
+        await Journal.WriteAsync(JournalEventType.SignOut, $"{Session.Employee?.FullName} signed out");
+        Session.SignOut();
+        Nav.NavigateTo("/login", replace: true);
+    }
 
     private void IncrementLine(CartLine line) => line.Quantity++;
 

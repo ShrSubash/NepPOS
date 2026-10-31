@@ -1,0 +1,178 @@
+.journal-denied {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 1rem;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.journal-shell {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #f4f5f9;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.journal-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background: #14162b;
+    color: #fff;
+}
+
+.brand-text {
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+
+.count {
+    margin-left: auto;
+    color: #b8bcdb;
+    font-size: 0.85rem;
+}
+
+.back-btn {
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.8rem 1rem;
+    padding: 1rem 1.5rem;
+}
+
+.quick {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b6f8e;
+}
+
+.filters input,
+.filters select {
+    border: 1px solid #e0e2ee;
+    border-radius: 8px;
+    padding: 0.45rem 0.6rem;
+    font-size: 0.9rem;
+    background: #fff;
+    min-height: 38px;
+}
+
+.chip {
+    border: 1px solid #e0e2ee;
+    background: #fff;
+    border-radius: 999px;
+    padding: 0.5rem 1rem;
+    font-weight: 600;
+    color: #14162b;
+    cursor: pointer;
+    min-height: 38px;
+}
+
+    .chip.refresh {
+        color: #6a5cff;
+    }
+
+.error {
+    margin: 0 1.5rem 0.8rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    background: #fdecec;
+    color: #b42323;
+}
+
+.table-wrap {
+    flex: 1;
+    overflow: auto;
+    margin: 0 1.5rem 1.5rem;
+    background: #fff;
+    border: 1px solid #e8e9f2;
+    border-radius: 12px;
+}
+
+.journal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+    .journal-table th {
+        position: sticky;
+        top: 0;
+        background: #f8f9fc;
+        text-align: left;
+        padding: 0.65rem 0.8rem;
+        color: #6b6f8e;
+        font-weight: 700;
+        border-bottom: 1px solid #e8e9f2;
+        white-space: nowrap;
+    }
+
+    .journal-table td {
+        padding: 0.55rem 0.8rem;
+        border-bottom: 1px solid #f0f1f6;
+        color: #14162b;
+        white-space: nowrap;
+    }
+
+        .journal-table td.detail {
+            white-space: normal;
+            color: #4a4e6a;
+        }
+
+    .journal-table .num {
+        text-align: right;
+    }
+
+    .journal-table .empty {
+        text-align: center;
+        color: #8a8daa;
+        padding: 2rem;
+    }
+
+.badge {
+    display: inline-block;
+    padding: 0.15rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+    .badge.ok {
+        background: #e8f6ef;
+        color: #17734a;
+    }
+
+    .badge.info {
+        background: #eef0fb;
+        color: #4a52a8;
+    }
+
+    .badge.warn {
+        background: #fff4e0;
+        color: #9a5b00;
+    }
+
+    .badge.danger {
+        background: #fdecec;
+        color: #b42323;
+    }
