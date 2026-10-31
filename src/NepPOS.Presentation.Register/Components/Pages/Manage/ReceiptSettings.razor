@@ -1,0 +1,225 @@
+@page "/manage/receipt-settings"
+@layout EmptyLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IRegisterSettingsStore SettingsStore
+@inject IPrinterDirectory Printers
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">Receipt &amp; Printer</span>
+            <button class="save-btn" @onclick="Save">Save</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+
+            <section class="card">
+                <h2>Store details <span class="hint">printed at the top of every tax invoice</span></h2>
+
+                <label>Business name <input @bind="Form.BusinessName" maxlength="40" /></label>
+                <label>
+                    ABN
+                    <input @bind="Form.Abn" maxlength="14" placeholder="11 digits" />
+                    @if (!string.IsNullOrWhiteSpace(Form.Abn))
+                    {
+                        <span class="field-note @(AbnValidator.IsValid(Form.Abn) ? "ok" : "bad")">
+                            @(AbnValidator.IsValid(Form.Abn) ? "✓ Valid ABN " + ReceiptBuilder.FormatAbn(Form.Abn) : "✗ Not a valid ABN")
+                        </span>
+                    }
+                </label>
+                <label>Address line 1 <input @bind="Form.Address1" maxlength="40" /></label>
+                <label>Address line 2 <input @bind="Form.Address2" maxlength="40" placeholder="Suburb STATE Postcode" /></label>
+                <label>Phone <input @bind="Form.Phone" maxlength="20" /></label>
+                <label>Receipt footer <input @bind="Form.Footer" maxlength="80" placeholder="Thank you - please drink responsibly" /></label>
+            </section>
+
+            <section class="card">
+                <h2>Printer <span class="hint">this register only</span></h2>
+
+                <label>
+                    Printer type
+                    <select @bind="Form.Mode">
+                        <option value="@PrinterMode.None">None (no receipts)</option>
+                        <option value="@PrinterMode.Thermal">Thermal receipt printer (ESC/POS)</option>
+                        <option value="@PrinterMode.Windows">Windows printer (any printer)</option>
+                    </select>
+                </label>
+
+                @if (Form.Mode != PrinterMode.None)
+                {
+                    <label>
+                        Printer
+                        <select @bind="Form.PrinterName">
+                            <option value="">— choose a printer —</option>
+                            @foreach (var name in InstalledPrinters)
+                            {
+                                <option value="@name">@name</option>
+                            }
+                            @if (!string.IsNullOrEmpty(Form.PrinterName) && !InstalledPrinters.Contains(Form.PrinterName))
+                            {
+                                <option value="@Form.PrinterName">@Form.PrinterName (not found)</option>
+                            }
+                        </select>
+                        <span class="field-note">
+                            @InstalledPrinters.Count printer(s) found.
+                            <button class="link-btn" @onclick="RefreshPrinters">Refresh list</button>
+                        </span>
+                    </label>
+
+                    <label>
+                        Paper width
+                        <select @bind="Form.LineWidth">
+                            <option value="48">80 mm (48 characters)</option>
+                            <option value="42">80 mm, larger text (42 characters)</option>
+                            <option value="32">58 mm (32 characters)</option>
+                        </select>
+                    </label>
+
+                    <label class="check">
+                        <input type="checkbox" @bind="Form.AutoPrint" />
+                        Print a receipt automatically after every sale
+                    </label>
+                }
+
+                <label>
+                    Cash drawer
+                    <select @bind="Form.DrawerMode">
+                        <option value="@CashDrawerMode.None">None</option>
+                        <option value="@CashDrawerMode.ViaPrinter">Plugged into the receipt printer</option>
+                    </select>
+                </label>
+            </section>
+
+        </div>
+    </div>
+}
+
+@code {
+    private SettingsForm Form = new();
+    private List<string> InstalledPrinters = new();
+    private string? Message;
+    private bool IsError;
+
+    protected override void OnInitialized()
+    {
+        Form = SettingsForm.From(SettingsStore.Load());
+        RefreshPrinters();
+    }
+
+    private void RefreshPrinters() => InstalledPrinters = Printers.GetInstalledPrinters().ToList();
+
+    private async Task Save()
+    {
+        if (!string.IsNullOrWhiteSpace(Form.Abn) && !AbnValidator.IsValid(Form.Abn))
+        {
+            ShowError("The ABN is not valid. Fix it or leave it blank.");
+            return;
+        }
+
+        if (Form.Mode != PrinterMode.None && string.IsNullOrWhiteSpace(Form.PrinterName))
+        {
+            ShowError("Choose a printer, or set the printer type to None.");
+            return;
+        }
+
+        if (Form.DrawerMode == CashDrawerMode.ViaPrinter && Form.Mode == PrinterMode.None)
+        {
+            ShowError("The cash drawer opens through the printer, so a printer must be chosen.");
+            return;
+        }
+
+        try
+        {
+            var settings = Form.ToSettings();
+            SettingsStore.Save(settings);
+
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Receipt & printer settings saved: {settings.Printer.Mode} '{settings.Printer.PrinterName}', " +
+                $"drawer {settings.Printer.DrawerMode}, ABN {ReceiptBuilder.FormatAbn(settings.Store.Abn)}");
+
+            Message = "Saved.";
+            IsError = false;
+        }
+        catch (Exception)
+        {
+            ShowError("Could not save the settings. Details are in the log file.");
+        }
+    }
+
+    private void ShowError(string message)
+    {
+        Message = message;
+        IsError = true;
+    }
+
+    /// <summary>Editable copy of the settings (the settings records themselves are immutable).</summary>
+    private sealed class SettingsForm
+    {
+        public string BusinessName { get; set; } = "";
+        public string Abn { get; set; } = "";
+        public string Address1 { get; set; } = "";
+        public string Address2 { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Footer { get; set; } = "";
+        public PrinterMode Mode { get; set; }
+        public string PrinterName { get; set; } = "";
+        public int LineWidth { get; set; } = 48;
+        public CashDrawerMode DrawerMode { get; set; }
+        public bool AutoPrint { get; set; } = true;
+
+        public static SettingsForm From(RegisterSettings s) => new()
+        {
+            BusinessName = s.Store.BusinessName,
+            Abn = s.Store.Abn,
+            Address1 = s.Store.AddressLines.ElementAtOrDefault(0) ?? "",
+            Address2 = s.Store.AddressLines.ElementAtOrDefault(1) ?? "",
+            Phone = s.Store.Phone,
+            Footer = s.Store.Footer,
+            Mode = s.Printer.Mode,
+            PrinterName = s.Printer.PrinterName,
+            LineWidth = s.Printer.LineWidth is 32 or 42 or 48 ? s.Printer.LineWidth : 48,
+            DrawerMode = s.Printer.DrawerMode,
+            AutoPrint = s.Printer.AutoPrint
+        };
+
+        public RegisterSettings ToSettings() => new()
+        {
+            Store = new StoreProfile
+            {
+                BusinessName = BusinessName.Trim(),
+                Abn = Abn.Trim(),
+                AddressLines = new[] { Address1.Trim(), Address2.Trim() }.Where(a => a.Length > 0).ToArray(),
+                Phone = Phone.Trim(),
+                Footer = Footer.Trim()
+            },
+            Printer = new PrinterSettings
+            {
+                Mode = Mode,
+                PrinterName = Mode == PrinterMode.None ? "" : PrinterName,
+                LineWidth = LineWidth,
+                DrawerMode = DrawerMode,
+                AutoPrint = AutoPrint
+            }
+        };
+    }
+}

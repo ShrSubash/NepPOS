@@ -10,6 +10,7 @@
 @using NepPOS.Presentation.Register.Services
 @inject IJournal JournalService
 @inject ISaleTransactionRepository Sales
+@inject IRegisterSettingsStore SettingsStore
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -109,7 +110,7 @@ else
                 <div class="receipt-card" @onclick:stopPropagation="true">
                     @if (Receipt is not null)
                     {
-                        <div class="receipt-paper">
+                        <div class="receipt-paper" style="width: calc(@(Receipt.LineWidth)ch + 2.4rem)">
                             @foreach (var line in Receipt.Lines)
                             {
                                 <div class="rline @line.Align.ToString().ToLowerInvariant() @(line.Bold ? "bold" : "") @(line.Large ? "large" : "")">@(line.Text.Length == 0 ? " " : line.Text)</div>
@@ -149,7 +150,6 @@ else
         .OrderBy(n => n)!;
 
     // Receipt view for a journal row that belongs to a sale.
-    private const int ReceiptWidth = 42;
     private bool ReceiptOpen;
     private ReceiptDocument? Receipt;
     private string? ReceiptMessage;
@@ -174,8 +174,9 @@ else
                 return;
             }
 
-            // Store name and ABN come from the receipt settings (receipt printing step); blank until then.
-            Receipt = ReceiptBuilder.Build(sale, new StoreProfile(), ReceiptWidth, reprint: true);
+            // Same store details and paper width as the printed receipt (Manage → Receipt & Printer).
+            var settings = SettingsStore.Load();
+            Receipt = ReceiptBuilder.Build(sale, settings.Store, settings.Printer.LineWidth, reprint: true);
         }
         catch (Exception)
         {
@@ -223,7 +224,7 @@ else
     private static string BadgeClass(JournalEventType type) => type switch
     {
         JournalEventType.SaleCompleted => "ok",
-        JournalEventType.SignIn or JournalEventType.SignOut => "info",
+        JournalEventType.SignIn or JournalEventType.SignOut or JournalEventType.SettingsChanged => "info",
         JournalEventType.CardOutcomeUnknown or JournalEventType.SaleSaveFailed => "danger",
         JournalEventType.SaleVoided or JournalEventType.LineRemoved or JournalEventType.NoSale
             or JournalEventType.CardDeclined or JournalEventType.ReceiptReprinted => "warn",
