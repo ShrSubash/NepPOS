@@ -15,6 +15,7 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<SalePayment> SalePayments => Set<SalePayment>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+    public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
 
     public NepPosDbContext(DbContextOptions<NepPosDbContext> options) : base(options)
     {
@@ -70,6 +71,25 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(li => li.ProductName).IsRequired().HasMaxLength(200);
             entity.Property(li => li.UnitPriceIncGst).HasPrecision(18, 4);
             entity.Property(li => li.GstRate).HasPrecision(5, 4);
+        });
+
+        modelBuilder.Entity<JournalEntry>(entity =>
+        {
+            entity.HasKey(j => j.Id);
+            entity.Property(j => j.StoreId).IsRequired().HasMaxLength(50);
+            entity.Property(j => j.RegisterId).IsRequired().HasMaxLength(50);
+            entity.Property(j => j.EmployeeName).HasMaxLength(200);
+            entity.Property(j => j.EventType).HasConversion<string>().HasMaxLength(40);
+            entity.Property(j => j.Amount).HasPrecision(18, 2);
+            entity.Property(j => j.Detail).IsRequired().HasMaxLength(500);
+
+            // SQLite returns DateTime without a Kind; everything here is stored as UTC.
+            entity.Property(j => j.OccurredAtUtc)
+                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            // One gapless sequence per register, enforced by the database.
+            entity.HasIndex(j => new { j.StoreId, j.RegisterId, j.Sequence }).IsUnique();
+            entity.HasIndex(j => j.OccurredAtUtc);
         });
 
         modelBuilder.Entity<ProductVariant>(entity =>

@@ -80,6 +80,7 @@ public static class MauiProgram
 
         // Session + auth wiring for the login flow
         builder.Services.AddSingleton<CurrentUserSession>();
+        builder.Services.AddSingleton<ICurrentOperator>(sp => sp.GetRequiredService<CurrentUserSession>());
         builder.Services.AddScoped<IAuthenticationService, PinAuthenticationService>();
         builder.Services.AddScoped<IProductCatalogService, ProductCatalogService>();
         builder.Services.AddSingleton<OnScreenKeyboardService>();
