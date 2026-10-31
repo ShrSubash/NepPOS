@@ -1,4 +1,4 @@
-﻿.tender-overlay {
+.tender-overlay {
     position: fixed;
     inset: 0;
     z-index: 900;
@@ -253,3 +253,42 @@ button:disabled {
     font-weight: 800;
     color: #14162b;
 }
+
+.done-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+    .done .msg {
+        max-width: 560px;
+        text-align: center;
+        word-break: break-word;
+    }
+
+/* Per-sale receipt on/off (top-right of the "Due" card) */
+.due-block {
+    position: relative;
+}
+
+.receipt-toggle {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    border: 0;
+    border-radius: 999px;
+    padding: 0.5rem 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+    .receipt-toggle.on {
+        background: #e8f6ef;
+        color: #17734a;
+    }
+
+    .receipt-toggle.off {
+        background: #eceef5;
+        color: #6b6f8e;
+    }

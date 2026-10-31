@@ -49,7 +49,10 @@ public sealed record PrinterSettings
 
     public CashDrawerMode DrawerMode { get; init; } = CashDrawerMode.None;
 
-    /// <summary>Print a receipt automatically after every sale (otherwise only on Reprint).</summary>
+    /// <summary>
+    /// Default for the payment screen's 🧾 Receipt toggle: print after each sale or not.
+    /// The cashier can flip it per sale; "Print receipt" stays available after the sale either way.
+    /// </summary>
     public bool AutoPrint { get; init; } = true;
 }
 
@@ -76,8 +79,11 @@ public sealed record ReceiptLine(string Text, ReceiptAlign Align = ReceiptAlign.
 /// <summary>A receipt laid out as lines of at most <see cref="LineWidth"/> characters — printer-independent.</summary>
 public sealed record ReceiptDocument(int LineWidth, IReadOnlyList<ReceiptLine> Lines);
 
-/// <summary>Outcome of a hardware call. Hardware problems are reported, never thrown, so they can't break a sale.</summary>
-public sealed record HardwareResult(bool Succeeded, string? Error = null)
+/// <summary>
+/// Outcome of a hardware call. Hardware problems are reported, never thrown, so they can't break a sale.
+/// <see cref="Message"/> is the error when it failed, or extra info when it worked (e.g. the PDF file saved).
+/// </summary>
+public sealed record HardwareResult(bool Succeeded, string? Message = null)
 {
     public static HardwareResult Ok() => new(true);
     public static HardwareResult Failed(string error) => new(false, error);

@@ -11,6 +11,7 @@
 @inject IJournal JournalService
 @inject ISaleTransactionRepository Sales
 @inject IRegisterSettingsStore SettingsStore
+@inject ILocalHardwareService Hardware
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -121,7 +122,17 @@ else
                     {
                         <p class="receipt-msg">@ReceiptMessage</p>
                     }
-                    <button class="chip" @onclick="CloseReceipt">Close</button>
+                    @if (!string.IsNullOrEmpty(PrintMessage))
+                    {
+                        <p class="receipt-msg">@PrintMessage</p>
+                    }
+                    <div class="receipt-actions">
+                        @if (Receipt is not null)
+                        {
+                            <button class="chip" disabled="@Printing" @onclick="ReprintAsync">@(Printing ? "Printing…" : "🖨️ Reprint")</button>
+                        }
+                        <button class="chip" @onclick="CloseReceipt">Close</button>
+                    </div>
                 </div>
             </div>
         }
@@ -162,6 +173,8 @@ else
 
         Receipt = null;
         ReceiptMessage = null;
+        PrintMessage = null;
+        OpenEntry = entry;
         ReceiptOpen = true;
 
         try
@@ -185,6 +198,36 @@ else
     }
 
     private void CloseReceipt() => ReceiptOpen = false;
+
+    private JournalEntry? OpenEntry;
+    private string? PrintMessage;
+    private bool Printing;
+
+    private async Task ReprintAsync()
+    {
+        if (Receipt is null || OpenEntry is null || Printing) return;
+
+        Printing = true;
+        try
+        {
+            var result = await Hardware.PrintReceiptAsync(Receipt);
+            if (!result.Succeeded)
+            {
+                PrintMessage = "Didn't print: " + result.Message;
+                return;
+            }
+
+            PrintMessage = result.Message ?? "Reprinted.";
+            await JournalService.WriteAsync(JournalEventType.ReceiptReprinted,
+                $"Invoice #{OpenEntry.InvoiceNumber} reprinted from the journal",
+                OpenEntry.SaleId, OpenEntry.InvoiceNumber, OpenEntry.Amount);
+            await LoadAsync();
+        }
+        finally
+        {
+            Printing = false;
+        }
+    }
 
     private async Task SetRangeAsync(int fromOffsetDays, int toOffsetDays)
     {

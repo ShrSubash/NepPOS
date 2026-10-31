@@ -8,6 +8,7 @@
 @using NepPOS.Application.Abstractions
 @using NepPOS.Application.Payments
 @using NepPOS.Application.Journal
+@using NepPOS.Application.Hardware
 @using NepPOS.Presentation.Register.Components.Shared
 @inject NavigationManager Nav
 @inject IProductCatalogService Catalog
@@ -36,6 +37,10 @@
             }
             <span class="employee-name">@Session.Employee?.FullName</span>
             <span class="employee-role-badge">@Session.Employee?.Role</span>
+            @if (DrawerEnabled)
+            {
+                <button class="manage-link" @onclick="NoSaleAsync" disabled="@(ActiveSale is not null)">No sale</button>
+            }
             <button class="manage-link" @onclick="SignOutAsync" disabled="@(ActiveSale is not null)">Sign out</button>
         </div>
     </div>
@@ -156,6 +161,11 @@
     [Inject] private ICheckoutService Checkout { get; set; } = default!;
     [Inject] private RegisterTerminal Terminal { get; set; } = default!;
     [Inject] private IJournal Journal { get; set; } = default!;
+    [Inject] private ILocalHardwareService Hardware { get; set; } = default!;
+    [Inject] private IRegisterSettingsStore SettingsStore { get; set; } = default!;
+
+    // "No sale" is only offered when a cash drawer is set up (Manage → Receipt & Printer).
+    private bool DrawerEnabled;
 
     // Every product is GST-taxable at 10% for now.
     // TODO: per-product GST flag (GST-free items) once Product has one.
@@ -169,6 +179,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        DrawerEnabled = SettingsStore.Load().Printer.DrawerMode != CashDrawerMode.None;
+
         Categories = await Catalog.GetCategoriesAsync();
         if (Categories.Count > 0)
         {
@@ -256,6 +268,22 @@
 
     // Back to Order before any payment: the sale was never saved, the cart is untouched.
     private void CancelCharge() => ActiveSale = null;
+
+    // Opens the drawer without a sale (change for the till etc.) — always journalled, like legacy NOSALE.
+    private async Task NoSaleAsync()
+    {
+        if (ActiveSale is not null) return;
+
+        var result = await Hardware.OpenCashDrawerAsync();
+        if (!result.Succeeded)
+        {
+            ScanError = result.Message;
+            return;
+        }
+
+        ScanError = null;
+        await Journal.WriteAsync(JournalEventType.NoSale, $"No sale - drawer opened by {Session.Employee?.FullName}");
+    }
 
     private async Task SignOutAsync()
     {

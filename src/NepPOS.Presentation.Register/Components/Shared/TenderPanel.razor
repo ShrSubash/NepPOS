@@ -4,9 +4,12 @@
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Application.Journal
+@using NepPOS.Application.Hardware
 @inject IPaymentGateway PaymentGateway
 @inject ILogger<TenderPanel> Logger
 @inject IJournal Journal
+@inject ILocalHardwareService Hardware
+@inject IRegisterSettingsStore SettingsStore
 
 @* Full-screen tender overlay opened by the Charge button. It only closes itself once the sale is saved. *@
 <div class="tender-overlay">
@@ -22,7 +25,19 @@
                     <div class="muted">Cash rounding @_session.RoundingAdjustment.ToString("+0.00;-0.00", CultureInfo.InvariantCulture)</div>
                 }
                 <div class="muted">Invoice #@_invoiceNumber</div>
-                <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
+                @if (!string.IsNullOrEmpty(_hardwareMessage))
+                {
+                    <div class="msg @(_hardwareError ? "error" : "")">@_hardwareMessage</div>
+                }
+                <div class="done-actions">
+                    @if (_printerMode != PrinterMode.None)
+                    {
+                        <button class="btn-back" disabled="@_printing" @onclick="PrintReceiptAsync">
+                            @(_printing ? "Printing…" : _receiptPrinted ? "Reprint receipt" : "Print receipt")
+                        </button>
+                    }
+                    <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
+                </div>
             </div>
         }
         else
@@ -55,6 +70,14 @@
             <!-- RIGHT: amount due, payments taken, tender buttons -->
             <section class="summary-col">
                 <div class="due-block">
+                    @if (_printerMode != PrinterMode.None)
+                    {
+                        @* Per-sale receipt choice (legacy "receipt on/off"). Starts from the register setting. *@
+                        <button class="receipt-toggle @(_printThisSale ? "on" : "off")" disabled="@IsBusy"
+                                @onclick="() => _printThisSale = !_printThisSale">
+                            🧾 Receipt @(_printThisSale ? "ON" : "OFF")
+                        </button>
+                    }
                     <div class="muted">Due</div>
                     <div class="due">@_session.Remaining.ToString("C")</div>
                     @if (_session.RemainingCash != _session.Remaining)
@@ -147,7 +170,21 @@
     private decimal EntryAmount =>
         _entryDigits.Length == 0 ? 0m : decimal.Parse(_entryDigits, CultureInfo.InvariantCulture) / 100m;
 
-    protected override void OnInitialized() => _session = new TenderSession(Sale.Id, Sale.GrandTotal);
+    // Receipt printer / drawer state for the "done" screen.
+    private PrinterMode _printerMode;
+    private string? _hardwareMessage;
+    private bool _hardwareError;
+    private bool _receiptPrinted;
+    private bool _printing;
+    private bool _printThisSale;
+
+    protected override void OnInitialized()
+    {
+        _session = new TenderSession(Sale.Id, Sale.GrandTotal);
+        var printer = SettingsStore.Load().Printer;
+        _printerMode = printer.Mode;
+        _printThisSale = printer.AutoPrint;
+    }
 
     private void Press(string digits)
     {
@@ -255,7 +292,8 @@
             await Journal.WriteAsync(JournalEventType.SaleCompleted,
                 $"Invoice #{_invoiceNumber}: {Sale.LineItems.Count} line(s). {PaymentSummary()}",
                 Sale.Id, _invoiceNumber, _session.SaleTotal);
-            // TODO: open cash drawer (when cash was taken) and print receipt via ILocalHardwareService.
+
+            await AfterSaleHardwareAsync();
         }
         catch (Exception ex)
         {
@@ -264,6 +302,70 @@
             ShowError("Payment taken but the sale did not save. Tap Retry Save — do NOT charge again.");
             await Journal.WriteAsync(JournalEventType.SaleSaveFailed,
                 $"PAID but not saved: {PaymentSummary()}. Error: {ex.Message}", Sale.Id, amount: _session.SaleTotal);
+        }
+    }
+
+    /// <summary>
+    /// The sale is already saved: open the drawer for cash and print the receipt.
+    /// Hardware problems only show a message — they never undo or block the sale.
+    /// </summary>
+    private async Task AfterSaleHardwareAsync()
+    {
+        var printer = SettingsStore.Load().Printer;
+
+        if (printer.DrawerMode != CashDrawerMode.None && _session.Payments.Any(p => p.TenderType == TenderType.Cash))
+        {
+            var drawer = await Hardware.OpenCashDrawerAsync();
+            if (!drawer.Succeeded)
+            {
+                _hardwareMessage = drawer.Message;
+                _hardwareError = true;
+            }
+        }
+
+        if (printer.Mode != PrinterMode.None && _printThisSale)
+            await PrintReceiptAsync();
+    }
+
+    private async Task PrintReceiptAsync()
+    {
+        if (_printing) return;
+        _printing = true;
+        StateHasChanged();
+
+        try
+        {
+            var settings = SettingsStore.Load();
+            var reprint = _receiptPrinted;
+            var receipt = ReceiptBuilder.Build(Sale, settings.Store, settings.Printer.LineWidth, reprint);
+            var result = await Hardware.PrintReceiptAsync(receipt);
+
+            if (result.Succeeded)
+            {
+                _hardwareMessage = result.Message ?? "Receipt printed.";
+                _hardwareError = false;
+
+                if (reprint)
+                    await Journal.WriteAsync(JournalEventType.ReceiptReprinted,
+                        $"Invoice #{_invoiceNumber} reprinted at the register", Sale.Id, _invoiceNumber, _session.SaleTotal);
+
+                _receiptPrinted = true;
+            }
+            else
+            {
+                _hardwareMessage = "Receipt didn't print: " + result.Message;
+                _hardwareError = true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Receipt for sale {SaleId} could not be built", Sale.Id);
+            _hardwareMessage = "Receipt didn't print. Details are in the log file.";
+            _hardwareError = true;
+        }
+        finally
+        {
+            _printing = false;
         }
     }
 

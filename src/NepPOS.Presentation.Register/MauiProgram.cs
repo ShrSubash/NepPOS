@@ -103,6 +103,7 @@ public static class MauiProgram
         // Receipt & printer settings (per register) and the installed-printer list.
         builder.Services.AddSingleton<IRegisterSettingsStore, JsonRegisterSettingsStore>();
         builder.Services.AddSingleton<IPrinterDirectory, WindowsPrinterDirectory>();
+        builder.Services.AddSingleton<ILocalHardwareService, LocalHardwareService>();
 
         var app = builder.Build();
 

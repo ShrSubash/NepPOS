@@ -244,3 +244,8 @@
     text-align: center;
     color: #4a4e6a;
 }
+
+.receipt-actions {
+    display: flex;
+    gap: 0.6rem;
+}
