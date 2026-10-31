@@ -1,0 +1,198 @@
+@page "/manage/end-of-day"
+@layout EmptyLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Reports
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IEndOfDayReportService Reports
+@inject IRegisterSettingsStore SettingsStore
+@inject ILocalHardwareService Hardware
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="eod-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="eod-shell">
+        <div class="eod-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">End of Day</span>
+        </div>
+
+        <div class="eod-body">
+            <div class="eod-actions">
+                @if (Closed is null)
+                {
+                    <button class="chip" disabled="@Busy" @onclick="LoadAsync">⟳ Refresh</button>
+                    <button class="chip" disabled="@(Busy || Report is null)" @onclick="PrintXAsync">🖨️ Print X reading</button>
+                    <button class="chip danger" disabled="@(Busy || Report is null)" @onclick="() => Confirming = true">Close day (Z)</button>
+                }
+                else
+                {
+                    <button class="chip" disabled="@Busy" @onclick="ReprintZAsync">🖨️ Reprint Z #@Closed.ZNumber</button>
+                    <button class="chip" @onclick='() => Nav.NavigateTo("/manage")'>Done</button>
+                }
+            </div>
+
+            @if (Confirming)
+            {
+                <div class="confirm">
+                    <p>
+                        <strong>Close the day?</strong> This prints Z #@Report?.ZNumber and resets the totals to zero.
+                        It can't be undone. Count the cash drawer first.
+                    </p>
+                    <button class="chip danger" disabled="@Busy" @onclick="CloseDayAsync">@(Busy ? "Closing…" : "Yes, close day")</button>
+                    <button class="chip" disabled="@Busy" @onclick="() => Confirming = false">Cancel</button>
+                </div>
+            }
+
+            @if (!string.IsNullOrEmpty(Message))
+            {
+                <div class="@(MessageIsError ? "msg error" : "msg")">@Message</div>
+            }
+
+            @if (Document is not null)
+            {
+                <div class="receipt-paper" style="width: calc(@(Document.LineWidth)ch + 2.4rem)">
+                    @foreach (var line in Document.Lines)
+                    {
+                        <div class="rline @line.Align.ToString().ToLowerInvariant() @(line.Bold ? "bold" : "") @(line.Large ? "large" : "")">@(line.Text.Length == 0 ? " " : line.Text)</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private EndOfDayReport? Report;   // current X totals
+    private EndOfDayReport? Closed;   // set once the day has been closed on this screen
+    private ReceiptDocument? Document;
+    private bool Busy;
+    private bool Confirming;
+    private string? Message;
+    private bool MessageIsError;
+
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
+
+        Busy = true;
+        try
+        {
+            Message = null;
+            Report = await Reports.GetCurrentAsync();
+            Document = Layout(Report);
+        }
+        catch (Exception)
+        {
+            Report = null;
+            Document = null;
+            ShowError("Could not load the end-of-day totals. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task PrintXAsync()
+    {
+        if (Report is null || Busy) return;
+
+        Busy = true;
+        try
+        {
+            // Refresh first so the printout includes sales made since the screen opened.
+            Report = await Reports.GetCurrentAsync();
+            Document = Layout(Report);
+
+            var result = await Hardware.PrintReceiptAsync(Document);
+            if (!result.Succeeded)
+            {
+                ShowError("Didn't print: " + result.Message);
+                return;
+            }
+
+            ShowInfo(result.Message ?? "X reading printed.");
+            await Journal.WriteAsync(JournalEventType.XReport,
+                $"X reading: {Report.SaleCount} sales, {Report.GrossSales:C} gross", amount: Report.GrossSales);
+        }
+        catch (Exception)
+        {
+            ShowError("Could not print the X reading. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task CloseDayAsync()
+    {
+        if (Busy) return;
+
+        Busy = true;
+        try
+        {
+            Closed = await Reports.CloseDayAsync();
+            Report = null;
+            Confirming = false;
+            Document = Layout(Closed);
+
+            // The day is closed even if the printer fails; the Z can be reprinted from this screen.
+            var result = await Hardware.PrintReceiptAsync(Document);
+            if (result.Succeeded)
+                ShowInfo($"Day closed. Z #{Closed.ZNumber} printed. {result.Message}".Trim());
+            else
+                ShowError($"Day closed (Z #{Closed.ZNumber}) but it didn't print: {result.Message}");
+        }
+        catch (Exception ex)
+        {
+            Confirming = false;
+            ShowError(ex is InvalidOperationException ? ex.Message : "Could not close the day. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task ReprintZAsync()
+    {
+        if (Document is null || Busy) return;
+
+        Busy = true;
+        try
+        {
+            var result = await Hardware.PrintReceiptAsync(Document);
+            if (result.Succeeded) ShowInfo(result.Message ?? "Reprinted.");
+            else ShowError("Didn't print: " + result.Message);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    // Same store name and paper width as the receipts (Manage → Receipt & Printer).
+    private ReceiptDocument Layout(EndOfDayReport report)
+    {
+        var settings = SettingsStore.Load();
+        return ReceiptBuilder.BuildEndOfDay(report, settings.Store, settings.Printer.LineWidth);
+    }
+
+    private void ShowInfo(string text) { Message = text; MessageIsError = false; }
+
+    private void ShowError(string text) { Message = text; MessageIsError = true; }
+}

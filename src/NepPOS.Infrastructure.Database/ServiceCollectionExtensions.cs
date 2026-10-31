@@ -2,7 +2,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using NepPOS.Application.Abstractions;
 using NepPOS.Application.Journal;
+using NepPOS.Application.Reports;
 using NepPOS.Infrastructure.Database.Journal;
+using NepPOS.Infrastructure.Database.Reports;
 
 namespace NepPOS.Infrastructure.Database;
 
@@ -23,6 +25,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ISaleTransactionRepository, SaleTransactionRepository>();
         services.AddScoped<IJournal, JournalService>();
+        services.AddScoped<IEndOfDayReportService, EndOfDayReportService>();
 
         return services;
     }

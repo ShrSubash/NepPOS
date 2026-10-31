@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.RegularExpressions;
 using NepPOS.Domain.Entities;
+using NepPOS.Application.Reports;
 using NepPOS.Domain.Enums;
 
 namespace NepPOS.Application.Hardware;
@@ -148,6 +149,86 @@ public static class ReceiptBuilder
             .ToList();
 
         return new ReceiptDocument(lineWidth, receiptLines);
+    }
+
+    /// <summary>
+    /// Lays out an X reading or Z report for the receipt printer: sales, GST, tenders,
+    /// cash expected in the drawer, activity to check (voids, no sales…) and sales per employee.
+    /// </summary>
+    public static ReceiptDocument BuildEndOfDay(EndOfDayReport report, StoreProfile store, int lineWidth)
+    {
+        ArgumentNullException.ThrowIfNull(report);
+        ArgumentNullException.ThrowIfNull(store);
+        if (lineWidth < 24)
+            throw new ArgumentOutOfRangeException(nameof(lineWidth), "Receipts need at least 24 characters per line.");
+
+        var lines = new List<ReceiptLine>();
+        var separator = new ReceiptLine(new string('-', lineWidth));
+        void Row(string left, string right, bool bold = false) => lines.Add(TwoColumn(left, right, lineWidth, bold));
+        void Heading(string text) => lines.Add(new ReceiptLine(text, ReceiptAlign.Left, Bold: true));
+
+        // ---- header ----
+        if (!string.IsNullOrWhiteSpace(store.BusinessName))
+            lines.Add(new ReceiptLine(store.BusinessName.Trim(), ReceiptAlign.Center, Bold: true));
+        lines.Add(new ReceiptLine(report.IsZ ? $"Z REPORT #{report.ZNumber}" : "X READING", ReceiptAlign.Center, Bold: true, Large: true));
+        lines.Add(new ReceiptLine(report.IsZ ? "Day closed - totals reset" : "Totals so far - nothing reset", ReceiptAlign.Center));
+        lines.Add(new ReceiptLine(""));
+        Row("Register", report.RegisterId);
+        Row("From", report.PeriodStartUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au));
+        Row("To", report.PeriodEndUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au));
+        if (!string.IsNullOrWhiteSpace(report.PrintedBy))
+            Row("Printed by", report.PrintedBy);
+        lines.Add(separator);
+
+        // ---- sales ----
+        Heading("SALES");
+        Row("Sales", report.SaleCount.ToString(Au));
+        if (report.FirstInvoice is not null)
+            Row("Invoices", report.FirstInvoice == report.LastInvoice
+                ? $"#{report.FirstInvoice}"
+                : $"#{report.FirstInvoice} - #{report.LastInvoice}");
+        Row("Items sold", report.ItemCount.ToString(Au));
+        Row("Gross sales (inc GST)", Money(report.GrossSales));
+        Row("GST", Money(report.Gst));
+        Row("Net sales (ex GST)", Money(report.NetSales));
+        if (report.CashRounding != 0)
+            Row("Cash rounding", report.CashRounding.ToString("+0.00;-0.00", Au));
+        lines.Add(separator);
+
+        // ---- tenders ----
+        Heading("TENDERS");
+        foreach (var tender in report.Tenders)
+            Row($"{(tender.Tender == TenderType.Eftpos ? "EFTPOS" : tender.Tender.ToString())} ({tender.Count})", Money(tender.Amount));
+        Row("TOTAL TAKEN", Money(report.TotalTaken), bold: true);
+        lines.Add(separator);
+
+        Row("CASH IN DRAWER", Money(report.CashExpected), bold: true);
+        lines.Add(new ReceiptLine("(excludes opening float)"));
+        lines.Add(separator);
+
+        // ---- activity ----
+        Heading("ACTIVITY");
+        Row($"Voided carts ({report.VoidCount})", Money(report.VoidAmount));
+        Row($"Lines removed ({report.LinesRemoved})", Money(report.LinesRemovedAmount));
+        Row("No sales", report.NoSales.ToString(Au));
+        Row("Cards declined", report.CardDeclines.ToString(Au));
+        Row("Card result unknown", report.CardOutcomeUnknown.ToString(Au));
+        Row("Sales not saved", report.SaveFailures.ToString(Au));
+        Row("Receipts reprinted", report.Reprints.ToString(Au));
+
+        // ---- by employee ----
+        if (report.ByEmployee.Count > 0)
+        {
+            lines.Add(separator);
+            Heading("BY EMPLOYEE");
+            foreach (var employee in report.ByEmployee)
+                Row($"{employee.Employee} ({employee.SaleCount})", Money(employee.Amount));
+        }
+
+        lines.Add(separator);
+        lines.Add(new ReceiptLine(report.IsZ ? "*** END OF DAY ***" : "*** NOT A Z - DAY STILL OPEN ***", ReceiptAlign.Center, Bold: true));
+
+        return new ReceiptDocument(lineWidth, lines);
     }
 
     /// <summary>"12345678901" → "12 345 678 901". Anything that isn't 11 digits is printed as entered.</summary>

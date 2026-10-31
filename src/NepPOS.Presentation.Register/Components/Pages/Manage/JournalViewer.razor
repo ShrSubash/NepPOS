@@ -282,7 +282,7 @@ else
     // Events a manager should look at twice are highlighted.
     private static string BadgeClass(JournalEventType type) => type switch
     {
-        JournalEventType.SaleCompleted => "ok",
+        JournalEventType.SaleCompleted or JournalEventType.ZReport => "ok",
         JournalEventType.SignIn or JournalEventType.SignOut or JournalEventType.SettingsChanged => "info",
         JournalEventType.CardOutcomeUnknown or JournalEventType.SaleSaveFailed => "danger",
         JournalEventType.SaleVoided or JournalEventType.LineRemoved or JournalEventType.NoSale

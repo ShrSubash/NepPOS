@@ -17,5 +17,11 @@ public enum JournalEventType
     NoSale,
     DrawerOpened,
     ReceiptReprinted,
-    SettingsChanged
+    SettingsChanged,
+
+    /// <summary>X reading printed: running totals since the last Z, nothing reset.</summary>
+    XReport,
+
+    /// <summary>Day closed. InvoiceNumber = last invoice included, so the next report starts after it.</summary>
+    ZReport
 }

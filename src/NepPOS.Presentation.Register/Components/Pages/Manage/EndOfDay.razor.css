@@ -1,0 +1,142 @@
+.eod-denied {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 1rem;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.eod-shell {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #f4f5f9;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.eod-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background: #14162b;
+    color: #fff;
+}
+
+.brand-text {
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+
+.back-btn {
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.eod-body {
+    flex: 1;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.2rem 1.5rem 2rem;
+}
+
+.eod-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.6rem;
+}
+
+.chip {
+    border: 1px solid #e0e2ee;
+    background: #fff;
+    border-radius: 999px;
+    padding: 0.6rem 1.2rem;
+    font-weight: 600;
+    color: #14162b;
+    cursor: pointer;
+    min-height: 44px;
+}
+
+    .chip:disabled {
+        opacity: 0.5;
+        cursor: default;
+    }
+
+    .chip.danger {
+        background: #b42323;
+        border-color: #b42323;
+        color: #fff;
+    }
+
+.confirm {
+    max-width: 520px;
+    background: #fff4e0;
+    border: 1px solid #f0d49a;
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    justify-content: center;
+}
+
+    .confirm p {
+        margin: 0 0 0.4rem;
+        color: #5a3a00;
+        text-align: center;
+    }
+
+.msg {
+    max-width: 520px;
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    background: #e8f6ef;
+    color: #17734a;
+    text-align: center;
+}
+
+    .msg.error {
+        background: #fdecec;
+        color: #b42323;
+    }
+
+.receipt-paper {
+    background: #fff;
+    padding: 1rem 1.2rem;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: 0.85rem;
+    color: #14162b;
+}
+
+.rline {
+    white-space: pre;
+    line-height: 1.35;
+}
+
+    .rline.center {
+        text-align: center;
+    }
+
+    .rline.right {
+        text-align: right;
+    }
+
+    .rline.bold {
+        font-weight: 700;
+    }
+
+    .rline.large {
+        font-size: 1.15rem;
+    }
