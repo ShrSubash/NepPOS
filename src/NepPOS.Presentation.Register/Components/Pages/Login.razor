@@ -1,9 +1,11 @@
-﻿@page "/login"
+@page "/login"
 @layout EmptyLayout
 @using NepPOS.Application.Authentication
+@using NepPOS.Application.Journal
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IAuthenticationService AuthService
+@inject IJournal Journal
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -100,6 +102,8 @@
         if (result.Succeeded && result.Employee is not null)
         {
             Session.SignIn(result.Employee);
+            await Journal.WriteAsync(JournalEventType.SignIn,
+                $"{result.Employee.FullName} signed in ({result.Employee.Role})");
             Nav.NavigateTo(LandingRouteFor(result.Employee.Role), replace: true);
             return;
         }
