@@ -137,4 +137,36 @@ public class ReceiptBuilderTests
     {
         Assert.Equal(expected, ReceiptBuilder.FormatAbn(input));
     }
+
+    // Shape of a real Spice/Gecko slip: CRLF lines, ~20 chars wide, blank lines around it.
+    private const string GeckoSlip =
+        "\r\n     Gecko Bank\r\n   Switchlink POS\r\n\r\nAUTH          851898\r\nCARD      ......1025\r\n\r\n" +
+        "PURCHASE      $19.50\r\n\r\n      APPROVED\r\n  *CUSTOMER COPY*\r\n";
+
+    [Fact]
+    public void BuildCardSlip_CentresTheTerminalLayoutAndKeepsInnerBlankLines()
+    {
+        var slip = ReceiptBuilder.BuildCardSlip(GeckoSlip, 48);
+        var text = slip.Lines.Select(l => l.Text).ToList();
+
+        // 20-char slip on 48-char paper -> indented 14 spaces; terminal spacing kept as-is.
+        Assert.Equal(new string(' ', 14) + "     Gecko Bank", text[0]);
+        Assert.Contains(new string(' ', 14) + "AUTH          851898", text);
+        Assert.Equal(new string(' ', 14) + "  *CUSTOMER COPY*", text[^1]); // trailing blank lines dropped
+        Assert.Contains("", text.Select(t => t.Trim()));                    // inner blank lines kept
+    }
+
+    [Fact]
+    public void BuildCardSlip_NeverExceedsThePaperWidth()
+    {
+        var slip = ReceiptBuilder.BuildCardSlip(GeckoSlip + new string('X', 60), 32);
+
+        Assert.All(slip.Lines, l => Assert.True(l.Text.Length <= 32));
+    }
+
+    [Fact]
+    public void BuildCardSlip_EmptyText_GivesAnEmptySlip()
+    {
+        Assert.Empty(ReceiptBuilder.BuildCardSlip("\r\n  \r\n", 48).Lines);
+    }
 }

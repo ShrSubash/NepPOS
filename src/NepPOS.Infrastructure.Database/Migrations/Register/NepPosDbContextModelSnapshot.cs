@@ -225,6 +225,10 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("CustomerReceipt")
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("MaskedPan")
                         .HasMaxLength(25)
                         .HasColumnType("TEXT");

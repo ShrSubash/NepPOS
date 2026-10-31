@@ -54,6 +54,9 @@ public sealed record PrinterSettings
     /// The cashier can flip it per sale; "Print receipt" stays available after the sale either way.
     /// </summary>
     public bool AutoPrint { get; init; } = true;
+
+    /// <summary>Print the EFTPOS merchant copy as soon as a card is approved (legacy behaviour; off by default).</summary>
+    public bool PrintMerchantCopy { get; init; }
 }
 
 /// <summary>Everything this register needs to know about its store and hardware.</summary>

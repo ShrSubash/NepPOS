@@ -257,6 +257,8 @@
             _session.AddEftpos(amount, result);
             _entryDigits = string.Empty;
 
+            await PrintMerchantCopyAsync(result);
+
             if (_session.IsComplete)
                 await SaveAsync();
             else
@@ -345,6 +347,14 @@
                 _hardwareMessage = result.Message ?? "Receipt printed.";
                 _hardwareError = false;
 
+                // Bank card slip(s), customer copy — as a separate slip after the tax invoice.
+                var slipProblem = await PrintCardSlipsAsync(settings.Printer.LineWidth);
+                if (slipProblem is not null)
+                {
+                    _hardwareMessage += " Card slip didn't print: " + slipProblem;
+                    _hardwareError = true;
+                }
+
                 if (reprint)
                     await Journal.WriteAsync(JournalEventType.ReceiptReprinted,
                         $"Invoice #{_invoiceNumber} reprinted at the register", Sale.Id, _invoiceNumber, _session.SaleTotal);
@@ -366,6 +376,37 @@
         finally
         {
             _printing = false;
+        }
+    }
+
+    /// <summary>Customer copies of the EFTPOS slips for this sale. Returns a problem description, or null.</summary>
+    private async Task<string?> PrintCardSlipsAsync(int lineWidth)
+    {
+        foreach (var payment in _session.Payments.Where(p => !string.IsNullOrWhiteSpace(p.CustomerReceipt)))
+        {
+            var slip = await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(payment.CustomerReceipt!, lineWidth));
+            if (!slip.Succeeded)
+                return slip.Message;
+        }
+
+        return null;
+    }
+
+    /// <summary>Legacy behaviour: the store's copy prints as soon as the card is approved (if switched on).</summary>
+    private async Task PrintMerchantCopyAsync(PaymentResult result)
+    {
+        // The card is already approved and recorded: nothing here may throw back into the payment flow.
+        try
+        {
+            var printer = SettingsStore.Load().Printer;
+            if (printer.Mode == PrinterMode.None || !printer.PrintMerchantCopy || string.IsNullOrWhiteSpace(result.MerchantReceipt))
+                return;
+
+            await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(result.MerchantReceipt!, printer.LineWidth));
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Merchant copy for sale {SaleId} could not be printed", Sale.Id);
         }
     }
 

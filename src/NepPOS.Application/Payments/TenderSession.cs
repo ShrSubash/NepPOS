@@ -95,7 +95,7 @@ public sealed class TenderSession
 
         _payments.Add(new SalePayment(
             TenderType.Eftpos, amount, amount, 0,
-            result.AuthCode, result.CardType, result.MaskedPan, result.ResponseText));
+            result.AuthCode, result.CardType, result.MaskedPan, result.ResponseText, result.CustomerReceipt));
 
         if (Remaining == 0)
             IsComplete = true;

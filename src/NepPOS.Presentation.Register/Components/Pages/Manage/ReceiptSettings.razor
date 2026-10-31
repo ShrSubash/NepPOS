@@ -108,6 +108,15 @@ else
                         </select>
                         <span class="field-note">The cashier can switch it for each sale with the 🧾 Receipt button on the payment screen.</span>
                     </label>
+
+                    <label>
+                        EFTPOS merchant copy
+                        <select @bind="Form.MerchantCopy">
+                            <option value="none">Don't print (kept in the Spice receipt files)</option>
+                            <option value="print">Print when the card is approved</option>
+                        </select>
+                        <span class="field-note">The customer's card slip always prints with their receipt.</span>
+                    </label>
                 }
 
                 <label>
@@ -267,6 +276,15 @@ else
             set => AutoPrint = value == "print";
         }
 
+        public bool PrintMerchantCopy { get; set; }
+
+        // Same reason as ReceiptDefault: the select binds to text, not a bool.
+        public string MerchantCopy
+        {
+            get => PrintMerchantCopy ? "print" : "none";
+            set => PrintMerchantCopy = value == "print";
+        }
+
         public static SettingsForm From(RegisterSettings s) => new()
         {
             BusinessName = s.Store.BusinessName,
@@ -279,7 +297,8 @@ else
             PrinterName = s.Printer.PrinterName,
             LineWidth = s.Printer.LineWidth is 32 or 42 or 48 ? s.Printer.LineWidth : 48,
             DrawerMode = s.Printer.DrawerMode,
-            AutoPrint = s.Printer.AutoPrint
+            AutoPrint = s.Printer.AutoPrint,
+            PrintMerchantCopy = s.Printer.PrintMerchantCopy
         };
 
         public RegisterSettings ToSettings() => new()
@@ -298,7 +317,8 @@ else
                 PrinterName = Mode == PrinterMode.None ? "" : PrinterName,
                 LineWidth = LineWidth,
                 DrawerMode = DrawerMode,
-                AutoPrint = AutoPrint
+                AutoPrint = AutoPrint,
+                PrintMerchantCopy = PrintMerchantCopy
             }
         };
     }
