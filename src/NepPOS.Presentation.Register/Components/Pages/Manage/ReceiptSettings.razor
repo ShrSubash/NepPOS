@@ -1,12 +1,17 @@
 @page "/manage/receipt-settings"
 @layout EmptyLayout
+@using NepPOS.Application.Abstractions
 @using NepPOS.Application.Hardware
+@using NepPOS.Application.Payments
+@using NepPOS.Domain.Entities
 @using NepPOS.Application.Journal
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IRegisterSettingsStore SettingsStore
 @inject IPrinterDirectory Printers
 @inject IJournal Journal
+@inject ILocalHardwareService Hardware
+@inject RegisterTerminal Terminal
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -95,9 +100,13 @@ else
                         </select>
                     </label>
 
-                    <label class="check">
-                        <input type="checkbox" @bind="Form.AutoPrint" />
-                        Print a receipt automatically after every sale
+                    <label>
+                        Receipt by default
+                        <select @bind="Form.ReceiptDefault">
+                            <option value="print">Print a receipt</option>
+                            <option value="none">Don't print (customer asks for one)</option>
+                        </select>
+                        <span class="field-note">The cashier can switch it for each sale with the 🧾 Receipt button on the payment screen.</span>
                     </label>
                 }
 
@@ -108,6 +117,12 @@ else
                         <option value="@CashDrawerMode.ViaPrinter">Plugged into the receipt printer</option>
                     </select>
                 </label>
+
+                <div class="test-row">
+                    <button class="chip" disabled="@Busy" @onclick="TestPrintAsync">🖨️ Test print</button>
+                    <button class="chip" disabled="@Busy" @onclick="TestDrawerAsync">Open drawer</button>
+                    <span class="field-note">Uses the saved settings — tap Save first.</span>
+                </div>
             </section>
 
         </div>
@@ -124,6 +139,64 @@ else
     {
         Form = SettingsForm.From(SettingsStore.Load());
         RefreshPrinters();
+    }
+
+    private bool Busy;
+
+    // Prints a sample tax invoice with the saved store details and printer.
+    private async Task TestPrintAsync()
+    {
+        Busy = true;
+        try
+        {
+            var settings = SettingsStore.Load();
+
+            var sample = new SaleTransaction(Terminal.StoreId, Terminal.RegisterId, Session.Employee?.Id, Session.Employee?.FullName);
+            sample.AddLineItem(new SaleLineItem("TEST", "TEST PRINT - NOT A SALE", 1, 1.00m, 0.10m));
+            var tender = new TenderSession(sample.Id, sample.GrandTotal);
+            tender.AddCash(1.00m);
+            sample.RecordPayments(tender.Payments, tender.RoundingAdjustment);
+            sample.Complete(0);
+
+            var receipt = ReceiptBuilder.Build(sample, settings.Store, settings.Printer.LineWidth);
+            var result = await Hardware.PrintReceiptAsync(receipt);
+
+            if (result.Succeeded)
+            {
+                Message = "Test receipt sent. " + result.Message;
+                IsError = false;
+            }
+            else
+            {
+                ShowError(result.Message ?? "Test print failed.");
+            }
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task TestDrawerAsync()
+    {
+        Busy = true;
+        try
+        {
+            var result = await Hardware.OpenCashDrawerAsync();
+            if (!result.Succeeded)
+            {
+                ShowError(result.Message ?? "The drawer did not open.");
+                return;
+            }
+
+            Message = "Drawer opened.";
+            IsError = false;
+            await Journal.WriteAsync(JournalEventType.DrawerOpened, "Drawer opened from Receipt & Printer settings (test)");
+        }
+        finally
+        {
+            Busy = false;
+        }
     }
 
     private void RefreshPrinters() => InstalledPrinters = Printers.GetInstalledPrinters().ToList();
@@ -186,6 +259,13 @@ else
         public int LineWidth { get; set; } = 48;
         public CashDrawerMode DrawerMode { get; set; }
         public bool AutoPrint { get; set; } = true;
+
+        // Dropdown value for "Receipt by default": a select cannot bind straight to a bool.
+        public string ReceiptDefault
+        {
+            get => AutoPrint ? "print" : "none";
+            set => AutoPrint = value == "print";
+        }
 
         public static SettingsForm From(RegisterSettings s) => new()
         {
