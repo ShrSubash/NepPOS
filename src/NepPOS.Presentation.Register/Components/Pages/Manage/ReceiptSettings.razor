@@ -232,7 +232,8 @@ else
 
         try
         {
-            var settings = Form.ToSettings();
+            // Keep the report sections ticked on the Reports screen.
+            var settings = Form.ToSettings() with { Reports = SettingsStore.Load().Reports };
             SettingsStore.Save(settings);
 
             await Journal.WriteAsync(JournalEventType.SettingsChanged,

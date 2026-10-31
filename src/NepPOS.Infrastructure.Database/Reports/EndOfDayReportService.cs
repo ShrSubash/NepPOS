@@ -71,6 +71,119 @@ public sealed class EndOfDayReportService : IEndOfDayReportService
         }
     }
 
+    public async Task<EndOfDayReport> GetPeriodAsync(DateOnly from, DateOnly to, string title, CancellationToken cancellationToken = default)
+    {
+        if (to < from)
+            (from, to) = (to, from);
+
+        await using var db = new NepPosDbContext(_options);
+
+        var included = (await ClosedDaysAsync(db, cancellationToken))
+            .Where(d => d.TradingDay >= from && d.TradingDay <= to)
+            .ToList();
+
+        var report = included.Count == 0
+            ? EndOfDayCalculator.Calculate(Array.Empty<SaleTransaction>(), Array.Empty<JournalEntry>()) with
+            {
+                StoreId = _terminal.StoreId,
+                RegisterId = _terminal.RegisterId,
+                PrintedBy = _operator.EmployeeName
+            }
+            : await AddUpAsync(db, included, cancellationToken);
+
+        return report with { Title = title, RangeFrom = from, RangeTo = to };
+    }
+
+    public async Task<EndOfDayReport?> GetLastZAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = new NepPosDbContext(_options);
+
+        var closedDays = await ClosedDaysAsync(db, cancellationToken);
+        if (closedDays.Count == 0)
+            return null;
+
+        var last = closedDays[^1];
+        var report = await AddUpAsync(db, new[] { last }, cancellationToken);
+
+        return report with { IsZ = true, IsReprint = true, ZNumber = last.ZNumber, Days = Array.Empty<DayTotal>() };
+    }
+
+    /// <summary>
+    /// Every Z this register has done, oldest first, with the Z before it. Its position is its
+    /// Z number (1, 2, 3…). A few hundred rows a year, so the date filtering is done in memory.
+    /// </summary>
+    private async Task<List<ClosedDay>> ClosedDaysAsync(NepPosDbContext db, CancellationToken cancellationToken)
+    {
+        var allZ = await db.JournalEntries
+            .AsNoTracking()
+            .Where(j => j.StoreId == _terminal.StoreId && j.RegisterId == _terminal.RegisterId)
+            .Where(j => j.EventType == JournalEventType.ZReport)
+            .OrderBy(j => j.Sequence)
+            .ToListAsync(cancellationToken);
+
+        return allZ
+            .Select((z, index) => new ClosedDay(
+                z,
+                index == 0 ? null : allZ[index - 1],
+                index + 1,
+                ReportPeriod.TradingDay(z.OccurredAtUtc)))
+            .ToList();
+    }
+
+    /// <summary>Totals for a run of consecutive closed days, with one line per day.</summary>
+    private async Task<EndOfDayReport> AddUpAsync(NepPosDbContext db, IReadOnlyList<ClosedDay> included, CancellationToken cancellationToken)
+    {
+        // The Zs are consecutive, so the period is one block: after the Z before the first one,
+        // up to and including the last one.
+        var first = included[0];
+        var last = included[^1];
+        var afterInvoice = first.Previous?.InvoiceNumber ?? 0;
+        var throughInvoice = last.Z.InvoiceNumber ?? afterInvoice;
+        var afterSequence = first.Previous?.Sequence ?? 0;
+        var throughSequence = last.Z.Sequence;
+
+        var sales = await db.SaleTransactions
+            .AsNoTracking()
+            .Include(s => s.LineItems)
+            .Include(s => s.Payments)
+            .Where(s => s.StoreId == _terminal.StoreId && s.RegisterId == _terminal.RegisterId)
+            .Where(s => s.Status == SaleTransactionStatus.Completed
+                        && s.InvoiceNumber > afterInvoice && s.InvoiceNumber <= throughInvoice)
+            .ToListAsync(cancellationToken);
+
+        var journal = await db.JournalEntries
+            .AsNoTracking()
+            .Where(j => j.StoreId == _terminal.StoreId && j.RegisterId == _terminal.RegisterId)
+            .Where(j => j.Sequence > afterSequence && j.Sequence <= throughSequence)
+            .ToListAsync(cancellationToken);
+
+        // One line per closed day: the sales between the previous Z's invoice and this Z's.
+        var days = included
+            .Select(d =>
+            {
+                var after = d.Previous?.InvoiceNumber ?? 0;
+                var through = d.Z.InvoiceNumber ?? after;
+                var daySales = sales.Where(s => s.InvoiceNumber > after && s.InvoiceNumber <= through).ToList();
+                return new DayTotal(
+                    d.TradingDay,
+                    d.ZNumber,
+                    daySales.Count,
+                    daySales.Sum(s => decimal.Round(s.GrandTotal, 2, MidpointRounding.AwayFromZero)));
+            })
+            .ToList();
+
+        return EndOfDayCalculator.Calculate(sales, journal) with
+        {
+            StoreId = _terminal.StoreId,
+            RegisterId = _terminal.RegisterId,
+            PrintedBy = _operator.EmployeeName,
+            PeriodStartUtc = first.Previous?.OccurredAtUtc
+                ?? sales.Select(s => s.CreatedAtUtc.UtcDateTime).DefaultIfEmpty(first.Z.OccurredAtUtc).Min(),
+            PeriodEndUtc = last.Z.OccurredAtUtc,
+            Days = days
+        };
+    }
+
     private async Task<(EndOfDayReport Report, Period Period)> BuildAsync(bool isZ, CancellationToken cancellationToken)
     {
         await using var db = new NepPosDbContext(_options);
@@ -129,4 +242,7 @@ public sealed class EndOfDayReportService : IEndOfDayReportService
 
     /// <summary>Where the open period starts: after this invoice number and this journal sequence.</summary>
     private sealed record Period(long AfterInvoice, long AfterSequence);
+
+    /// <summary>A daily Z, the Z before it (null for the first ever), its number and its trading day.</summary>
+    private sealed record ClosedDay(JournalEntry Z, JournalEntry? Previous, int ZNumber, DateOnly TradingDay);
 }

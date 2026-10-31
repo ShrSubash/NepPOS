@@ -1,3 +1,5 @@
+using NepPOS.Application.Reports;
+
 namespace NepPOS.Application.Hardware;
 
 /// <summary>Business details printed at the top of every tax invoice.</summary>
@@ -64,6 +66,9 @@ public sealed record RegisterSettings
 {
     public StoreProfile Store { get; init; } = new();
     public PrinterSettings Printer { get; init; } = new();
+
+    /// <summary>Which sections the Reports screen and the Z print (ticked on the Reports screen).</summary>
+    public ReportSections Reports { get; init; } = new();
 }
 
 public enum ReceiptAlign

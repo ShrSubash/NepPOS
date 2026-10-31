@@ -140,3 +140,33 @@
     .rline.large {
         font-size: 1.15rem;
     }
+
+.range {
+    align-items: flex-end;
+}
+
+    .range label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: #6b6f8e;
+    }
+
+    .range input {
+        border: 1px solid #e0e2ee;
+        border-radius: 8px;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.9rem;
+        background: #fff;
+        min-height: 44px;
+    }
+
+.hint {
+    margin: 0;
+    max-width: 560px;
+    text-align: center;
+    font-size: 0.8rem;
+    color: #6b6f8e;
+}

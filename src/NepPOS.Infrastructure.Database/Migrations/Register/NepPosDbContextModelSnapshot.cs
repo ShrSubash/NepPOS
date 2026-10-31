@@ -169,6 +169,10 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal>("GstRate")
                         .HasPrecision(5, 4)
                         .HasColumnType("TEXT");

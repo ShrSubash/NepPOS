@@ -1,0 +1,121 @@
+@page "/manage/period-reports"
+@layout EmptyLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Reports
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IEndOfDayReportService Reports
+@inject IRegisterSettingsStore SettingsStore
+@inject ILocalHardwareService Hardware
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="eod-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="eod-shell">
+        <div class="eod-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">Weekly / Monthly / Yearly Reports</span>
+        </div>
+
+        <div class="eod-body">
+            <div class="eod-actions">
+                <button class="chip" @onclick='() => ShowAsync(ReportPeriod.Week(Today), "WEEKLY REPORT")'>This week</button>
+                <button class="chip" @onclick='() => ShowAsync(ReportPeriod.Week(Today.AddDays(-7)), "WEEKLY REPORT")'>Last week</button>
+                <button class="chip" @onclick='() => ShowAsync(ReportPeriod.Month(Today), "MONTHLY REPORT")'>This month</button>
+                <button class="chip" @onclick='() => ShowAsync(ReportPeriod.Month(Today.AddMonths(-1)), "MONTHLY REPORT")'>Last month</button>
+                <button class="chip" @onclick='() => ShowAsync(ReportPeriod.FinancialYear(Today), "YEARLY REPORT")'>This financial year</button>
+                <button class="chip" @onclick='() => ShowAsync(ReportPeriod.FinancialYear(Today.AddYears(-1)), "YEARLY REPORT")'>Last financial year</button>
+            </div>
+
+            <div class="eod-actions range">
+                <label>From <input type="date" @bind="From" /></label>
+                <label>To <input type="date" @bind="To" /></label>
+                <button class="chip" @onclick='() => ShowAsync((From, To), "PERIOD REPORT")'>Show</button>
+                <button class="chip" disabled="@(Busy || Document is null)" @onclick="PrintAsync">🖨️ Print</button>
+            </div>
+
+            <p class="hint">Adds up the days already closed with a Z (a Z before 5 am counts for the day before). Today is included once it is closed.</p>
+
+            @if (!string.IsNullOrEmpty(Message))
+            {
+                <div class="@(MessageIsError ? "msg error" : "msg")">@Message</div>
+            }
+
+            @if (Document is not null)
+            {
+                <div class="receipt-paper" style="width: calc(@(Document.LineWidth)ch + 2.4rem)">
+                    @foreach (var line in Document.Lines)
+                    {
+                        <div class="rline @line.Align.ToString().ToLowerInvariant() @(line.Bold ? "bold" : "") @(line.Large ? "large" : "")">@(line.Text.Length == 0 ? " " : line.Text)</div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    // Today's trading day, so at 1 am "this week" is still the week that is trading.
+    private static DateOnly Today => ReportPeriod.TradingDay(DateTime.UtcNow);
+
+    private DateOnly From = ReportPeriod.Week(Today).From;
+    private DateOnly To = Today;
+    private ReceiptDocument? Document;
+    private bool Busy;
+    private string? Message;
+    private bool MessageIsError;
+
+    protected override async Task OnInitializedAsync() =>
+        await ShowAsync(ReportPeriod.Week(Today), "WEEKLY REPORT");
+
+    private async Task ShowAsync((DateOnly From, DateOnly To) range, string title)
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager || Busy) return;
+
+        Busy = true;
+        try
+        {
+            (From, To) = range.To < range.From ? (range.To, range.From) : range;
+            Message = null;
+
+            var report = await Reports.GetPeriodAsync(From, To, title);
+            var settings = SettingsStore.Load();
+            Document = ReceiptBuilder.BuildEndOfDay(report, settings.Store, settings.Printer.LineWidth);
+        }
+        catch (Exception)
+        {
+            Document = null;
+            Message = "Could not build the report. Details are in the log file.";
+            MessageIsError = true;
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task PrintAsync()
+    {
+        if (Document is null || Busy) return;
+
+        Busy = true;
+        try
+        {
+            var result = await Hardware.PrintReceiptAsync(Document);
+            Message = result.Succeeded ? result.Message ?? "Printed." : "Didn't print: " + result.Message;
+            MessageIsError = !result.Succeeded;
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+}
