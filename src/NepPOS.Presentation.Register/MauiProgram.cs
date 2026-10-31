@@ -7,7 +7,9 @@ using NepPOS.Application.Authentication;
 using NepPOS.Application.Catalog;
 using NepPOS.Application.Scanning;
 using NepPOS.Application.Abstractions;
+using NepPOS.Application.Hardware;
 using NepPOS.Application.Payments;
+using NepPOS.Infrastructure.Adapters.Hardware;
 using NepPOS.Infrastructure.Adapters.Payments;
 using NepPOS.Infrastructure.Database;
 using NepPOS.Infrastructure.Database.Authentication;
@@ -97,6 +99,10 @@ public static class MauiProgram
         // No terminal handy? Swap SpicePaymentGateway for SimulatedPaymentGateway on the line below.
         builder.Services.AddSingleton(new SpiceOptions(Host: "localhost", Port: 8282, PosId: ""));
         builder.Services.AddSingleton<IPaymentGateway, SpicePaymentGateway>();
+
+        // Receipt & printer settings (per register) and the installed-printer list.
+        builder.Services.AddSingleton<IRegisterSettingsStore, JsonRegisterSettingsStore>();
+        builder.Services.AddSingleton<IPrinterDirectory, WindowsPrinterDirectory>();
 
         var app = builder.Build();
 

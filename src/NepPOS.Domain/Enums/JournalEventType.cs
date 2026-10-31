@@ -16,5 +16,6 @@ public enum JournalEventType
     SaleSaveFailed,
     NoSale,
     DrawerOpened,
-    ReceiptReprinted
+    ReceiptReprinted,
+    SettingsChanged
 }

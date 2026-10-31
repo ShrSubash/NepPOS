@@ -216,7 +216,6 @@
     font-family: Consolas, "Courier New", monospace;
     font-size: 0.85rem;
     color: #14162b;
-    width: calc(42ch + 2.4rem);
 }
 
 .rline {

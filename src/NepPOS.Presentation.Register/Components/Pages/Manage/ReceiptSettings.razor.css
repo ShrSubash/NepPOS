@@ -1,0 +1,154 @@
+.settings-denied {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    gap: 1rem;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.settings-shell {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background: #f4f5f9;
+    font-family: "Segoe UI", sans-serif;
+}
+
+.settings-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+    background: #14162b;
+    color: #fff;
+}
+
+.brand-text {
+    font-weight: 700;
+    font-size: 1.05rem;
+}
+
+.back-btn {
+    background: rgba(255,255,255,0.08);
+    border: none;
+    color: #fff;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.save-btn {
+    margin-left: auto;
+    border: 0;
+    border-radius: 10px;
+    padding: 0.6rem 1.6rem;
+    font-weight: 700;
+    color: #0d0f22;
+    background: linear-gradient(135deg, #6a5cff, #3ee0d8);
+    cursor: pointer;
+}
+
+.msg {
+    margin: 1rem 1.5rem 0;
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    background: #e8f6ef;
+    color: #17734a;
+}
+
+    .msg.error {
+        background: #fdecec;
+        color: #b42323;
+    }
+
+.settings-body {
+    flex: 1;
+    overflow: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 1.2rem;
+    padding: 1.2rem 1.5rem 1.5rem;
+    align-content: start;
+}
+
+.card {
+    background: #fff;
+    border: 1px solid #e8e9f2;
+    border-radius: 14px;
+    padding: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+    .card h2 {
+        margin: 0;
+        font-size: 1rem;
+        color: #14162b;
+    }
+
+.hint {
+    font-weight: 400;
+    font-size: 0.8rem;
+    color: #8a8daa;
+    margin-left: 0.4rem;
+}
+
+.card label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #6b6f8e;
+}
+
+    .card label.check {
+        flex-direction: row;
+        align-items: center;
+        gap: 0.6rem;
+        font-size: 0.9rem;
+        color: #14162b;
+    }
+
+.card input,
+.card select {
+    border: 1px solid #e0e2ee;
+    border-radius: 8px;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.95rem;
+    color: #14162b;
+    background: #fff;
+    min-height: 40px;
+}
+
+.card input[type=checkbox] {
+    width: 22px;
+    min-height: 22px;
+    height: 22px;
+}
+
+.field-note {
+    font-weight: 500;
+    font-size: 0.78rem;
+    color: #8a8daa;
+}
+
+    .field-note.ok {
+        color: #17734a;
+    }
+
+    .field-note.bad {
+        color: #b42323;
+    }
+
+.link-btn {
+    border: 0;
+    background: none;
+    color: #6a5cff;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0 0.3rem;
+}
