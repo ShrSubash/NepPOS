@@ -2,8 +2,11 @@
 @using Microsoft.Extensions.Logging
 @using NepPOS.Application.Payments
 @using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Application.Journal
 @inject IPaymentGateway PaymentGateway
 @inject ILogger<TenderPanel> Logger
+@inject IJournal Journal
 
 @* Full-screen tender overlay opened by the Charge button. It only closes itself once the sale is saved. *@
 <div class="tender-overlay">
@@ -209,6 +212,8 @@
             if (!result.Approved)
             {
                 ShowError($"Card declined: {result.ResponseText}");
+                await Journal.WriteAsync(JournalEventType.CardDeclined,
+                    $"{amount:C} declined: {result.ResponseText} ({result.ResponseCode})", Sale.Id, amount: amount);
                 return;
             }
 
@@ -227,6 +232,8 @@
             Logger.LogCritical(ex, "EFTPOS outcome unknown for sale {SaleId}, ref {Ref}", Sale.Id, ex.TerminalReference);
             ShowError($"Card result unknown (ref {ex.TerminalReference}). Check the terminal / Spice history " +
                       "BEFORE charging again. If it was approved, take payment another way and refund later.");
+            await Journal.WriteAsync(JournalEventType.CardOutcomeUnknown,
+                $"{amount:C} card result unknown - terminal ref {ex.TerminalReference}", Sale.Id, amount: amount);
         }
         catch (Exception ex)
         {
@@ -245,6 +252,9 @@
         {
             _invoiceNumber = await CompleteSale(_session);
             _stage = Stage.Done;
+            await Journal.WriteAsync(JournalEventType.SaleCompleted,
+                $"Invoice #{_invoiceNumber}: {Sale.LineItems.Count} line(s). {PaymentSummary()}",
+                Sale.Id, _invoiceNumber, _session.SaleTotal);
             // TODO: open cash drawer (when cash was taken) and print receipt via ILocalHardwareService.
         }
         catch (Exception ex)
@@ -252,8 +262,16 @@
             Logger.LogCritical(ex, "Sale {SaleId} was PAID but failed to save", Sale.Id);
             _stage = Stage.SaveFailed;
             ShowError("Payment taken but the sale did not save. Tap Retry Save — do NOT charge again.");
+            await Journal.WriteAsync(JournalEventType.SaleSaveFailed,
+                $"PAID but not saved: {PaymentSummary()}. Error: {ex.Message}", Sale.Id, amount: _session.SaleTotal);
         }
     }
+
+    // e.g. "Cash $20.00 (change $1.50), EFTPOS $20.00 Mastercard auth 851898"
+    private string PaymentSummary() => string.Join(", ", _session.Payments.Select(p =>
+        p.TenderType == TenderType.Cash
+            ? (p.Change > 0 ? $"Cash {p.Tendered:C} (change {p.Change:C})" : $"Cash {p.Amount:C}")
+            : $"EFTPOS {p.Amount:C}{(p.CardType is null ? "" : " " + p.CardType)}{(p.AuthCode is null ? "" : " auth " + p.AuthCode)}"));
 
     private void ShowError(string message)
     {

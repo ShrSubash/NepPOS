@@ -103,7 +103,7 @@
                                 <div class="line-unit-price">@line.UnitPrice.ToString("C") each</div>
                             </div>
                             <div class="line-qty-controls">
-                                <button @onclick="() => DecrementLine(line)">−</button>
+                                <button @onclick="() => DecrementLineAsync(line)">−</button>
                                 <span>@line.Quantity</span>
                                 <button @onclick="() => IncrementLine(line)">+</button>
                             </div>
@@ -120,7 +120,7 @@
                 </div>
 
                 <div class="function-buttons">
-                    <button class="fn-btn fn-secondary" @onclick="ClearCart" disabled="@(CartLines.Count == 0)">Void</button>
+                    <button class="fn-btn fn-secondary" @onclick="VoidCartAsync" disabled="@(CartLines.Count == 0)">Void</button>
                     <button class="fn-btn fn-secondary" disabled="@(CartLines.Count == 0)">Hold</button>
                 </div>
                 <button class="fn-btn fn-primary" disabled="@(CartLines.Count == 0)" @onclick="OpenCharge">
@@ -233,7 +233,8 @@
         if (CartLines.Count == 0 || GrandTotal <= 0) return;
 
         // Build the sale from the cart. Its GUID goes to the EFTPOS terminal as the reference.
-        var sale = new SaleTransaction(Terminal.StoreId, Terminal.RegisterId);
+        var sale = new SaleTransaction(Terminal.StoreId, Terminal.RegisterId,
+                                       Session.Employee?.Id, Session.Employee?.FullName);
         foreach (var line in CartLines)
         {
             sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice, GstRate));
@@ -274,16 +275,28 @@
 
     private void IncrementLine(CartLine line) => line.Quantity++;
 
-    private void DecrementLine(CartLine line)
+    private async Task DecrementLineAsync(CartLine line)
     {
         line.Quantity--;
         if (line.Quantity <= 0)
         {
             CartLines.Remove(line);
         }
+
+        await Journal.WriteAsync(JournalEventType.LineRemoved,
+            $"{line.Name} x1 removed ({line.Quantity} left)", amount: line.UnitPrice);
     }
 
-    private void ClearCart() => CartLines.Clear();
+    private async Task VoidCartAsync()
+    {
+        if (CartLines.Count == 0) return;
+
+        var total = GrandTotal;
+        var items = string.Join(", ", CartLines.Select(l => $"{l.Name} x{l.Quantity}"));
+        CartLines.Clear();
+
+        await Journal.WriteAsync(JournalEventType.SaleVoided, $"Cart voided: {items}", amount: total);
+    }
 
     private void OpenScanKeyboard()
     {

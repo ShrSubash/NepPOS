@@ -26,6 +26,15 @@ public sealed class SaleTransactionRepository : ISaleTransactionRepository
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task<SaleTransaction?> GetByIdAsync(Guid saleId, CancellationToken cancellationToken = default)
+    {
+        return await _dbContext.SaleTransactions
+            .AsNoTracking()
+            .Include(st => st.LineItems)
+            .Include(st => st.Payments)
+            .FirstOrDefaultAsync(st => st.Id == saleId, cancellationToken);
+    }
+
     public async Task<long> GetNextInvoiceNumberAsync(string storeId, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(storeId))

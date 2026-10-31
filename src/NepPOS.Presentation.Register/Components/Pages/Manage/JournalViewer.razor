@@ -2,11 +2,14 @@
 @layout EmptyLayout
 @using System.Globalization
 @using System.Text.RegularExpressions
+@using NepPOS.Application.Abstractions
+@using NepPOS.Application.Hardware
 @using NepPOS.Application.Journal
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IJournal JournalService
+@inject ISaleTransactionRepository Sales
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -86,7 +89,7 @@ else
                     }
                     @foreach (var entry in Visible)
                     {
-                        <tr>
+                        <tr class="@(entry.SaleId is null ? "" : "clickable")" @onclick="() => OpenSaleAsync(entry)">
                             <td>@entry.Sequence</td>
                             <td>@entry.OccurredAtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.InvariantCulture)</td>
                             <td>@(entry.EmployeeName ?? "—")</td>
@@ -99,6 +102,28 @@ else
                 </tbody>
             </table>
         </div>
+
+        @if (ReceiptOpen)
+        {
+            <div class="receipt-overlay" @onclick="CloseReceipt">
+                <div class="receipt-card" @onclick:stopPropagation="true">
+                    @if (Receipt is not null)
+                    {
+                        <div class="receipt-paper">
+                            @foreach (var line in Receipt.Lines)
+                            {
+                                <div class="rline @line.Align.ToString().ToLowerInvariant() @(line.Bold ? "bold" : "") @(line.Large ? "large" : "")">@(line.Text.Length == 0 ? " " : line.Text)</div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <p class="receipt-msg">@ReceiptMessage</p>
+                    }
+                    <button class="chip" @onclick="CloseReceipt">Close</button>
+                </div>
+            </div>
+        }
     </div>
 }
 
@@ -123,7 +148,42 @@ else
         .Distinct()
         .OrderBy(n => n)!;
 
+    // Receipt view for a journal row that belongs to a sale.
+    private const int ReceiptWidth = 42;
+    private bool ReceiptOpen;
+    private ReceiptDocument? Receipt;
+    private string? ReceiptMessage;
+
     protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task OpenSaleAsync(JournalEntry entry)
+    {
+        if (entry.SaleId is not { } saleId) return;
+
+        Receipt = null;
+        ReceiptMessage = null;
+        ReceiptOpen = true;
+
+        try
+        {
+            var sale = await Sales.GetByIdAsync(saleId);
+            if (sale is null || sale.Status != SaleTransactionStatus.Completed)
+            {
+                // Declined / unknown card attempts belong to a sale that was never completed.
+                ReceiptMessage = "This sale was not completed, so there is no receipt. " + entry.Detail;
+                return;
+            }
+
+            // Store name and ABN come from the receipt settings (receipt printing step); blank until then.
+            Receipt = ReceiptBuilder.Build(sale, new StoreProfile(), ReceiptWidth, reprint: true);
+        }
+        catch (Exception)
+        {
+            ReceiptMessage = "Could not load this sale. Details are in the log file.";
+        }
+    }
+
+    private void CloseReceipt() => ReceiptOpen = false;
 
     private async Task SetRangeAsync(int fromOffsetDays, int toOffsetDays)
     {

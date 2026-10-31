@@ -42,6 +42,7 @@ public sealed class NepPosDbContext : DbContext
     .SetPropertyAccessMode(PropertyAccessMode.Field);
 
             entity.Property(st => st.CashRounding).HasPrecision(18, 2);
+            entity.Property(st => st.EmployeeName).HasMaxLength(200);
 
             entity.HasMany(st => st.Payments)
                   .WithOne()
