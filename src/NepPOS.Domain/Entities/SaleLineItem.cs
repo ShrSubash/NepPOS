@@ -13,6 +13,12 @@ public sealed class SaleLineItem
     public decimal UnitPriceIncGst { get; private set; }
     public decimal GstRate { get; private set; }
 
+    /// <summary>
+    /// The product's department/category when it was sold. A snapshot, so department reports
+    /// stay correct after a product is moved to another category. Null for sales made before this was kept.
+    /// </summary>
+    public string? Category { get; private set; }
+
     // Derived from tax-inclusive unit price — never the other way around.
     public decimal LineTotalIncGst => UnitPriceIncGst * Quantity;
     public decimal GstAmount => LineTotalIncGst - LineTotalIncGst / (1 + GstRate);
@@ -21,7 +27,7 @@ public sealed class SaleLineItem
     // EF Core requires a parameterless constructor for materialization.
     private SaleLineItem() { }
 
-    public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate)
+    public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate, string? category = null)
     {
         if (string.IsNullOrWhiteSpace(sku))
             throw new ArgumentException("SKU is required.", nameof(sku));
@@ -38,5 +44,6 @@ public sealed class SaleLineItem
         Quantity = quantity;
         UnitPriceIncGst = unitPriceIncGst;
         GstRate = gstRate;
+        Category = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
     }
 }

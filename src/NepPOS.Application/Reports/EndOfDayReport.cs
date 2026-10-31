@@ -56,11 +56,59 @@ public sealed record EndOfDayReport
     public int Reprints { get; init; }
 
     public IReadOnlyList<EmployeeTotal> ByEmployee { get; init; } = Array.Empty<EmployeeTotal>();
+
+    // ---- what was sold ----
+
+    /// <summary>Sales per department (product category), biggest first.</summary>
+    public IReadOnlyList<DepartmentTotal> Departments { get; init; } = Array.Empty<DepartmentTotal>();
+
+    /// <summary>Sales per product line (PLU), biggest first.</summary>
+    public IReadOnlyList<ProductTotal> Products { get; init; } = Array.Empty<ProductTotal>();
+
+    /// <summary>Sales per hour of the day (local time), earliest first; only hours with sales.</summary>
+    public IReadOnlyList<HourTotal> Hours { get; init; } = Array.Empty<HourTotal>();
+
+    /// <summary>True when an old Z is printed again from the Reports screen.</summary>
+    public bool IsReprint { get; init; }
+
+    // ---- period reports (weekly / monthly / yearly): set only when this adds up closed days ----
+
+    /// <summary>"WEEKLY REPORT", "MONTHLY REPORT"… Null for an X reading or a single Z.</summary>
+    public string? Title { get; init; }
+
+    /// <summary>Trading days asked for (inclusive).</summary>
+    public DateOnly? RangeFrom { get; init; }
+    public DateOnly? RangeTo { get; init; }
+
+    /// <summary>Each daily Z included, oldest first.</summary>
+    public IReadOnlyList<DayTotal> Days { get; init; } = Array.Empty<DayTotal>();
 }
 
 public sealed record TenderTotal(TenderType Tender, int Count, decimal Amount);
 
 public sealed record EmployeeTotal(string Employee, int SaleCount, decimal Amount);
+
+public sealed record DepartmentTotal(string Department, int Quantity, decimal Amount);
+
+public sealed record ProductTotal(string Sku, string Name, int Quantity, decimal Amount);
+
+/// <param name="Hour">0–23, local time.</param>
+public sealed record HourTotal(int Hour, int SaleCount, decimal Amount);
+
+/// <summary>Which parts of the report to print. Sales, tenders and cash in drawer are always printed.</summary>
+public sealed record ReportSections
+{
+    public bool Departments { get; init; } = true;
+    public bool Hourly { get; init; } = true;
+    public bool Employees { get; init; } = true;
+    public bool Activity { get; init; } = true;
+
+    /// <summary>Every product sold. Off by default: it can be a long printout.</summary>
+    public bool Products { get; init; }
+}
+
+/// <summary>One closed day inside a period report.</summary>
+public sealed record DayTotal(DateOnly TradingDay, int ZNumber, int SaleCount, decimal GrossSales);
 
 /// <summary>Builds and closes end-of-day reports for this register.</summary>
 public interface IEndOfDayReportService
@@ -73,6 +121,15 @@ public interface IEndOfDayReportService
     /// report starts from zero. Throws if the close could not be recorded.
     /// </summary>
     Task<EndOfDayReport> CloseDayAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Weekly / monthly / yearly report: adds up every daily Z whose trading day is between
+    /// <paramref name="from"/> and <paramref name="to"/>. Resets nothing; the day still open is not included.
+    /// </summary>
+    Task<EndOfDayReport> GetPeriodAsync(DateOnly from, DateOnly to, string title, CancellationToken cancellationToken = default);
+
+    /// <summary>The most recent Z, rebuilt exactly as it was closed, for a reprint. Null if no day has been closed yet.</summary>
+    Task<EndOfDayReport?> GetLastZAsync(CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -110,6 +167,28 @@ public static class EndOfDayCalculator
             .OrderByDescending(e => e.Amount)
             .ToList();
 
+        var lines = completed.SelectMany(s => s.LineItems).ToList();
+
+        // Lines kept before departments were recorded on the sale show as "No department".
+        var departments = lines
+            .GroupBy(li => li.Category ?? "No department")
+            .Select(g => new DepartmentTotal(g.Key, g.Sum(li => li.Quantity), g.Sum(li => Cents(li.LineTotalIncGst))))
+            .OrderByDescending(d => d.Amount)
+            .ToList();
+
+        var products = lines
+            .GroupBy(li => new { li.Sku, li.ProductName })
+            .Select(g => new ProductTotal(g.Key.Sku, g.Key.ProductName, g.Sum(li => li.Quantity), g.Sum(li => Cents(li.LineTotalIncGst))))
+            .OrderByDescending(p => p.Amount)
+            .ThenBy(p => p.Name)
+            .ToList();
+
+        var hours = completed
+            .GroupBy(s => s.CreatedAtUtc.ToLocalTime().Hour)
+            .Select(g => new HourTotal(g.Key, g.Count(), g.Sum(s => Cents(s.GrandTotal))))
+            .OrderBy(h => h.Hour)
+            .ToList();
+
         int Count(JournalEventType type) => entries.Count(e => e.EventType == type);
 
         var invoices = completed.Where(s => s.InvoiceNumber is not null).Select(s => s.InvoiceNumber!.Value).ToList();
@@ -133,7 +212,10 @@ public static class EndOfDayCalculator
             CardOutcomeUnknown = Count(JournalEventType.CardOutcomeUnknown),
             SaveFailures = Count(JournalEventType.SaleSaveFailed),
             Reprints = Count(JournalEventType.ReceiptReprinted),
-            ByEmployee = byEmployee
+            ByEmployee = byEmployee,
+            Departments = departments,
+            Products = products,
+            Hours = hours
         };
     }
 }

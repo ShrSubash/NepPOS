@@ -249,7 +249,7 @@
                                        Session.Employee?.Id, Session.Employee?.FullName);
         foreach (var line in CartLines)
         {
-            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice, GstRate));
+            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice, GstRate, line.Product.Category));
         }
 
         ActiveSale = sale;

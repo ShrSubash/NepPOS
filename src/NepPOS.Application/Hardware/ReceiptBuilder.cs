@@ -152,36 +152,61 @@ public static class ReceiptBuilder
     }
 
     /// <summary>
-    /// Lays out an X reading or Z report for the receipt printer: sales, GST, tenders,
-    /// cash expected in the drawer, activity to check (voids, no sales…) and sales per employee.
+    /// Lays out an X reading, Z report or weekly/monthly/yearly report for the receipt printer.
+    /// Sales, tenders and cash in drawer always print; the other sections follow <paramref name="sections"/>
+    /// (ticked on the Reports screen). All sections print when it is null.
     /// </summary>
-    public static ReceiptDocument BuildEndOfDay(EndOfDayReport report, StoreProfile store, int lineWidth)
+    public static ReceiptDocument BuildEndOfDay(EndOfDayReport report, StoreProfile store, int lineWidth, ReportSections? sections = null)
     {
         ArgumentNullException.ThrowIfNull(report);
         ArgumentNullException.ThrowIfNull(store);
         if (lineWidth < 24)
             throw new ArgumentOutOfRangeException(nameof(lineWidth), "Receipts need at least 24 characters per line.");
 
+        sections ??= new ReportSections { Products = true };
+
         var lines = new List<ReceiptLine>();
         var separator = new ReceiptLine(new string('-', lineWidth));
         void Row(string left, string right, bool bold = false) => lines.Add(TwoColumn(left, right, lineWidth, bold));
-        void Heading(string text) => lines.Add(new ReceiptLine(text, ReceiptAlign.Left, Bold: true));
+        void Section(string heading)
+        {
+            lines.Add(separator);
+            lines.Add(new ReceiptLine(heading, ReceiptAlign.Left, Bold: true));
+        }
 
         // ---- header ----
         if (!string.IsNullOrWhiteSpace(store.BusinessName))
             lines.Add(new ReceiptLine(store.BusinessName.Trim(), ReceiptAlign.Center, Bold: true));
-        lines.Add(new ReceiptLine(report.IsZ ? $"Z REPORT #{report.ZNumber}" : "X READING", ReceiptAlign.Center, Bold: true, Large: true));
-        lines.Add(new ReceiptLine(report.IsZ ? "Day closed - totals reset" : "Totals so far - nothing reset", ReceiptAlign.Center));
+        var isPeriod = report.Title is not null;
+        var title = isPeriod ? report.Title! : report.IsZ ? $"Z REPORT #{report.ZNumber}" : "X READING";
+        var subtitle = isPeriod
+            ? report.Days.Count == 0
+                ? "No closed days in this period"
+                : $"Z #{report.Days[0].ZNumber} - #{report.Days[^1].ZNumber} ({report.Days.Count} days)"
+            : report.IsZ
+                ? report.IsReprint ? "REPRINT - day already closed" : "Day closed - totals reset"
+                : "Totals so far - nothing reset";
+
+        lines.Add(new ReceiptLine(title, ReceiptAlign.Center, Bold: true, Large: true));
+        lines.Add(new ReceiptLine(subtitle, ReceiptAlign.Center));
         lines.Add(new ReceiptLine(""));
         Row("Register", report.RegisterId);
-        Row("From", report.PeriodStartUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au));
-        Row("To", report.PeriodEndUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au));
+        if (isPeriod && report.RangeFrom is { } rangeFrom && report.RangeTo is { } rangeTo)
+        {
+            // Trading days, e.g. a monthly report is 01/10/2026 to 31/10/2026.
+            Row("From", rangeFrom.ToString("ddd dd/MM/yyyy", CultureInfo.InvariantCulture));
+            Row("To", rangeTo.ToString("ddd dd/MM/yyyy", CultureInfo.InvariantCulture));
+        }
+        else
+        {
+            Row("From", report.PeriodStartUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au));
+            Row("To", report.PeriodEndUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au));
+        }
         if (!string.IsNullOrWhiteSpace(report.PrintedBy))
             Row("Printed by", report.PrintedBy);
-        lines.Add(separator);
 
-        // ---- sales ----
-        Heading("SALES");
+        // ---- sales (always) ----
+        Section("SALES");
         Row("Sales", report.SaleCount.ToString(Au));
         if (report.FirstInvoice is not null)
             Row("Invoices", report.FirstInvoice == report.LastInvoice
@@ -193,40 +218,79 @@ public static class ReceiptBuilder
         Row("Net sales (ex GST)", Money(report.NetSales));
         if (report.CashRounding != 0)
             Row("Cash rounding", report.CashRounding.ToString("+0.00;-0.00", Au));
-        lines.Add(separator);
 
-        // ---- tenders ----
-        Heading("TENDERS");
+        // ---- tenders and cash (always) ----
+        Section("TENDERS");
         foreach (var tender in report.Tenders)
             Row($"{(tender.Tender == TenderType.Eftpos ? "EFTPOS" : tender.Tender.ToString())} ({tender.Count})", Money(tender.Amount));
         Row("TOTAL TAKEN", Money(report.TotalTaken), bold: true);
         lines.Add(separator);
-
         Row("CASH IN DRAWER", Money(report.CashExpected), bold: true);
         lines.Add(new ReceiptLine("(excludes opening float)"));
-        lines.Add(separator);
 
-        // ---- activity ----
-        Heading("ACTIVITY");
-        Row($"Voided carts ({report.VoidCount})", Money(report.VoidAmount));
-        Row($"Lines removed ({report.LinesRemoved})", Money(report.LinesRemovedAmount));
-        Row("No sales", report.NoSales.ToString(Au));
-        Row("Cards declined", report.CardDeclines.ToString(Au));
-        Row("Card result unknown", report.CardOutcomeUnknown.ToString(Au));
-        Row("Sales not saved", report.SaveFailures.ToString(Au));
-        Row("Receipts reprinted", report.Reprints.ToString(Au));
-
-        // ---- by employee ----
-        if (report.ByEmployee.Count > 0)
+        // ---- what was sold ----
+        if (sections.Departments && report.Departments.Count > 0)
         {
-            lines.Add(separator);
-            Heading("BY EMPLOYEE");
+            Section("DEPARTMENTS");
+            foreach (var department in report.Departments)
+                Row($"{department.Department} ({department.Quantity})", Money(department.Amount));
+        }
+
+        if (sections.Products && report.Products.Count > 0)
+        {
+            Section("PLU SALES");
+            foreach (var product in report.Products)
+                Row($"{product.Quantity} x {product.Name}", Money(product.Amount));
+        }
+
+        if (sections.Hourly && report.Hours.Count > 0)
+        {
+            Section("HOURLY");
+            foreach (var hour in report.Hours)
+                Row($"{hour.Hour:00}:00-{(hour.Hour + 1) % 24:00}:00 ({hour.SaleCount})", Money(hour.Amount));
+        }
+
+        if (sections.Employees && report.ByEmployee.Count > 0)
+        {
+            Section("BY EMPLOYEE");
             foreach (var employee in report.ByEmployee)
                 Row($"{employee.Employee} ({employee.SaleCount})", Money(employee.Amount));
         }
 
+        if (sections.Activity)
+        {
+            Section("ACTIVITY");
+            Row($"Voided carts ({report.VoidCount})", Money(report.VoidAmount));
+            Row($"Lines removed ({report.LinesRemoved})", Money(report.LinesRemovedAmount));
+            Row("No sales", report.NoSales.ToString(Au));
+            Row("Cards declined", report.CardDeclines.ToString(Au));
+            Row("Card result unknown", report.CardOutcomeUnknown.ToString(Au));
+            Row("Sales not saved", report.SaveFailures.ToString(Au));
+            Row("Receipts reprinted", report.Reprints.ToString(Au));
+        }
+
+        // ---- by day (weekly/monthly) or by month (longer periods, so a yearly report stays short) ----
+        if (report.Days.Count > 0)
+        {
+            var byMonth = report.RangeFrom is { } from && report.RangeTo is { } to && to.DayNumber - from.DayNumber > 62;
+            if (byMonth)
+            {
+                Section("BY MONTH");
+                foreach (var month in report.Days.GroupBy(d => new { d.TradingDay.Year, d.TradingDay.Month }))
+                    Row($"{new DateOnly(month.Key.Year, month.Key.Month, 1).ToString("MMM yyyy", CultureInfo.InvariantCulture)} ({month.Sum(d => d.SaleCount)})",
+                        Money(month.Sum(d => d.GrossSales)));
+            }
+            else
+            {
+                Section("BY DAY");
+                foreach (var day in report.Days)
+                    Row($"{day.TradingDay.ToString("ddd dd/MM", CultureInfo.InvariantCulture)} Z#{day.ZNumber} ({day.SaleCount})", Money(day.GrossSales));
+            }
+        }
+
         lines.Add(separator);
-        lines.Add(new ReceiptLine(report.IsZ ? "*** END OF DAY ***" : "*** NOT A Z - DAY STILL OPEN ***", ReceiptAlign.Center, Bold: true));
+        var footer = isPeriod ? "*** END OF REPORT ***" : report.IsZ ? "*** END OF DAY ***" : "*** NOT A Z - DAY STILL OPEN ***";
+        lines.Add(new ReceiptLine(footer, ReceiptAlign.Center, Bold: true));
 
         return new ReceiptDocument(lineWidth, lines);
     }

@@ -73,6 +73,7 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(li => li.ProductName).IsRequired().HasMaxLength(200);
             entity.Property(li => li.UnitPriceIncGst).HasPrecision(18, 4);
             entity.Property(li => li.GstRate).HasPrecision(5, 4);
+            entity.Property(li => li.Category).HasMaxLength(100);
         });
 
         modelBuilder.Entity<JournalEntry>(entity =>

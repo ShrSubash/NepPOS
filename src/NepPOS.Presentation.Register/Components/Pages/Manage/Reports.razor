@@ -1,0 +1,524 @@
+@page "/manage/reports"
+@page "/manage/end-of-day"
+@layout EmptyLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Reports
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IEndOfDayReportService ReportService
+@inject IRegisterSettingsStore SettingsStore
+@inject ILocalHardwareService Hardware
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="rpt-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="rpt-shell">
+        <div class="rpt-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">Reports &amp; End of Day</span>
+            <button class="top-print" disabled="@(Busy || Document is null)" @onclick="PrintAsync">🖨️ Print</button>
+            <button class="close-day" disabled="@Busy" @onclick="() => Confirming = true">Close day (Z)</button>
+        </div>
+
+        <div class="rpt-body">
+            <aside class="rpt-controls">
+                <div class="group">
+                    <div class="group-title">Period</div>
+                    @foreach (var (view, label) in Views)
+                    {
+                        <button class="option @(view == Selected ? "active" : "")" disabled="@Busy" @onclick="() => SelectAsync(view)">@label</button>
+                    }
+                    @if (Selected == ReportView.Custom)
+                    {
+                        <div class="range">
+                            <label>From <input type="date" @bind="From" /></label>
+                            <label>To <input type="date" @bind="To" /></label>
+                            <button class="option" disabled="@Busy" @onclick="LoadAsync">Show</button>
+                        </div>
+                    }
+                </div>
+
+                <div class="group">
+                    <div class="group-title">Print includes</div>
+                    <label class="tick"><input type="checkbox" checked disabled /> Sales, tenders &amp; cash</label>
+                    <label class="tick"><input type="checkbox" checked="@Sections.Departments" @onchange='e => Tick("Departments", e)' /> Departments</label>
+                    <label class="tick"><input type="checkbox" checked="@Sections.Products" @onchange='e => Tick("Products", e)' /> PLU sales</label>
+                    <label class="tick"><input type="checkbox" checked="@Sections.Hourly" @onchange='e => Tick("Hourly", e)' /> Hourly</label>
+                    <label class="tick"><input type="checkbox" checked="@Sections.Employees" @onchange='e => Tick("Employees", e)' /> Employees</label>
+                    <label class="tick"><input type="checkbox" checked="@Sections.Activity" @onchange='e => Tick("Activity", e)' /> Voids &amp; activity</label>
+                </div>
+
+            </aside>
+
+            <main class="rpt-preview">
+                @if (Confirming)
+                {
+                    <div class="confirm">
+                        <p>
+                            <strong>Close the day?</strong> This prints the Z and resets today's totals to zero.
+                            It can't be undone. Count the cash drawer first.
+                        </p>
+                        <button class="danger" disabled="@Busy" @onclick="CloseDayAsync">@(Busy ? "Closing…" : "Yes, close day")</button>
+                        <button class="option" disabled="@Busy" @onclick="() => Confirming = false">Cancel</button>
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(Message))
+                {
+                    <div class="@(MessageIsError ? "msg error" : "msg")">@Message</div>
+                }
+
+                @if (Report is not null)
+                {
+                    <div class="report-head">
+                        <div class="report-title">@HeadingText</div>
+                        <div class="report-sub">@SubText</div>
+                    </div>
+
+                    <div class="kpis">
+                        <div class="kpi main"><span class="k-label">Sales (inc GST)</span><span class="k-value">@Money(Report.GrossSales)</span><span class="k-note">incl. GST @Money(Report.Gst)</span></div>
+                        <div class="kpi"><span class="k-label">Transactions</span><span class="k-value">@Report.SaleCount</span><span class="k-note">@Report.ItemCount items</span></div>
+                        <div class="kpi"><span class="k-label">Average sale</span><span class="k-value">@Money(AverageSale)</span><span class="k-note">@(Report.SaleCount == 0 ? "—" : $"{(decimal)Report.ItemCount / Report.SaleCount:0.0} items per sale")</span></div>
+                        <div class="kpi"><span class="k-label">Cash in drawer</span><span class="k-value">@Money(Report.CashExpected)</span><span class="k-note">plus your opening float</span></div>
+                        <div class="kpi"><span class="k-label">EFTPOS</span><span class="k-value">@Money(EftposTotal)</span><span class="k-note">@Pct(EftposTotal, Report.TotalTaken) of money taken</span></div>
+                        <div class="kpi @(ProblemCount > 0 ? "warn" : "")"><span class="k-label">Needs a look</span><span class="k-value">@ProblemCount</span><span class="k-note">voids, no sales, card issues</span></div>
+                    </div>
+
+                    <div class="tabs">
+                        @foreach (var tab in Enum.GetValues<ReportTab>())
+                        {
+                            <button class="tab @(tab == Tab ? "active" : "")" @onclick="() => Tab = tab">@TabLabel(tab)</button>
+                        }
+                    </div>
+
+                    <div class="tab-panel">
+                        @switch (Tab)
+                        {
+                            case ReportTab.Overview:
+                                <div class="overview">
+                                    <section>
+                                        <h3>How customers paid</h3>
+                                        @foreach (var tender in Report.Tenders)
+                                        {
+                                            <div class="bar-row">
+                                                <span class="bar-label">@TenderName(tender.Tender) <small>(@tender.Count)</small></span>
+                                                <span class="bar"><span style="width:@Width(tender.Amount, Report.TotalTaken)"></span></span>
+                                                <span class="bar-value">@Money(tender.Amount)</span>
+                                            </div>
+                                        }
+                                    </section>
+                                    <section>
+                                        <h3>Top departments</h3>
+                                        @if (Report.Departments.Count == 0) { <p class="none">No sales.</p> }
+                                        @foreach (var d in Report.Departments.Take(5))
+                                        {
+                                            <div class="bar-row">
+                                                <span class="bar-label">@d.Department</span>
+                                                <span class="bar"><span style="width:@Width(d.Amount, Report.Departments[0].Amount)"></span></span>
+                                                <span class="bar-value">@Money(d.Amount)</span>
+                                            </div>
+                                        }
+                                    </section>
+                                    <section>
+                                        <h3>Best sellers</h3>
+                                        @if (Report.Products.Count == 0) { <p class="none">No sales.</p> }
+                                        @foreach (var p in Report.Products.Take(5))
+                                        {
+                                            <div class="bar-row">
+                                                <span class="bar-label">@p.Name <small>× @p.Quantity</small></span>
+                                                <span class="bar"><span style="width:@Width(p.Amount, Report.Products[0].Amount)"></span></span>
+                                                <span class="bar-value">@Money(p.Amount)</span>
+                                            </div>
+                                        }
+                                    </section>
+                                    <section>
+                                        <h3>Busiest hour</h3>
+                                        @if (BusiestHour is { } busiest)
+                                        {
+                                            <p class="big">@HourText(busiest.Hour)</p>
+                                            <p class="none">@busiest.SaleCount sales · @Money(busiest.Amount)</p>
+                                        }
+                                        else
+                                        {
+                                            <p class="none">No sales.</p>
+                                        }
+                                    </section>
+                                </div>
+                                break;
+
+                            case ReportTab.Departments:
+                                <table class="grid">
+                                    <thead><tr><th>Department</th><th class="num">Qty</th><th class="num">Sales</th><th class="share">% of sales</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var d in Report.Departments)
+                                        {
+                                            <tr><td>@d.Department</td><td class="num">@d.Quantity</td><td class="num">@Money(d.Amount)</td><td class="share">@Share(d.Amount)</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                break;
+
+                            case ReportTab.Products:
+                                <div class="grid-tools">
+                                    <input class="search" placeholder="Search product or PLU…" @bind="ProductFilter" @bind:event="oninput" />
+                                    <button class="tab @(SortByQty ? "" : "active")" @onclick="() => SortByQty = false">By sales $</button>
+                                    <button class="tab @(SortByQty ? "active" : "")" @onclick="() => SortByQty = true">By quantity</button>
+                                </div>
+                                <table class="grid">
+                                    <thead><tr><th>PLU</th><th>Product</th><th class="num">Qty</th><th class="num">Sales</th><th class="share">% of sales</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var p in VisibleProducts)
+                                        {
+                                            <tr><td class="muted">@p.Sku</td><td>@p.Name</td><td class="num">@p.Quantity</td><td class="num">@Money(p.Amount)</td><td class="share">@Share(p.Amount)</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                break;
+
+                            case ReportTab.Hourly:
+                                <div class="hourly">
+                                    @if (Report.Hours.Count == 0) { <p class="none">No sales.</p> }
+                                    @foreach (var h in Report.Hours)
+                                    {
+                                        <div class="bar-row wide">
+                                            <span class="bar-label">@HourText(h.Hour) <small>(@h.SaleCount)</small></span>
+                                            <span class="bar"><span style="width:@Width(h.Amount, Report.Hours.Max(x => x.Amount))"></span></span>
+                                            <span class="bar-value">@Money(h.Amount)</span>
+                                        </div>
+                                    }
+                                </div>
+                                break;
+
+                            case ReportTab.Employees:
+                                <table class="grid">
+                                    <thead><tr><th>Employee</th><th class="num">Sales</th><th class="num">Amount</th><th class="num">Average</th><th class="share">% of sales</th></tr></thead>
+                                    <tbody>
+                                        @foreach (var e in Report.ByEmployee)
+                                        {
+                                            <tr><td>@e.Employee</td><td class="num">@e.SaleCount</td><td class="num">@Money(e.Amount)</td><td class="num">@Money(e.SaleCount == 0 ? 0 : e.Amount / e.SaleCount)</td><td class="share">@Share(e.Amount)</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                break;
+
+                            case ReportTab.Activity:
+                                <table class="grid">
+                                    <tbody>
+                                        @foreach (var (label, count, amount) in ActivityRows)
+                                        {
+                                            <tr class="@(count > 0 ? "flag" : "")"><td>@label</td><td class="num">@count</td><td class="num">@(amount is null ? "" : Money(amount.Value))</td></tr>
+                                        }
+                                    </tbody>
+                                </table>
+                                <p class="none">Details of each event are in Manage → Journal.</p>
+                                break;
+
+                            case ReportTab.Printout:
+                                <div class="printout">
+                                    @if (Document is not null)
+                                    {
+                                        <div class="receipt-paper" style="width: calc(@(Document.LineWidth)ch + 2.4rem)">
+                                            @foreach (var line in Document.Lines)
+                                            {
+                                                <div class="rline @line.Align.ToString().ToLowerInvariant() @(line.Bold ? "bold" : "") @(line.Large ? "large" : "")">@(line.Text.Length == 0 ? " " : line.Text)</div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                                break;
+                        }
+                    </div>
+                }
+            </main>
+        </div>
+    </div>
+}
+
+@code {
+    private enum ReportView { Today, LastZ, ThisWeek, LastWeek, ThisMonth, LastMonth, ThisYear, LastYear, Custom }
+
+    private static readonly (ReportView View, string Label)[] Views =
+    {
+        (ReportView.Today, "Today (X - day still open)"),
+        (ReportView.LastZ, "Last Z (reprint)"),
+        (ReportView.ThisWeek, "This week"),
+        (ReportView.LastWeek, "Last week"),
+        (ReportView.ThisMonth, "This month"),
+        (ReportView.LastMonth, "Last month"),
+        (ReportView.ThisYear, "This financial year"),
+        (ReportView.LastYear, "Last financial year"),
+        (ReportView.Custom, "Choose dates…")
+    };
+
+    // Today's trading day, so at 1 am "this week" is still the week that is trading.
+    private static DateOnly TradingToday => ReportPeriod.TradingDay(DateTime.UtcNow);
+
+    private ReportView Selected = ReportView.Today;
+    private DateOnly From = ReportPeriod.Week(TradingToday).From;
+    private DateOnly To = TradingToday;
+
+    private ReportSections Sections = new();
+    private EndOfDayReport? Report;
+    private ReceiptDocument? Document;
+
+    private bool Busy;
+    private bool Confirming;
+    private string? Message;
+    private bool MessageIsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
+
+        Sections = SettingsStore.Load().Reports;
+        await LoadAsync();
+    }
+
+    private async Task SelectAsync(ReportView view)
+    {
+        Selected = view;
+        Confirming = false;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        if (Busy) return;
+
+        Busy = true;
+        try
+        {
+            Message = null;
+            if (To < From)
+                (From, To) = (To, From);
+
+            Report = Selected switch
+            {
+                ReportView.Today => await ReportService.GetCurrentAsync(),
+                ReportView.LastZ => await ReportService.GetLastZAsync(),
+                ReportView.ThisWeek => await PeriodAsync(ReportPeriod.Week(TradingToday), "WEEKLY REPORT"),
+                ReportView.LastWeek => await PeriodAsync(ReportPeriod.Week(TradingToday.AddDays(-7)), "WEEKLY REPORT"),
+                ReportView.ThisMonth => await PeriodAsync(ReportPeriod.Month(TradingToday), "MONTHLY REPORT"),
+                ReportView.LastMonth => await PeriodAsync(ReportPeriod.Month(TradingToday.AddMonths(-1)), "MONTHLY REPORT"),
+                ReportView.ThisYear => await PeriodAsync(ReportPeriod.FinancialYear(TradingToday), "YEARLY REPORT"),
+                ReportView.LastYear => await PeriodAsync(ReportPeriod.FinancialYear(TradingToday.AddYears(-1)), "YEARLY REPORT"),
+                _ => await PeriodAsync((From, To), "PERIOD REPORT")
+            };
+
+            if (Report is null)
+                ShowInfo("No day has been closed yet.");
+            else if (Report.Title is not null)
+                ShowInfo("Adds up the days already closed with a Z (a Z before 5 am counts for the day before). Today is included once it is closed.");
+
+            Render();
+        }
+        catch (Exception)
+        {
+            Report = null;
+            Document = null;
+            ShowError("Could not build the report. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private Task<EndOfDayReport> PeriodAsync((DateOnly From, DateOnly To) range, string title) =>
+        ReportService.GetPeriodAsync(range.From, range.To, title);
+
+    // Ticking a section updates the preview straight away and is remembered for the next Z.
+    private void Tick(string section, ChangeEventArgs e)
+    {
+        var on = e.Value is true;
+        ChangeSections(section switch
+        {
+            "Departments" => Sections with { Departments = on },
+            "Products" => Sections with { Products = on },
+            "Hourly" => Sections with { Hourly = on },
+            "Employees" => Sections with { Employees = on },
+            _ => Sections with { Activity = on }
+        });
+    }
+
+    private void ChangeSections(ReportSections sections)
+    {
+        Sections = sections;
+        try
+        {
+            var settings = SettingsStore.Load();
+            SettingsStore.Save(settings with { Reports = sections });
+        }
+        catch (Exception)
+        {
+            ShowError("Could not save the report sections. Details are in the log file.");
+        }
+
+        Render();
+    }
+
+    private async Task PrintAsync()
+    {
+        if (Busy) return;
+
+        // "Today" is refreshed first so the X includes sales made since the screen opened.
+        if (Selected == ReportView.Today)
+            await LoadAsync();
+        if (Report is null || Document is null) return;
+
+        Busy = true;
+        try
+        {
+            var result = await Hardware.PrintReceiptAsync(Document);
+            if (!result.Succeeded)
+            {
+                ShowError("Didn't print: " + result.Message);
+                return;
+            }
+
+            ShowInfo(result.Message ?? "Printed.");
+            if (Selected == ReportView.Today)
+                await Journal.WriteAsync(JournalEventType.XReport,
+                    $"X reading: {Report.SaleCount} sales, {Report.GrossSales:C} gross", amount: Report.GrossSales);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task CloseDayAsync()
+    {
+        if (Busy) return;
+
+        Busy = true;
+        try
+        {
+            Report = await ReportService.CloseDayAsync();
+            Selected = ReportView.LastZ;
+            Confirming = false;
+            Render();
+
+            // The day is closed even if the printer fails; "Last Z (reprint)" prints it again.
+            var result = await Hardware.PrintReceiptAsync(Document!);
+            if (result.Succeeded)
+                ShowInfo($"Day closed. Z #{Report.ZNumber} printed. {result.Message}".Trim());
+            else
+                ShowError($"Day closed (Z #{Report.ZNumber}) but it didn't print: {result.Message}");
+        }
+        catch (Exception ex)
+        {
+            Confirming = false;
+            ShowError(ex is InvalidOperationException ? ex.Message : "Could not close the day. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    // Same store name and paper width as the receipts (Manage → Receipt & Printer).
+    private void Render()
+    {
+        if (Report is null)
+        {
+            Document = null;
+            return;
+        }
+
+        var settings = SettingsStore.Load();
+        Document = ReceiptBuilder.BuildEndOfDay(Report, settings.Store, settings.Printer.LineWidth, Sections);
+    }
+
+    // ---- owner view ----
+
+    private enum ReportTab { Overview, Departments, Products, Hourly, Employees, Activity, Printout }
+
+    private ReportTab Tab = ReportTab.Overview;
+    private string ProductFilter = "";
+    private bool SortByQty;
+
+    private static string TabLabel(ReportTab tab) => tab switch
+    {
+        ReportTab.Products => "Products (PLU)",
+        ReportTab.Printout => "🧾 Printout",
+        _ => tab.ToString()
+    };
+
+    private string HeadingText => Report switch
+    {
+        null => "",
+        { Title: { } title } => System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(title.ToLowerInvariant()),
+        { IsZ: true } => $"Z report #{Report.ZNumber}" + (Report.IsReprint ? " (reprint)" : ""),
+        _ => "Today so far (X reading)"
+    };
+
+    private string SubText => Report is null ? ""
+        : Report.Title is not null && Report.RangeFrom is { } from && Report.RangeTo is { } to
+            ? $"{from:ddd d MMM yyyy} – {to:ddd d MMM yyyy} · {Report.Days.Count} closed day(s)"
+            : $"{Report.PeriodStartUtc.ToLocalTime():ddd d MMM h:mm tt} – {Report.PeriodEndUtc.ToLocalTime():ddd d MMM h:mm tt}";
+
+    private decimal AverageSale => Report is null || Report.SaleCount == 0 ? 0 : Report.GrossSales / Report.SaleCount;
+
+    private decimal EftposTotal => Report?.Tenders.Where(t => t.Tender == TenderType.Eftpos).Sum(t => t.Amount) ?? 0;
+
+    private int ProblemCount => Report is null ? 0
+        : Report.VoidCount + Report.NoSales + Report.CardOutcomeUnknown + Report.SaveFailures + Report.LinesRemoved;
+
+    private HourTotal? BusiestHour => Report?.Hours.OrderByDescending(h => h.Amount).FirstOrDefault();
+
+    private IEnumerable<ProductTotal> VisibleProducts
+    {
+        get
+        {
+            var products = (Report?.Products ?? Array.Empty<ProductTotal>())
+                .Where(p => ProductFilter.Length == 0
+                            || p.Name.Contains(ProductFilter, StringComparison.OrdinalIgnoreCase)
+                            || p.Sku.Contains(ProductFilter, StringComparison.OrdinalIgnoreCase));
+            return SortByQty ? products.OrderByDescending(p => p.Quantity) : products.OrderByDescending(p => p.Amount);
+        }
+    }
+
+    private IEnumerable<(string Label, int Count, decimal? Amount)> ActivityRows => Report is null
+        ? Array.Empty<(string, int, decimal?)>()
+        : new (string, int, decimal?)[]
+        {
+            ("Voided carts", Report.VoidCount, Report.VoidAmount),
+            ("Lines removed from a sale", Report.LinesRemoved, Report.LinesRemovedAmount),
+            ("Drawer opened with no sale", Report.NoSales, null),
+            ("Cards declined", Report.CardDeclines, null),
+            ("Card result unknown (check terminal)", Report.CardOutcomeUnknown, null),
+            ("Paid but not saved", Report.SaveFailures, null),
+            ("Receipts reprinted", Report.Reprints, null)
+        };
+
+    private static string TenderName(TenderType tender) => tender == TenderType.Eftpos ? "EFTPOS" : tender.ToString();
+
+    private static string HourText(int hour) =>
+        $"{DateTime.Today.AddHours(hour):h tt} – {DateTime.Today.AddHours(hour + 1):h tt}".ToLowerInvariant();
+
+    private static string Money(decimal amount) => amount.ToString("C", System.Globalization.CultureInfo.GetCultureInfo("en-AU"));
+
+    private static string Pct(decimal part, decimal whole) =>
+        whole == 0 ? "0%" : (part / whole * 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+    private string Share(decimal amount) => Pct(amount, Report?.GrossSales ?? 0);
+
+    // Bar length relative to the biggest row (or the total), as a CSS width.
+    private static string Width(decimal value, decimal max) =>
+        max <= 0 ? "0%" : $"{Math.Clamp(value / max * 100, 0, 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}%";
+
+    private void ShowInfo(string text) { Message = text; MessageIsError = false; }
+
+    private void ShowError(string text) { Message = text; MessageIsError = true; }
+}
