@@ -1,0 +1,243 @@
+@page "/manage/head-office"
+@layout EmptyLayout
+@implements IDisposable
+@using NepPOS.Application.Abstractions
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Sync
+@using NepPOS.Contracts.Sync
+@using NepPOS.Domain.Enums
+@using NepPOS.Infrastructure.Integration.HeadOffice
+@using NepPOS.Presentation.Register.Services
+@inject IHeadOfficeConnectionStore Connections
+@inject IHeadOfficeClient HeadOffice
+@inject IOutboxStore Outbox
+@inject SyncWorker Worker
+@inject RegisterTerminal Terminal
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">Head Office</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+            @if (Connection is null)
+            {
+                <section class="card">
+                    <h2>Connect this register <span class="hint">once, with the code from Head Office</span></h2>
+
+                    <label>
+                        Head Office address
+                        <input @bind="Address" placeholder="https://headoffice.example.com.au" />
+                    </label>
+                    <label>
+                        Activation code
+                        <input @bind="Code" placeholder="K7QM-3XRT-9PWD" autocomplete="off" />
+                        <span class="field-note">It works once and expires after a few days.</span>
+                    </label>
+                    <label>
+                        This register
+                        <input value="@($"{Terminal.StoreId} / {Terminal.RegisterId}")" disabled />
+                        <span class="field-note">The code must be for store @Terminal.StoreId.</span>
+                    </label>
+                    <label>
+                        Name for this PC
+                        <input @bind="DeviceName" maxlength="100" />
+                    </label>
+
+                    <div class="test-row">
+                        <button class="chip primary" disabled="@Busy" @onclick="ConnectAsync">@(Busy ? "Connecting…" : "Connect")</button>
+                    </div>
+                </section>
+
+                <section class="card">
+                    <h2>What connecting does</h2>
+                    <span class="field-note">
+                        Sales, Z reports and journal events are sent to Head Office in the background, about every 10 seconds.
+                        If the internet is down they wait here and go later; selling is never held up.
+                        Everything made before connecting is sent too.
+                    </span>
+                </section>
+            }
+            else
+            {
+                <section class="card">
+                    <h2>Connected</h2>
+                    <dl class="facts">
+                        <dt>Business</dt><dd>@Connection.TenantName</dd>
+                        <dt>Store</dt><dd>@Connection.StoreCode · @Connection.StoreName</dd>
+                        <dt>Register</dt><dd>@Connection.RegisterCode</dd>
+                        <dt>Head Office</dt><dd>@Connection.BaseUrl</dd>
+                        <dt>Since</dt><dd>@Connection.ConnectedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</dd>
+                    </dl>
+
+                    @if (Confirming)
+                    {
+                        <div class="confirm">
+                            <span>Disconnect? Nothing more is sent until this register is connected again with a new code. Unsent events stay here.</span>
+                            <button class="chip danger" @onclick="Disconnect">Yes, disconnect</button>
+                            <button class="chip" @onclick="() => Confirming = false">Cancel</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="test-row">
+                            <button class="link-btn danger-text" @onclick="() => Confirming = true">Disconnect</button>
+                        </div>
+                    }
+                </section>
+
+                <section class="card">
+                    <h2>Sending <span class="hint">updates by itself</span></h2>
+
+                    @{ var status = Worker.Status; }
+                    @if (status.Outcome == SyncOutcome.Unauthorized)
+                    {
+                        <span class="field-note bad">✗ @status.Problem</span>
+                    }
+                    else if (status.Outcome == SyncOutcome.Failed)
+                    {
+                        <span class="field-note bad">✗ Not sending right now: @status.Problem It will keep trying.</span>
+                    }
+                    else if (Counts.Waiting == 0)
+                    {
+                        <span class="field-note ok">✓ Up to date.</span>
+                    }
+                    else
+                    {
+                        <span class="field-note">Sending…</span>
+                    }
+
+                    <dl class="facts">
+                        <dt>Waiting to send</dt><dd>@Counts.Waiting</dd>
+                        <dt>Last sent</dt><dd>@(Counts.LastSentUtc?.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss") ?? "not yet")</dd>
+                        <dt>Last contact</dt><dd>@(status.LastSuccessUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "not yet")</dd>
+                        @if (Counts.Rejected > 0)
+                        {
+                            <dt class="bad">Refused by Head Office</dt>
+                            <dd class="bad">@Counts.Rejected: @Counts.LastRejectReason</dd>
+                        }
+                    </dl>
+
+                    <div class="test-row">
+                        <button class="chip" @onclick="SendNow">Send now</button>
+                        <span class="field-note">Refused events are kept here, not sent again. Details are in the log file.</span>
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private HeadOfficeConnection? Connection;
+    private OutboxCounts Counts = new(0, 0, null, null);
+    private string Address = "";
+    private string Code = "";
+    private string DeviceName = Environment.MachineName;
+    private bool Busy;
+    private bool Confirming;
+    private string? Message;
+    private bool IsError;
+    private System.Threading.Timer? _refresh;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connection = Connections.Load();
+#if DEBUG
+        Address = "http://localhost:5180";
+#endif
+        await RefreshCountsAsync();
+
+        // Keep the numbers current while the screen is open.
+        _refresh = new System.Threading.Timer(_ => InvokeAsync(async () => { await RefreshCountsAsync(); StateHasChanged(); }),
+            null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    private async Task RefreshCountsAsync()
+    {
+        try { Counts = await Outbox.GetCountsAsync(); }
+        catch (Exception) { /* the next refresh will try again */ }
+    }
+
+    private async Task ConnectAsync()
+    {
+        if (Busy) return;
+        if (string.IsNullOrWhiteSpace(Address) || string.IsNullOrWhiteSpace(Code))
+        {
+            ShowError("Enter the Head Office address and the activation code.");
+            return;
+        }
+
+        Busy = true;
+        Message = null;
+        try
+        {
+            var answer = await HeadOffice.ActivateAsync(Address,
+                new ActivateRequest(Code.Trim(), Terminal.RegisterId, DeviceName, Terminal.StoreId));
+
+            Connection = new HeadOfficeConnection(Address.Trim().TrimEnd('/'), answer.TenantId, answer.TenantName,
+                answer.StoreId, answer.StoreCode, answer.StoreName, answer.RegisterCode, answer.ApiKey, DateTime.UtcNow);
+            Connections.Save(Connection);
+            Code = "";
+
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Connected to Head Office: {answer.TenantName}, {answer.StoreCode} {answer.RegisterCode}");
+            Worker.SendNow();
+            ShowInfo($"Connected to {answer.TenantName} – {answer.StoreName}. Sending has started.");
+        }
+        catch (HeadOfficeException ex)
+        {
+            ShowError(ex.Message);
+        }
+        catch (Exception)
+        {
+            ShowError("Couldn't connect. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task Disconnect()
+    {
+        Connections.Clear();
+        Connection = null;
+        Confirming = false;
+        await Journal.WriteAsync(JournalEventType.SettingsChanged, "Disconnected from Head Office");
+        ShowInfo("Disconnected. Nothing more is sent until the register is connected again.");
+    }
+
+    private async Task SendNow()
+    {
+        Worker.SendNow();
+        ShowInfo("Sending…");
+        await Task.Delay(1500);
+        await RefreshCountsAsync();
+        Message = null;
+    }
+
+    private void ShowInfo(string text) { Message = text; IsError = false; }
+
+    private void ShowError(string text) { Message = text; IsError = true; }
+
+    public void Dispose() => _refresh?.Dispose();
+}

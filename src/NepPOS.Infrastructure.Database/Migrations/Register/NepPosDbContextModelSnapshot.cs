@@ -335,6 +335,9 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("RejectedAtUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime?>("SentAtUtc")
                         .HasColumnType("TEXT");
 
@@ -356,7 +359,7 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.HasIndex("EventId")
                         .IsUnique();
 
-                    b.HasIndex("SentAtUtc");
+                    b.HasIndex("SentAtUtc", "RejectedAtUtc");
 
                     b.ToTable("OutboxMessages");
                 });

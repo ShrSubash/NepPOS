@@ -30,6 +30,9 @@ public sealed class OutboxMessage
     /// <summary>When Head Office confirmed it. Null = still to send (integration build step 3).</summary>
     public DateTime? SentAtUtc { get; private set; }
 
+    /// <summary>When Head Office refused it (wrong store, reused sequence…). Not sent again; see LastError.</summary>
+    public DateTime? RejectedAtUtc { get; private set; }
+
     public int Attempts { get; private set; }
     public string? LastError { get; private set; }
 

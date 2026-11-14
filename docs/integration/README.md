@@ -175,7 +175,7 @@ The build runs in eight steps, each small enough to merge and test on its own. O
 | # | Step | Repo | Status / done when |
 | --- | --- | --- | --- |
 | 1 | **Outbox in NepPOS**: `OutboxMessages`, written in the same transaction as each sale and journal line | NepPOS | Done (PR #25) |
-| 2 | **Head Office API**: tenants, stores, registers; one-time activation codes and per-register API keys; `sync/events` (each event stored once) and heartbeat | NepPOS | Events land once even when sent twice; one business can't see another's |
+| 2 | **Head Office API**: tenants, stores, registers; one-time activation codes and per-register API keys; `sync/events` (each event stored once) and heartbeat | NepPOS | Done (PR #26) |
 | 3 | **Store sync worker**: register activation screen, background push of the outbox, heartbeat, with back-off | NepPOS | Unplug the network, make 20 sales, plug in: all 20 arrive, in order |
 | 4 | **Shared contracts package**: `NepPOS.Contracts` published to GitHub Packages | NepPOS | HamroGrocery builds against the package |
 | 5 | **Connect to NepPOS in HamroGrocery**: settings page, off by default; the website works exactly as before until it's on | HamroGrocery | Switching it on and off changes nothing for a web-only shop |
@@ -196,6 +196,13 @@ dotnet run --launch-profile http
 ```
 
 It listens on `http://localhost:5180`, keeps its data in `headoffice.db` (SQLite) next to the project, and describes its API at `/openapi/v1.json`. `NepPOS.HeadOffice.Api.http` has every request ready to send from Visual Studio. In Azure it uses SQL Server: set `HeadOffice:DatabaseProvider` to `SqlServer` and `ConnectionStrings:HeadOffice`.
+
+## Connecting a register
+
+1. Create the business, store and an activation code in Head Office (admin endpoints; `NepPOS.HeadOffice.Api.http` has them ready).
+2. On the register: **Manage → ☁️ Head Office**, enter the Head Office address and the code, then **Connect**. The code must be for the store the register is set up as (`STORE-001` today); Head Office refuses a mismatch without using the code up.
+3. The register keeps its API key encrypted (Windows DPAPI) in `%LOCALAPPDATA%\NepPOS\head-office.json` and starts sending: the outbox every 10 seconds (500 events at most per call, oldest first) and a heartbeat every minute. After a failure it waits 20 s, 40 s… up to 5 minutes between tries.
+4. Events Head Office refuses are put aside (`RejectedAtUtc`, with the reason) and shown on the screen; they are not sent again. A revoked key shows "no longer accepted": connect again with a new code.
 
 ## How to keep it documented
 

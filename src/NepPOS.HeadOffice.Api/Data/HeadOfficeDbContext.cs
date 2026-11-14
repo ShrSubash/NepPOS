@@ -71,6 +71,21 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.HasIndex(e => new { e.RegisterId, e.Sequence }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.StoreId, e.OccurredAtUtc });
         });
+
+        // Every time here is UTC. SQLite forgets that when it reads a time back, which would make
+        // the API answer "10:54" instead of "10:54Z"; mark them all as UTC on the way out.
+        var utc = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime, DateTime>(
+            v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+        var utcNullable = new Microsoft.EntityFrameworkCore.Storage.ValueConversion.ValueConverter<DateTime?, DateTime?>(
+            v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : v);
+
+        foreach (var property in modelBuilder.Model.GetEntityTypes().SelectMany(t => t.GetProperties()))
+        {
+            if (property.ClrType == typeof(DateTime))
+                property.SetValueConverter(utc);
+            else if (property.ClrType == typeof(DateTime?))
+                property.SetValueConverter(utcNullable);
+        }
     }
 }
 

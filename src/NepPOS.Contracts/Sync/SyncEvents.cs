@@ -89,8 +89,12 @@ public static class SyncJson
 
 // ---- Head Office API: register activation, sending events, heartbeat (docs/integration/README.md) ----
 
-/// <summary>POST /api/v1/activate: a one-time code from Head Office turns a PC into a register of one store.</summary>
-public sealed record ActivateRequest(string Code, string RegisterCode, string? DeviceName);
+/// <summary>
+/// POST /api/v1/activate: a one-time code from Head Office turns a PC into a register of one store.
+/// <paramref name="StoreCode"/> (optional) is the store this register is set up as; if the code is for
+/// another store, Head Office refuses without using the code up.
+/// </summary>
+public sealed record ActivateRequest(string Code, string RegisterCode, string? DeviceName, string? StoreCode = null);
 
 /// <summary>
 /// The register keeps <paramref name="ApiKey"/> (encrypted) and sends it as "Authorization: Bearer …".
