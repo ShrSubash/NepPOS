@@ -107,6 +107,33 @@ public sealed record ReportSections
     public bool Products { get; init; }
 }
 
+/// <summary>What happens automatically when the day is closed, and where report files are saved.</summary>
+public sealed record ReportOutput
+{
+    public bool PrintZ { get; init; } = true;
+    public bool SavePdfOnZ { get; init; } = true;
+    public bool SaveCsvOnZ { get; init; }
+
+    /// <summary>Folder for saved reports. Empty = %LOCALAPPDATA%\NepPOS\Reports.</summary>
+    public string Folder { get; init; } = "";
+}
+
+/// <summary>Saves report files (PDF, CSV) into this register's report folder.</summary>
+public interface IReportFileStore
+{
+    /// <summary>The folder in use (the setting, or the default).</summary>
+    string Folder { get; }
+
+    /// <summary>
+    /// Saves into Folder\yyyy\MM and returns the full path. An existing file is never overwritten:
+    /// " (2)", " (3)"… is added. Throws if the folder can't be written.
+    /// </summary>
+    Task<string> SaveAsync(string fileName, byte[] content, CancellationToken cancellationToken = default);
+
+    /// <summary>Opens the folder in File Explorer.</summary>
+    void OpenFolder();
+}
+
 /// <summary>One closed day inside a period report.</summary>
 public sealed record DayTotal(DateOnly TradingDay, int ZNumber, int SaleCount, decimal GrossSales);
 
