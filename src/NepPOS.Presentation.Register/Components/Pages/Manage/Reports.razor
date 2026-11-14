@@ -10,6 +10,7 @@
 @inject IRegisterSettingsStore SettingsStore
 @inject ILocalHardwareService Hardware
 @inject IJournal Journal
+@inject IReportFileStore Files
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -27,6 +28,8 @@ else
             <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
             <span class="brand-text">Reports &amp; End of Day</span>
             <button class="top-print" disabled="@(Busy || Document is null)" @onclick="PrintAsync">🖨️ Print</button>
+            <button class="top-save" disabled="@(Busy || Report is null)" @onclick="() => SaveAsync(pdf: true)">📄 Save PDF</button>
+            <button class="top-save" disabled="@(Busy || Report is null)" @onclick="() => SaveAsync(pdf: false)">📊 Save CSV</button>
             <button class="close-day" disabled="@Busy" @onclick="() => Confirming = true">Close day (Z)</button>
         </div>
 
@@ -58,6 +61,17 @@ else
                     <label class="tick"><input type="checkbox" checked="@Sections.Activity" @onchange='e => Tick("Activity", e)' /> Voids &amp; activity</label>
                 </div>
 
+                <div class="group">
+                    <div class="group-title">When the day is closed</div>
+                    <label class="tick"><input type="checkbox" checked="@Output.PrintZ" @onchange='e => SetOutput(Output with { PrintZ = e.Value is true })' /> Print the Z</label>
+                    <label class="tick"><input type="checkbox" checked="@Output.SavePdfOnZ" @onchange='e => SetOutput(Output with { SavePdfOnZ = e.Value is true })' /> Save PDF</label>
+                    <label class="tick"><input type="checkbox" checked="@Output.SaveCsvOnZ" @onchange='e => SetOutput(Output with { SaveCsvOnZ = e.Value is true })' /> Save CSV</label>
+                    <label class="folder">
+                        Report folder
+                        <input placeholder="@DefaultFolderHint" value="@Output.Folder" @onchange='e => SetOutput(Output with { Folder = (e.Value as string ?? "").Trim() })' />
+                    </label>
+                    <button class="option" @onclick="Files.OpenFolder">📂 Open report folder</button>
+                </div>
             </aside>
 
             <main class="rpt-preview">
@@ -280,7 +294,9 @@ else
     {
         if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
 
-        Sections = SettingsStore.Load().Reports;
+        var saved = SettingsStore.Load();
+        Sections = saved.Reports;
+        Output = saved.ReportOutput;
         await LoadAsync();
     }
 
@@ -409,12 +425,23 @@ else
             Confirming = false;
             Render();
 
-            // The day is closed even if the printer fails; "Last Z (reprint)" prints it again.
-            var result = await Hardware.PrintReceiptAsync(Document!);
-            if (result.Succeeded)
-                ShowInfo($"Day closed. Z #{Report.ZNumber} printed. {result.Message}".Trim());
-            else
-                ShowError($"Day closed (Z #{Report.ZNumber}) but it didn't print: {result.Message}");
+            // The day is closed whatever happens next; "Last Z (reprint)" can print or save it again.
+            var done = new List<string> { $"Day closed (Z #{Report.ZNumber})." };
+            var failed = false;
+
+            if (Output.PrintZ)
+            {
+                var result = await Hardware.PrintReceiptAsync(Document!);
+                done.Add(result.Succeeded ? "Printed." : $"Didn't print: {result.Message}");
+                failed |= !result.Succeeded;
+            }
+            if (Output.SavePdfOnZ)
+                failed |= !await SaveFileAsync(pdf: true, done);
+            if (Output.SaveCsvOnZ)
+                failed |= !await SaveFileAsync(pdf: false, done);
+
+            if (failed) ShowError(string.Join(" ", done));
+            else ShowInfo(string.Join(" ", done));
         }
         catch (Exception ex)
         {
@@ -438,6 +465,63 @@ else
 
         var settings = SettingsStore.Load();
         Document = ReceiptBuilder.BuildEndOfDay(Report, settings.Store, settings.Printer.LineWidth, Sections);
+    }
+
+    // ---- files ----
+
+    private ReportOutput Output = new();
+
+    // Shown when no folder is set, which is exactly when Files.Folder is the default.
+    private string DefaultFolderHint => "Default: " + Files.Folder;
+
+    private void SetOutput(ReportOutput output)
+    {
+        Output = output;
+        try
+        {
+            var settings = SettingsStore.Load();
+            SettingsStore.Save(settings with { ReportOutput = output });
+        }
+        catch (Exception)
+        {
+            ShowError("Could not save the close-day settings. Details are in the log file.");
+        }
+    }
+
+    private async Task SaveAsync(bool pdf)
+    {
+        if (Busy || Report is null) return;
+
+        Busy = true;
+        try
+        {
+            var messages = new List<string>();
+            if (await SaveFileAsync(pdf, messages)) ShowInfo(string.Join(" ", messages));
+            else ShowError(string.Join(" ", messages));
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    /// <summary>Saves the current report as PDF or CSV; adds what happened to <paramref name="messages"/>.</summary>
+    private async Task<bool> SaveFileAsync(bool pdf, List<string> messages)
+    {
+        try
+        {
+            var content = pdf
+                ? ReportPdf.Build(Report!, SettingsStore.Load().Store)
+                : System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(ReportCsv.Build(Report!))).ToArray();
+            var path = await Files.SaveAsync(ReportTitles.FileName(Report!) + (pdf ? ".pdf" : ".csv"), content);
+            messages.Add($"Saved {Path.GetFileName(path)} to {Path.GetDirectoryName(path)}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            messages.Add($"Couldn't save the {(pdf ? "PDF" : "CSV")}: {ex.Message}");
+            return false;
+        }
     }
 
     // ---- owner view ----

@@ -9,8 +9,10 @@ using NepPOS.Application.Scanning;
 using NepPOS.Application.Abstractions;
 using NepPOS.Application.Hardware;
 using NepPOS.Application.Payments;
+using NepPOS.Application.Reports;
 using NepPOS.Infrastructure.Adapters.Hardware;
 using NepPOS.Infrastructure.Adapters.Payments;
+using NepPOS.Infrastructure.Adapters.Reports;
 using NepPOS.Infrastructure.Database;
 using NepPOS.Infrastructure.Database.Authentication;
 using NepPOS.Infrastructure.Database.Catalog;
@@ -104,6 +106,9 @@ public static class MauiProgram
         builder.Services.AddSingleton<IRegisterSettingsStore, JsonRegisterSettingsStore>();
         builder.Services.AddSingleton<IPrinterDirectory, WindowsPrinterDirectory>();
         builder.Services.AddSingleton<ILocalHardwareService, LocalHardwareService>();
+
+        // Saved report files (PDF / CSV) - Manage → Reports & End of Day.
+        builder.Services.AddSingleton<IReportFileStore, LocalReportFileStore>();
 
         var app = builder.Build();
 

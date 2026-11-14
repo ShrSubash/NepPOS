@@ -69,6 +69,9 @@ public sealed record RegisterSettings
 
     /// <summary>Which sections the Reports screen and the Z print (ticked on the Reports screen).</summary>
     public ReportSections Reports { get; init; } = new();
+
+    /// <summary>Close-day outputs (print / PDF / CSV) and the report folder, set on the Reports screen.</summary>
+    public ReportOutput ReportOutput { get; init; } = new();
 }
 
 public enum ReceiptAlign

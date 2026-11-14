@@ -51,6 +51,17 @@
     min-height: 44px;
 }
 
+.top-save {
+    background: rgba(255,255,255,0.1);
+    border: none;
+    color: #fff;
+    font-weight: 600;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    min-height: 44px;
+}
+
 .close-day {
     background: #b42323;
     border: none;
@@ -178,6 +189,7 @@
 
     .print:disabled,
     .top-print:disabled,
+    .top-save:disabled,
     .close-day:disabled,
     .option:disabled {
         opacity: 0.5;
@@ -538,3 +550,22 @@
     display: flex;
     justify-content: center;
 }
+
+.folder {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b6f8e;
+}
+
+    .folder input {
+        border: 1px solid #e0e2ee;
+        border-radius: 8px;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.8rem;
+        min-height: 38px;
+        color: #14162b;
+    }
