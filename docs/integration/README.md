@@ -44,7 +44,9 @@ flowchart LR
     HO <-- "webhooks, reports" --> A
 ```
 
-Head Office is a new ASP.NET Core project in this repo; it is the "Head Office (Cloud)" level in NepPOS architecture section 4. HamroGrocery stays its own app on its own MySQL database and becomes one sales channel. A delivery app added later plugs in the same way.
+Head Office (`src/NepPOS.HeadOffice.Api`) is the "Head Office (Cloud)" level in NepPOS architecture section 4. One Head Office serves every POS customer: each business is a tenant with its own stores and registers ([ADR 0001](../adr/0001-separate-products-shared-head-office.md)).
+
+NepPOS and HamroGrocery are separate products. HamroGrocery works on its own, and a customer with both switches on *Connect to NepPOS* in the website admin. While connected, Head Office owns product names and prices; while not, the website owns everything. A delivery app added later plugs in the same way.
 
 ## Data ownership
 
@@ -148,7 +150,7 @@ Card data never leaves Stripe and the EFTPOS terminal, the store never opens a p
 
 **Security**
 
-- Each store Master and the website get their own OAuth2 client (client credentials) with only the scopes they need. For example, the website gets `orders:write catalog:read stock:read reports:read`, and a store gets `sync`. A stolen store key cannot read another store's sales.
+- Each register gets its own API key from a one-time activation code ([ADR 0002](../adr/0002-register-api-keys.md)). The key alone decides which business, store and register is calling, so a stolen key can't read or write another store's data, and it can be revoked on its own. The website gets its own key when it connects.
 - HTTPS only. Webhooks carry an HMAC-SHA256 signature and a timestamp; the website rejects anything unsigned or more than 5 minutes old.
 - Stripe stays on the website, so Head Office and NepPOS stay out of card-data (PCI) scope, as they are today with EFTPOS.
 - Secrets live in a vault: Azure Key Vault for Head Office and the website, Windows DPAPI on the store PC. NepPOS architecture section 9 already requires this.
@@ -170,18 +172,30 @@ Open questions: the order acceptance time, the stock buffer, and whether the 10-
 
 The build runs in eight steps, each small enough to merge and test on its own. Online ordering works from step 6 and store sales show on the website from step 7. Each step depends on the ones before it.
 
-| # | Step | Repo | Done when |
+| # | Step | Repo | Status / done when |
 | --- | --- | --- | --- |
-| 1 | **Outbox in NepPOS**: an `OutboxMessages` table, and events written in the same transaction as the sale, Z, stock or points change | NepPOS | A sale writes one `sale.completed` row; tests prove a failed save writes neither |
-| 2 | **Head Office API, first cut**: new `NepPOS.HeadOffice.Api` project (ASP.NET Core 9, SQL Server), store sign-in, `sync/events` and heartbeat, deployed to Azure App Service + Azure SQL | NepPOS | A test store's events land once, even when sent twice |
-| 3 | **Store sync worker**: background service in `NepPOS.Infrastructure.Integration` that pushes the outbox and pulls `sync/changes`, with back-off | NepPOS | Unplug the network, make 20 sales, plug in: all 20 arrive, in order |
-| 4 | **Shared contracts**: `NepPOS.Contracts` (DTOs, event types, webhook payloads) published to GitHub Packages | NepPOS | HamroGrocery builds against the package |
-| 5 | **Catalog link**: product GUIDs at Head Office, `ExternalId` columns in both systems, the barcode/SKU matching import, catalog and stock webhooks into HamroGrocery | Both | A price changed at Head Office shows on the POS and the website |
-| 6 | **Online orders end to end**: website sends paid orders, POS gets an Online orders panel (accept, pick, ready, complete), tender Online (prepaid), status webhooks and emails | Both | A test order goes from website checkout to handover, with a Z that counts it |
-| 7 | **Store sales on the website**: Head Office reporting API, and a Store sales section in the HamroGrocery admin area | Both | The admin page matches the register's Reports screen for the same day |
-| 8 | **Customers and points**: members at Head Office, the points ledger, NepPOS customer lookup and points at the till, redemption online | Both | Points earned in store show online within a minute, and the reverse |
+| 1 | **Outbox in NepPOS**: `OutboxMessages`, written in the same transaction as each sale and journal line | NepPOS | Done (PR #25) |
+| 2 | **Head Office API**: tenants, stores, registers; one-time activation codes and per-register API keys; `sync/events` (each event stored once) and heartbeat | NepPOS | Events land once even when sent twice; one business can't see another's |
+| 3 | **Store sync worker**: register activation screen, background push of the outbox, heartbeat, with back-off | NepPOS | Unplug the network, make 20 sales, plug in: all 20 arrive, in order |
+| 4 | **Shared contracts package**: `NepPOS.Contracts` published to GitHub Packages | NepPOS | HamroGrocery builds against the package |
+| 5 | **Connect to NepPOS in HamroGrocery**: settings page, off by default; the website works exactly as before until it's on | HamroGrocery | Switching it on and off changes nothing for a web-only shop |
+| 6 | **Catalog link** (when connected): product GUIDs, `ExternalId` columns, barcode/SKU matching, catalog and stock webhooks | Both | A price changed at Head Office shows on the POS and the website |
+| 7 | **Online orders end to end**: Online orders panel on the POS, tender Online (prepaid), status webhooks and emails | Both | A test order goes from checkout to handover, with a Z that counts it |
+| 8 | **Store sales on the website**: Head Office reporting API, Store sales section in the website admin | Both | The admin page matches the register's Reports screen for the same day |
+| 9 | **Customers and points**: members, points ledger, points at the till and online | Both | Points earned in store show online within a minute, and the reverse |
 
-Before step 1, finish NepPOS Step 19 (report PDF/CSV) and Step 20 (email).
+Later, only if the business needs it: a multi-tenant website, Stripe Connect, a platform portal with subscriptions.
+
+
+## Running Head Office on a developer PC
+
+```bash
+cd src/NepPOS.HeadOffice.Api
+dotnet user-secrets set "HeadOffice:AdminKey" "<24+ random characters>"
+dotnet run --launch-profile http
+```
+
+It listens on `http://localhost:5180`, keeps its data in `headoffice.db` (SQLite) next to the project, and describes its API at `/openapi/v1.json`. `NepPOS.HeadOffice.Api.http` has every request ready to send from Visual Studio. In Azure it uses SQL Server: set `HeadOffice:DatabaseProvider` to `SqlServer` and `ConnectionStrings:HeadOffice`.
 
 ## How to keep it documented
 
@@ -190,7 +204,7 @@ Documentation lives in the repos, next to the code it describes, so a change to 
 | What | Where | Kept current by |
 | --- | --- | --- |
 | Integration overview (this design) | `NepPOS/docs/integration/README.md` (this file) | Updated in the PR that changes a decision |
-| Decisions, one per file: why Head Office sits in the middle, why GUIDs and an outbox, who owns the catalog | `NepPOS/docs/adr/0001-head-office-hub.md`, `0002-outbox-and-guids.md`, … (Architecture Decision Records) | Never edited after merge; a new ADR replaces an old one |
+| Decisions, one per file: why Head Office sits in the middle, why GUIDs and an outbox, who owns the catalog | `NepPOS/docs/adr/` (Architecture Decision Records), e.g. `0001-separate-products-shared-head-office.md` | Never edited after merge; a new ADR replaces an old one |
 | The API itself | `NepPOS/docs/api/headoffice-v1.json`, generated by the Head Office project's OpenAPI support on every build | The build; a test fails if the committed file is out of date |
 | Every event and webhook: name, version, fields, a JSON example | `NepPOS/docs/integration/events.md` | Same PR as the event change |
 | Setting up the website: URLs, client id, webhook secret, product matching | `HamroGrocery/docs/neppos-integration.md` | Same PR as the HamroGrocery change |

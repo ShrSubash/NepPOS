@@ -1,0 +1,67 @@
+# Try Head Office from Visual Studio or VS Code (REST Client): click "Send Request" above each block.
+# 1. Start the API (http profile). 2. Set @adminKey to your user-secrets admin key.
+# 3. Run the requests in order, pasting the ids/code/key from each answer into the variables.
+
+@host = http://localhost:5180
+@adminKey = paste-your-admin-key-here
+@tenantId = paste-tenant-id
+@storeId = paste-store-id
+@apiKey = paste-api-key
+
+### Is it running?
+GET {{host}}/health
+
+### 1. Create a business (tenant)
+POST {{host}}/api/v1/admin/tenants
+X-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "name": "Nep Liquor" }
+
+### 2. Create its store (the code must match the register's StoreId, e.g. STORE-001)
+POST {{host}}/api/v1/admin/tenants/{{tenantId}}/stores
+X-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "storeCode": "STORE-001", "name": "Parramatta" }
+
+### 3. Make a one-time activation code for that store
+POST {{host}}/api/v1/admin/stores/{{storeId}}/activation-codes
+X-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "validDays": 7 }
+
+### 4. Activate a register with the code (what the register will do in step 3)
+POST {{host}}/api/v1/activate
+Content-Type: application/json
+
+{ "code": "paste-the-code", "registerCode": "REG-001", "deviceName": "Front counter" }
+
+### 5. Send an event (copy a row from the register's OutboxMessages table to test with real data)
+POST {{host}}/api/v1/sync/events
+Authorization: Bearer {{apiKey}}
+Content-Type: application/json
+
+{
+  "events": [
+    {
+      "eventId": "5f0c2a8e-6a3e-4c1b-9a51-2d1c7e0b9f41",
+      "type": "journal.recorded",
+      "version": 1,
+      "storeId": "STORE-001",
+      "registerId": "REG-001",
+      "sequence": 1,
+      "occurredAtUtc": "2026-11-14T09:12:44Z",
+      "payload": { "eventType": "SignIn", "detail": "Owner signed in" }
+    }
+  ]
+}
+
+### 6. Heartbeat
+POST {{host}}/api/v1/heartbeat
+Authorization: Bearer {{apiKey}}
+
+### 7. Registers at the store (shows last seen)
+GET {{host}}/api/v1/admin/stores/{{storeId}}/registers
+X-Admin-Key: {{adminKey}}

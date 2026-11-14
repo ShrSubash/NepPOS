@@ -108,6 +108,16 @@ A line was written to the register's journal: sign-in and out, voids, removed li
 }
 ```
 
+## How Head Office answers
+
+`POST /api/v1/sync/events` takes up to 500 events (`{"events":[…]}`) and answers, per event:
+
+- **accepted**: stored now;
+- **duplicates**: already stored (a resend). The register marks both of these as sent;
+- **rejected** (with a reason): for another store or register, a reused sequence number, or a bad envelope. It stays unsent at the register for a person to check.
+
+`lastSequence` is the highest sequence Head Office holds for that register, so the register can see if anything is missing.
+
 ## Coming in later build steps
 
 `stock.changed`, `points.changed`, online order status, and the webhooks Head Office sends to the website are added here as they are built.
