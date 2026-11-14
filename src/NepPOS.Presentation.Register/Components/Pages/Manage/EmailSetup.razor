@@ -1,0 +1,252 @@
+@page "/manage/email"
+@layout EmptyLayout
+@using NepPOS.Application.Email
+@using NepPOS.Application.Journal
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IEmailSettingsStore SettingsStore
+@inject IEmailOutbox Outbox
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
+            <span class="brand-text">Email</span>
+            <button class="save-btn" disabled="@Busy" @onclick="Save">Save</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+
+            <section class="card">
+                <h2>Who gets the reports</h2>
+
+                <label>
+                    Send to
+                    <input @bind="Form.ToAddresses" placeholder="owner@example.com, manager@example.com" />
+                    @if (InvalidTo.Count > 0)
+                    {
+                        <span class="field-note bad">✗ Not an email address: @string.Join(", ", InvalidTo)</span>
+                    }
+                    else
+                    {
+                        <span class="field-note">One or more addresses, separated by commas.</span>
+                    }
+                </label>
+
+                <label class="check">
+                    <input type="checkbox" @bind="Form.EmailZ" />
+                    Email the Z when the day is closed
+                </label>
+                <span class="field-note">The Z goes as a PDF, plus the CSV when "Save CSV" is ticked on the Reports screen. If the internet is down, it waits and goes later.</span>
+            </section>
+
+            <section class="card">
+                <h2>Mail server <span class="hint">your email provider's sending settings</span></h2>
+
+                <label>
+                    Server
+                    <input @bind="Form.SmtpHost" placeholder="smtp.gmail.com or smtp.office365.com" />
+                </label>
+                <label>
+                    Port
+                    <input type="number" @bind="Form.Port" min="1" max="65535" />
+                    <span class="field-note">587 for Gmail and Microsoft 365.</span>
+                </label>
+                <label class="check">
+                    <input type="checkbox" @bind="Form.UseTls" />
+                    Encrypt (TLS)
+                </label>
+                <label>
+                    User name
+                    <input @bind="Form.UserName" placeholder="the email account that sends" autocomplete="off" />
+                </label>
+                <label>
+                    Password
+                    <input type="password" @bind="Form.Password" autocomplete="new-password" />
+                    <span class="field-note">For Gmail or Microsoft 365, use an app password, not the normal one. It's stored encrypted on this PC.</span>
+                </label>
+                <label>
+                    From address
+                    <input @bind="Form.FromAddress" placeholder="leave empty to use the user name" />
+                </label>
+
+                <div class="test-row">
+                    <button class="chip" disabled="@Busy" @onclick="TestAsync">✉️ Send test email</button>
+                    <span class="field-note">Uses what's on screen, saved or not.</span>
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Outbox <span class="hint">emails waiting to go</span></h2>
+
+                @if (Status.Waiting == 0)
+                {
+                    <span class="field-note ok">✓ Nothing waiting.@(Status.LastSentUtc is { } sent ? $" Last email sent at {sent.ToLocalTime():HH:mm}." : "")</span>
+                }
+                else
+                {
+                    <span class="field-note @(Status.Failing > 0 ? "bad" : "")">
+                        @Status.Waiting waiting@(Status.Failing > 0 ? $", {Status.Failing} not sent yet" : "").
+                        @if (!string.IsNullOrEmpty(Status.LastError))
+                        {
+                            <span> Last problem: @Status.LastError</span>
+                        }
+                    </span>
+                }
+
+                <div class="test-row">
+                    <button class="chip" disabled="@(Busy || Status.Waiting == 0)" @onclick="SendNowAsync">Send now</button>
+                    <button class="link-btn" @onclick="RefreshStatus">Refresh</button>
+                </div>
+            </section>
+
+        </div>
+    </div>
+}
+
+@code {
+    private EmailForm Form = new();
+    private OutboxStatus Status = new(0, 0, null, null);
+    private bool Busy;
+    private string? Message;
+    private bool IsError;
+
+    private IReadOnlyList<string> InvalidTo => EmailAddressList.Parse(Form.ToAddresses).Invalid;
+
+    protected override void OnInitialized()
+    {
+        Form = EmailForm.From(SettingsStore.Load());
+        RefreshStatus();
+    }
+
+    private void RefreshStatus() => Status = Outbox.GetStatus();
+
+    private async Task Save()
+    {
+        var settings = Form.ToSettings();
+        if (Form.EmailZ && !settings.IsComplete)
+        {
+            ShowError("To email the Z, fill in the server, a From address (or user name) and at least one valid Send to address.");
+            return;
+        }
+        if (InvalidTo.Count > 0)
+        {
+            ShowError("Fix the Send to addresses first.");
+            return;
+        }
+
+        try
+        {
+            SettingsStore.Save(settings);
+            ShowInfo("Saved.");
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Email settings saved (email the Z: {(settings.EmailZ ? "on" : "off")})");
+
+            // Anything stuck because email wasn't set up can go now.
+            await Outbox.RetryAllNowAsync();
+            RefreshStatus();
+        }
+        catch (Exception)
+        {
+            ShowError("Could not save the email settings. Details are in the log file.");
+        }
+    }
+
+    private async Task TestAsync()
+    {
+        if (Busy) return;
+
+        Busy = true;
+        Message = "Sending…";
+        IsError = false;
+        try
+        {
+            var result = await Outbox.SendTestAsync(Form.ToSettings());
+            if (result.Succeeded) ShowInfo(result.Message ?? "Test email sent.");
+            else ShowError("Not sent: " + result.Message);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task SendNowAsync()
+    {
+        if (Busy) return;
+
+        Busy = true;
+        try
+        {
+            var sent = await Outbox.RetryAllNowAsync();
+            RefreshStatus();
+            if (Status.Waiting == 0) ShowInfo($"Sent {sent} email(s).");
+            else ShowError($"Sent {sent}, {Status.Waiting} still waiting. {Status.LastError}");
+        }
+        catch (Exception)
+        {
+            ShowError("Could not send. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private void ShowInfo(string text) { Message = text; IsError = false; }
+
+    private void ShowError(string text) { Message = text; IsError = true; }
+
+    /// <summary>The fields on screen; a class so Blazor can bind to them.</summary>
+    private sealed class EmailForm
+    {
+        public string SmtpHost { get; set; } = "";
+        public int Port { get; set; } = 587;
+        public bool UseTls { get; set; } = true;
+        public string UserName { get; set; } = "";
+        public string Password { get; set; } = "";
+        public string FromAddress { get; set; } = "";
+        public string ToAddresses { get; set; } = "";
+        public bool EmailZ { get; set; }
+
+        public static EmailForm From(EmailSettings s) => new()
+        {
+            SmtpHost = s.SmtpHost,
+            Port = s.Port,
+            UseTls = s.UseTls,
+            UserName = s.UserName,
+            Password = s.Password,
+            FromAddress = s.FromAddress,
+            ToAddresses = s.ToAddresses,
+            EmailZ = s.EmailZ
+        };
+
+        public EmailSettings ToSettings() => new()
+        {
+            SmtpHost = SmtpHost.Trim(),
+            Port = Port,
+            UseTls = UseTls,
+            UserName = UserName.Trim(),
+            Password = Password,
+            FromAddress = FromAddress.Trim(),
+            ToAddresses = ToAddresses.Trim(),
+            EmailZ = EmailZ
+        };
+    }
+}

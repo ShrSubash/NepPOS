@@ -1,6 +1,7 @@
 @page "/manage/reports"
 @page "/manage/end-of-day"
 @layout EmptyLayout
+@using NepPOS.Application.Email
 @using NepPOS.Application.Hardware
 @using NepPOS.Application.Journal
 @using NepPOS.Application.Reports
@@ -11,6 +12,8 @@
 @inject ILocalHardwareService Hardware
 @inject IJournal Journal
 @inject IReportFileStore Files
+@inject IEmailSettingsStore EmailSettingsStore
+@inject IEmailOutbox EmailOutbox
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -70,6 +73,7 @@ else
                         Report folder
                         <input placeholder="@DefaultFolderHint" value="@Output.Folder" @onchange='e => SetOutput(Output with { Folder = (e.Value as string ?? "").Trim() })' />
                     </label>
+                    <span class="email-note">✉️ Email the Z: @(EmailSettingsStore.Load().EmailZ ? "on" : "off") <button class="link" @onclick='() => Nav.NavigateTo("/manage/email")'>change</button></span>
                     <button class="option" @onclick="Files.OpenFolder">📂 Open report folder</button>
                 </div>
             </aside>
@@ -439,6 +443,7 @@ else
                 failed |= !await SaveFileAsync(pdf: true, done);
             if (Output.SaveCsvOnZ)
                 failed |= !await SaveFileAsync(pdf: false, done);
+            failed |= !await EmailZAsync(done);
 
             if (failed) ShowError(string.Join(" ", done));
             else ShowInfo(string.Join(" ", done));
@@ -510,16 +515,54 @@ else
     {
         try
         {
-            var content = pdf
-                ? ReportPdf.Build(Report!, SettingsStore.Load().Store)
-                : System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(ReportCsv.Build(Report!))).ToArray();
-            var path = await Files.SaveAsync(ReportTitles.FileName(Report!) + (pdf ? ".pdf" : ".csv"), content);
+            var path = await Files.SaveAsync(ReportTitles.FileName(Report!) + (pdf ? ".pdf" : ".csv"), FileContent(pdf));
             messages.Add($"Saved {Path.GetFileName(path)} to {Path.GetDirectoryName(path)}.");
             return true;
         }
         catch (Exception ex)
         {
             messages.Add($"Couldn't save the {(pdf ? "PDF" : "CSV")}: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>The report as PDF, or as CSV with a UTF-8 marker so Excel shows $ and accents correctly.</summary>
+    private byte[] FileContent(bool pdf) => pdf
+        ? ReportPdf.Build(Report!, SettingsStore.Load().Store)
+        : System.Text.Encoding.UTF8.GetPreamble().Concat(System.Text.Encoding.UTF8.GetBytes(ReportCsv.Build(Report!))).ToArray();
+
+    /// <summary>
+    /// Puts the Z email in the outbox when "Email the Z" is on (Manage → Email). It is sent in the
+    /// background, so a slow or missing internet connection never holds up closing the day.
+    /// </summary>
+    private async Task<bool> EmailZAsync(List<string> messages)
+    {
+        var email = EmailSettingsStore.Load();
+        if (!email.EmailZ)
+            return true;
+
+        var to = EmailAddressList.Parse(email.ToAddresses).Valid;
+        if (to.Count == 0)
+        {
+            messages.Add("Not emailed: no Send to address (Manage → Email).");
+            return false;
+        }
+
+        try
+        {
+            var store = SettingsStore.Load().Store;
+            var name = ReportTitles.FileName(Report!);
+            var attachments = new List<EmailAttachment> { new(name + ".pdf", FileContent(pdf: true)) };
+            if (Output.SaveCsvOnZ)
+                attachments.Add(new(name + ".csv", FileContent(pdf: false)));
+
+            await EmailOutbox.QueueAsync(new EmailMessage(to, ReportEmail.Subject(Report!, store), ReportEmail.Body(Report!, store), attachments));
+            messages.Add($"Emailing to {string.Join(", ", to)}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            messages.Add($"Couldn't email the Z: {ex.Message}");
             return false;
         }
     }

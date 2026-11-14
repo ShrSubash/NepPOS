@@ -569,3 +569,22 @@
         min-height: 38px;
         color: #14162b;
     }
+
+.email-note {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.2rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #14162b;
+}
+
+    .email-note .link {
+        border: none;
+        background: none;
+        color: #6a5cff;
+        font-weight: 600;
+        cursor: pointer;
+        padding: 0;
+    }
