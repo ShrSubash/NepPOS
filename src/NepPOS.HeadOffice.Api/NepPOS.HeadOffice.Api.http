@@ -65,3 +65,19 @@ Authorization: Bearer {{apiKey}}
 ### 7. Registers at the store (shows last seen)
 GET {{host}}/api/v1/admin/stores/{{storeId}}/registers
 X-Admin-Key: {{adminKey}}
+
+### 8. A key for the business's website (shown once)
+POST {{host}}/api/v1/admin/tenants/{{tenantId}}/website-keys
+X-Admin-Key: {{adminKey}}
+Content-Type: application/json
+
+{ "name": "HamroGrocery website" }
+
+### 9. As the website: the business's stores, online or not
+@websiteKey = paste-website-key
+GET {{host}}/api/v1/stores
+Authorization: Bearer {{websiteKey}}
+
+### 10. As the website: one store's sales for some trading days
+GET {{host}}/api/v1/reports/sales?storeId={{storeId}}&from=2026-11-01&to=2026-11-30
+Authorization: Bearer {{websiteKey}}
