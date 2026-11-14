@@ -114,7 +114,7 @@ public sealed class NepPosDbContext : DbContext
 
             // A resend can never create a second copy; the sync worker finds unsent rows fast.
             entity.HasIndex(o => o.EventId).IsUnique();
-            entity.HasIndex(o => o.SentAtUtc);
+            entity.HasIndex(o => new { o.SentAtUtc, o.RejectedAtUtc });
         });
 
         modelBuilder.Entity<ProductVariant>(entity =>

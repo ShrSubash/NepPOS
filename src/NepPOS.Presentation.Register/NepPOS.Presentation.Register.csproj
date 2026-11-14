@@ -54,6 +54,7 @@
       <ProjectReference Include="..\NepPOS.Application\NepPOS.Application.csproj" />
       <ProjectReference Include="..\NepPOS.Domain\NepPOS.Domain.csproj" />
       <ProjectReference Include="..\NepPOS.Infrastructure.Adapters\NepPOS.Infrastructure.Adapters.csproj" />
+      <ProjectReference Include="..\NepPOS.Infrastructure.Integration\NepPOS.Infrastructure.Integration.csproj" />
     </ItemGroup>
 
     <ItemGroup>

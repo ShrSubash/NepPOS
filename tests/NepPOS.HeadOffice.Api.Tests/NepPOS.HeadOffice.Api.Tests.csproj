@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NepPOS.HeadOffice.Api\NepPOS.HeadOffice.Api.csproj" />
+    <ProjectReference Include="..\..\src\NepPOS.Infrastructure.Integration\NepPOS.Infrastructure.Integration.csproj" />
   </ItemGroup>
 
 </Project>

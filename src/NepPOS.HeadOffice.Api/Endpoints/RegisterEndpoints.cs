@@ -33,10 +33,16 @@ public static class RegisterEndpoints
         if (activation is null || activation.UsedUtc is not null || activation.ExpiresUtc < DateTime.UtcNow)
             return Results.Problem("That activation code is wrong, already used or expired. Ask for a new one.", statusCode: 400);
 
+        var store = await db.Stores.AsNoTracking().FirstAsync(s => s.Id == activation.StoreId, ct);
+
+        // Checked before the code is used, so a mix-up doesn't waste it.
+        if (!string.IsNullOrWhiteSpace(request.StoreCode) &&
+            !string.Equals(request.StoreCode.Trim(), store.StoreCode, StringComparison.OrdinalIgnoreCase))
+            return Results.Problem($"This code is for store {store.StoreCode} ({store.Name}), but this register is set up as {request.StoreCode.Trim().ToUpperInvariant()}.", statusCode: 409);
+
         if (await db.Registers.AnyAsync(r => r.StoreId == activation.StoreId && r.RegisterCode == registerCode && !r.IsRevoked, ct))
             return Results.Problem($"{registerCode} is already active at this store. Revoke it first, or use another register code.", statusCode: 409);
 
-        var store = await db.Stores.AsNoTracking().FirstAsync(s => s.Id == activation.StoreId, ct);
         var tenant = await db.Tenants.AsNoTracking().FirstAsync(t => t.Id == activation.TenantId, ct);
 
         var apiKey = Secrets.NewApiKey();

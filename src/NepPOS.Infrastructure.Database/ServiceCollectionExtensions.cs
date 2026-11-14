@@ -3,7 +3,9 @@ using Microsoft.Extensions.DependencyInjection;
 using NepPOS.Application.Abstractions;
 using NepPOS.Application.Journal;
 using NepPOS.Application.Reports;
+using NepPOS.Application.Sync;
 using NepPOS.Infrastructure.Database.Journal;
+using NepPOS.Infrastructure.Database.Outbox;
 using NepPOS.Infrastructure.Database.Reports;
 
 namespace NepPOS.Infrastructure.Database;
@@ -26,6 +28,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISaleTransactionRepository, SaleTransactionRepository>();
         services.AddScoped<IJournal, JournalService>();
         services.AddScoped<IEndOfDayReportService, EndOfDayReportService>();
+        services.AddScoped<IOutboxStore, OutboxStore>();
 
         return services;
     }

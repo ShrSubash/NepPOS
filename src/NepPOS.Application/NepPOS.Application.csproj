@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NepPOS.Domain\NepPOS.Domain.csproj" />
+    <ProjectReference Include="..\NepPOS.Contracts\NepPOS.Contracts.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

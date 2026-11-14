@@ -7,6 +7,7 @@ using NepPOS.Application.Authentication;
 using NepPOS.Application.Catalog;
 using NepPOS.Application.Email;
 using NepPOS.Application.Scanning;
+using NepPOS.Application.Sync;
 using NepPOS.Application.Abstractions;
 using NepPOS.Application.Hardware;
 using NepPOS.Application.Payments;
@@ -14,12 +15,14 @@ using NepPOS.Application.Reports;
 using NepPOS.Infrastructure.Adapters.Email;
 using NepPOS.Infrastructure.Adapters.Hardware;
 using NepPOS.Infrastructure.Adapters.Payments;
+using NepPOS.Infrastructure.Adapters.Sync;
 using NepPOS.Infrastructure.Adapters.Reports;
 using NepPOS.Infrastructure.Database;
 using NepPOS.Infrastructure.Database.Authentication;
 using NepPOS.Infrastructure.Database.Catalog;
 using NepPOS.Infrastructure.Database.Scanning;
 using NepPOS.Infrastructure.Database.Seeding;
+using NepPOS.Infrastructure.Integration.HeadOffice;
 using NepPOS.Presentation.Register.Services;
 
 namespace NepPOS.Presentation.Register;
@@ -117,10 +120,20 @@ public static class MauiProgram
         builder.Services.AddSingleton<FileEmailOutbox>();
         builder.Services.AddSingleton<IEmailOutbox>(sp => sp.GetRequiredService<FileEmailOutbox>());
 
+        // Head Office (Manage → Head Office): the connection with its key encrypted, the HTTP client,
+        // and the background loop that sends the outbox and a heartbeat.
+        builder.Services.AddSingleton<IHeadOfficeConnectionStore, JsonHeadOfficeConnectionStore>();
+        builder.Services.AddSingleton<IHeadOfficeClient>(_ => new HeadOfficeClient(HeadOfficeClient.CreateDefaultHttpClient()));
+        builder.Services.AddScoped<SyncService>();
+        builder.Services.AddSingleton<SyncWorker>();
+
         var app = builder.Build();
 
         // Sends anything left in the email outbox (e.g. a Z emailed while the internet was down).
         app.Services.GetRequiredService<FileEmailOutbox>().Start();
+
+        // Sends anything waiting in the outbox once this register is connected to Head Office.
+        app.Services.GetRequiredService<SyncWorker>().Start();
 
         // Apply pending migrations and seed test data on startup.
         // CreateMauiApp() is synchronous, so block on the async work here
