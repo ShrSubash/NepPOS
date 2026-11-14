@@ -11,6 +11,9 @@ public static class SyncEventTypes
 
     /// <summary>Something was written to a register's journal: sign-in, void, no sale, Z… Payload: <see cref="JournalRecordedV1"/>.</summary>
     public const string JournalRecorded = "journal.recorded";
+
+    /// <summary>A product was added, edited or deactivated at a register. Payload: <see cref="ProductChangedV1"/>.</summary>
+    public const string ProductChanged = "product.changed";
 }
 
 /// <summary>
@@ -77,6 +80,34 @@ public sealed record JournalRecordedV1(
 {
     public const int Version = 1;
 }
+
+/// <summary>
+/// Version 1 of <c>product.changed</c>: the whole product as it is now, not just what changed, so the
+/// latest event is always enough. <paramref name="ProductId"/> is the product's id across systems
+/// (the register's own number stays local). Prices are AUD inc GST. Cost price is never sent.
+/// </summary>
+public sealed record ProductChangedV1(
+    Guid ProductId,
+    string Name,
+    string Category,
+    decimal Price,
+    string? Barcode,
+    string? Plu,
+    bool EnableOnWebsite,
+    bool IsActive,
+    IReadOnlyList<ProductVariantV1> Variants)
+{
+    public const int Version = 1;
+}
+
+/// <summary>An extra pack size of a product (six-pack, carton…), with its own barcode and price.</summary>
+public sealed record ProductVariantV1(
+    string PackType,
+    string? Barcode,
+    string? Plu,
+    int UnitQuantity,
+    decimal Price,
+    bool IsActive);
 
 /// <summary>The one JSON format for every event: camelCase names, enums as text.</summary>
 public static class SyncJson

@@ -46,12 +46,15 @@ builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// A SQLite file is created on first run. SQL Server uses migrations (added when Head Office is deployed).
+// A SQLite file is created on first run, and gets any tables added since. SQL Server uses migrations (added when Head Office is deployed).
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<HeadOfficeDbContext>();
     if (db.Database.IsSqlite())
+    {
         db.Database.EnsureCreated();
+        SqliteDevSchema.AddMissingTables(db, app.Logger);
+    }
     else
         db.Database.Migrate();
 }

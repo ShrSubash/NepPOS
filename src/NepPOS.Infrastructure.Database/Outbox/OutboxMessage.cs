@@ -101,6 +101,33 @@ public sealed class OutboxMessage
             entry.StoreId, entry.RegisterId, entry.OccurredAtUtc, JsonSerializer.Serialize(payload, SyncJson.Options));
     }
 
+    /// <summary>The <c>product.changed</c> event: the whole product as it is now, with its pack sizes.</summary>
+    public static OutboxMessage ProductChanged(Product product, IEnumerable<ProductVariant> variants, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        ArgumentNullException.ThrowIfNull(variants);
+        if (product.SyncId == Guid.Empty)
+            throw new InvalidOperationException("A product needs a SyncId before it is sent to Head Office.");
+
+        var payload = new ProductChangedV1(
+            product.SyncId,
+            product.Name,
+            product.Category,
+            product.Price,
+            Blank(product.Barcode),
+            Blank(product.Plu),
+            product.EnableOnWebsite,
+            product.IsActive,
+            variants
+                .Select(v => new ProductVariantV1(v.PackType.ToString(), Blank(v.Barcode), Blank(v.Plu), v.UnitQuantity, v.Price, v.IsActive))
+                .ToList());
+
+        return new OutboxMessage(SyncEventTypes.ProductChanged, ProductChangedV1.Version,
+            storeId, registerId, DateTime.UtcNow, JsonSerializer.Serialize(payload, SyncJson.Options));
+
+        static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
     /// <summary>The envelope Head Office receives (integration build step 3 sends it).</summary>
     public SyncEvent ToSyncEvent() => new(
         EventId, Type, Version, StoreId, RegisterId, Id,

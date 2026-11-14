@@ -37,7 +37,9 @@ public sealed record SalesReport(
     IReadOnlyList<HourTotal> Hours,
     IReadOnlyList<NamedTotal> Employees);
 
+/// <param name="Name">Tender, department or employee.</param>
 /// <param name="Count">Transactions for tenders and employees; items for departments.</param>
+/// <param name="Amount">AUD inc GST.</param>
 public sealed record NamedTotal(string Name, int Count, decimal Amount);
 
 public sealed record DayTotal(DateOnly Day, int SaleCount, decimal Amount);
@@ -45,4 +47,6 @@ public sealed record DayTotal(DateOnly Day, int SaleCount, decimal Amount);
 public sealed record ProductSales(string Sku, string Name, int Quantity, decimal Amount);
 
 /// <param name="Hour">0–23, the store's local time.</param>
+/// <param name="SaleCount">Sales started in that hour.</param>
+/// <param name="Amount">AUD inc GST.</param>
 public sealed record HourTotal(int Hour, int SaleCount, decimal Amount);

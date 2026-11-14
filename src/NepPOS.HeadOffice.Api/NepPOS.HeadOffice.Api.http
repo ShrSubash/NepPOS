@@ -81,3 +81,7 @@ Authorization: Bearer {{websiteKey}}
 ### 10. As the website: one store's sales for some trading days
 GET {{host}}/api/v1/reports/sales?storeId={{storeId}}&from=2026-11-01&to=2026-11-30
 Authorization: Bearer {{websiteKey}}
+
+### 11. As the website: the store's products (after=0 is everything; then send "next" as after)
+GET {{host}}/api/v1/catalog/changes?storeId={{storeId}}&after=0
+Authorization: Bearer {{websiteKey}}

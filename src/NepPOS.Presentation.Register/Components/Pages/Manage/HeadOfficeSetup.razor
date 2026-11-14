@@ -2,6 +2,7 @@
 @layout EmptyLayout
 @implements IDisposable
 @using NepPOS.Application.Abstractions
+@using NepPOS.Application.Catalog
 @using NepPOS.Application.Journal
 @using NepPOS.Application.Sync
 @using NepPOS.Contracts.Sync
@@ -11,6 +12,7 @@
 @inject IHeadOfficeConnectionStore Connections
 @inject IHeadOfficeClient HeadOffice
 @inject IOutboxStore Outbox
+@inject IProductManagementService Products
 @inject SyncWorker Worker
 @inject RegisterTerminal Terminal
 @inject IJournal Journal
@@ -141,6 +143,17 @@ else
                         <span class="field-note">Refused events are kept here, not sent again. Details are in the log file.</span>
                     </div>
                 </section>
+
+                <section class="card">
+                    <h2>Products <span class="hint">for the website</span></h2>
+                    <span class="field-note">
+                        Products you add or edit are sent by themselves. Send them all once after connecting,
+                        or after connecting to a different Head Office.
+                    </span>
+                    <div class="test-row">
+                        <button class="chip" disabled="@Busy" @onclick="SendAllProductsAsync">@(Busy ? "Queuing…" : "Send all products")</button>
+                    </div>
+                </section>
             }
         </div>
     </div>
@@ -233,6 +246,28 @@ else
         await Task.Delay(1500);
         await RefreshCountsAsync();
         Message = null;
+    }
+
+    private async Task SendAllProductsAsync()
+    {
+        if (Busy) return;
+        Busy = true;
+        try
+        {
+            var count = await Products.SendAllToHeadOfficeAsync();
+            await Journal.WriteAsync(JournalEventType.SettingsChanged, $"Sent all products to Head Office ({count})");
+            Worker.SendNow();
+            await RefreshCountsAsync();
+            ShowInfo($"{count} products queued. They go in the background; \"Waiting to send\" counts down.");
+        }
+        catch (Exception)
+        {
+            ShowError("Couldn't queue the products. Details are in the log file.");
+        }
+        finally
+        {
+            Busy = false;
+        }
     }
 
     private void ShowInfo(string text) { Message = text; IsError = false; }
