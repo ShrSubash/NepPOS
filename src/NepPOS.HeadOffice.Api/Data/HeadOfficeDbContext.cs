@@ -18,6 +18,7 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<Register> Registers => Set<Register>();
     public DbSet<ActivationCode> ActivationCodes => Set<ActivationCode>();
     public DbSet<ReceivedEvent> ReceivedEvents => Set<ReceivedEvent>();
+    public DbSet<WebsiteKey> WebsiteKeys => Set<WebsiteKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -32,6 +33,7 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.HasKey(s => s.Id);
             entity.Property(s => s.StoreCode).IsRequired().HasMaxLength(50);
             entity.Property(s => s.Name).IsRequired().HasMaxLength(200);
+            entity.Property(s => s.TimeZoneId).IsRequired().HasMaxLength(64);
             entity.HasOne<Tenant>().WithMany().HasForeignKey(s => s.TenantId).OnDelete(DeleteBehavior.Restrict);
 
             // "STORE-001" can exist in two businesses, but only once in each.
@@ -57,6 +59,16 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.Property(a => a.CodeHash).IsRequired().HasMaxLength(64);
             entity.HasOne<Store>().WithMany().HasForeignKey(a => a.StoreId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(a => a.CodeHash).IsUnique();
+        });
+
+        modelBuilder.Entity<WebsiteKey>(entity =>
+        {
+            entity.HasKey(k => k.Id);
+            entity.Property(k => k.Name).IsRequired().HasMaxLength(100);
+            entity.Property(k => k.ApiKeyHash).IsRequired().HasMaxLength(64);
+            entity.Property(k => k.ApiKeyPrefix).IsRequired().HasMaxLength(12);
+            entity.HasOne<Tenant>().WithMany().HasForeignKey(k => k.TenantId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(k => k.ApiKeyHash).IsUnique();
         });
 
         modelBuilder.Entity<ReceivedEvent>(entity =>
@@ -104,6 +116,10 @@ public sealed class Store
     public Guid TenantId { get; set; }
     public string StoreCode { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// <summary>Where the store is, for "today" and opening hours in reports (IANA id, e.g. Australia/Perth).</summary>
+    public string TimeZoneId { get; set; } = "Australia/Sydney";
+
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 }
 
@@ -155,4 +171,20 @@ public sealed class ReceivedEvent
     public DateTime OccurredAtUtc { get; set; }
     public string Payload { get; set; } = "";
     public DateTime ReceivedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// A key a business's website (or another sales channel) uses to read that business's reports.
+/// It can't send events or see any other business. Only its hash is stored.
+/// </summary>
+public sealed class WebsiteKey
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+    public Guid TenantId { get; set; }
+    public string Name { get; set; } = "";
+    public string ApiKeyHash { get; set; } = "";
+    public string ApiKeyPrefix { get; set; } = "";
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+    public DateTime? LastUsedUtc { get; set; }
+    public bool IsRevoked { get; set; }
 }

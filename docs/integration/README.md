@@ -121,7 +121,8 @@ There is one versioned REST API (`/api/v1`) on Head Office. The store and the we
 | Website | `POST /api/v1/orders` | Send a paid order. `Idempotency-Key` header = the website's order GUID |
 | Website | `GET /api/v1/catalog/changes?cursor=` | Products and prices to show (web content stays on the website) |
 | Website | `GET /api/v1/stock?storeId=` | Stock on hand per product, for a full refresh |
-| Website | `GET /api/v1/reports/sales?storeId=&from=&to=&groupBy=` | Store sales for the admin area: `day`, `department`, `product`, `hour`, `employee` |
+| Website | `GET /api/v1/stores` | The business's stores: online (heartbeat in the last 10 minutes), last seen, last sale |
+| Website | `GET /api/v1/reports/sales?storeId=&from=&to=` | One store's sales for trading days `from`–`to` (5 am cut-off, store's time zone): totals, tenders, and by day, department, product, hour and employee. Types: `NepPOS.Contracts.Reports` |
 | Website | `GET /api/v1/members/{id}/points` and `POST .../points/redeem` | Balance, and a redemption held for an order |
 | Head Office → website | Webhooks `order.status_changed`, `stock.changed`, `product.changed` | Push changes; retried with back-off until the website answers 2xx |
 
@@ -150,6 +151,7 @@ Card data never leaves Stripe and the EFTPOS terminal, the store never opens a p
 
 **Security**
 
+- A business's website gets a website key (`nwk_…`) from the admin endpoints. It can only read that business's stores and reports; a register key (`npk_…`) can't read reports, and a website key can't send events.
 - Each register gets its own API key from a one-time activation code ([ADR 0002](../adr/0002-register-api-keys.md)). The key alone decides which business, store and register is calling, so a stolen key can't read or write another store's data, and it can be revoked on its own. The website gets its own key when it connects.
 - HTTPS only. Webhooks carry an HMAC-SHA256 signature and a timestamp; the website rejects anything unsigned or more than 5 minutes old.
 - Stripe stays on the website, so Head Office and NepPOS stay out of card-data (PCI) scope, as they are today with EFTPOS.
@@ -176,12 +178,12 @@ The build runs in eight steps, each small enough to merge and test on its own. O
 | --- | --- | --- | --- |
 | 1 | **Outbox in NepPOS**: `OutboxMessages`, written in the same transaction as each sale and journal line | NepPOS | Done (PR #25) |
 | 2 | **Head Office API**: tenants, stores, registers; one-time activation codes and per-register API keys; `sync/events` (each event stored once) and heartbeat | NepPOS | Done (PR #26) |
-| 3 | **Store sync worker**: register activation screen, background push of the outbox, heartbeat, with back-off | NepPOS | Unplug the network, make 20 sales, plug in: all 20 arrive, in order |
+| 3 | **Store sync worker**: register activation screen, background push of the outbox, heartbeat, with back-off | NepPOS | Done (PR #27) |
 | 4 | **Shared contracts package**: `NepPOS.Contracts` published to GitHub Packages | NepPOS | HamroGrocery builds against the package |
 | 5 | **Connect to NepPOS in HamroGrocery**: settings page, off by default; the website works exactly as before until it's on | HamroGrocery | Switching it on and off changes nothing for a web-only shop |
 | 6 | **Catalog link** (when connected): product GUIDs, `ExternalId` columns, barcode/SKU matching, catalog and stock webhooks | Both | A price changed at Head Office shows on the POS and the website |
 | 7 | **Online orders end to end**: Online orders panel on the POS, tender Online (prepaid), status webhooks and emails | Both | A test order goes from checkout to handover, with a Z that counts it |
-| 8 | **Store sales on the website**: Head Office reporting API, Store sales section in the website admin | Both | The admin page matches the register's Reports screen for the same day |
+| 8 | **Store sales on the website** (brought forward, built next): website keys, `GET /api/v1/stores` and `GET /api/v1/reports/sales` in Head Office; *Connect to NepPOS* and a Store sales page in the website admin | Both | The admin page matches the register's Reports screen for the same day |
 | 9 | **Customers and points**: members, points ledger, points at the till and online | Both | Points earned in store show online within a minute, and the reverse |
 
 Later, only if the business needs it: a multi-tenant website, Stripe Connect, a platform portal with subscriptions.

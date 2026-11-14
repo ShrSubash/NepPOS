@@ -22,10 +22,16 @@ builder.Services.AddDbContext<HeadOfficeDbContext>((services, options) =>
         options.UseSqlite(connectionString);
 });
 
-// ---- Sign-in: registers use their API key; admin endpoints check X-Admin-Key ----
+// ---- Sign-in: registers and websites use their own kinds of key; admin endpoints check X-Admin-Key ----
 builder.Services.AddAuthentication(RegisterApiKeyHandler.Scheme)
-    .AddScheme<AuthenticationSchemeOptions, RegisterApiKeyHandler>(RegisterApiKeyHandler.Scheme, _ => { });
-builder.Services.AddAuthorization();
+    .AddScheme<AuthenticationSchemeOptions, RegisterApiKeyHandler>(RegisterApiKeyHandler.Scheme, _ => { })
+    .AddScheme<AuthenticationSchemeOptions, WebsiteApiKeyHandler>(WebsiteApiKeyHandler.Scheme, _ => { });
+
+// Register endpoints use the default (register key); website endpoints accept only a website key.
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy(WebsiteApiKeyHandler.Policy, policy => policy
+        .AddAuthenticationSchemes(WebsiteApiKeyHandler.Scheme)
+        .RequireClaim(WebsiteApiKeyHandler.WebsiteKeyIdClaim));
 builder.Services.AddScoped<AdminKeyFilter>();
 
 // Same JSON as the events themselves (camelCase, enums as text).
@@ -61,6 +67,7 @@ app.MapOpenApi();
 app.MapGet("/health", () => Results.Ok(new { status = "ok", timeUtc = DateTime.UtcNow })).WithTags("Health");
 app.MapAdminEndpoints();
 app.MapRegisterEndpoints();
+app.MapWebsiteEndpoints();
 
 app.Run();
 

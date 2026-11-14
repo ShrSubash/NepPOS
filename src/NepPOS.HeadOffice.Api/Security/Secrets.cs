@@ -22,9 +22,14 @@ public static class Secrets
     public static string NormaliseCode(string code) =>
         new string((code ?? "").Where(char.IsLetterOrDigit).Select(char.ToUpperInvariant).ToArray());
 
-    /// <summary>"npk_" + 256 random bits. Shown once; only its hash is stored.</summary>
-    public static string NewApiKey() =>
-        "npk_" + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+    /// <summary>A register's key: "npk_" + 256 random bits. Shown once; only its hash is stored.</summary>
+    public static string NewApiKey() => NewKey("npk_");
+
+    /// <summary>A website's key: "nwk_" + 256 random bits, so the two kinds can never be mixed up.</summary>
+    public static string NewWebsiteKey() => NewKey("nwk_");
+
+    private static string NewKey(string prefix) =>
+        prefix + Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     /// <summary>
