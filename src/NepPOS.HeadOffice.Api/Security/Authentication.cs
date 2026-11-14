@@ -13,7 +13,7 @@ namespace NepPOS.HeadOffice.Api.Security;
 /// </summary>
 public sealed class RegisterApiKeyHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
-    public const string Scheme = "RegisterApiKey";
+    public new const string Scheme = "RegisterApiKey";
 
     public RegisterApiKeyHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
         : base(options, logger, encoder)
@@ -106,7 +106,7 @@ public sealed class AdminKeyFilter : IEndpointFilter
 /// </summary>
 public sealed class WebsiteApiKeyHandler : AuthenticationHandler<AuthenticationSchemeOptions>
 {
-    public const string Scheme = "WebsiteApiKey";
+    public new const string Scheme = "WebsiteApiKey";
     public const string Policy = "Website";
     public const string TenantIdClaim = "tenant_id";
     public const string WebsiteKeyIdClaim = "website_key_id";

@@ -120,6 +120,9 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<decimal>("StockOnHand")
                         .HasColumnType("TEXT");
 
+                    b.Property<Guid>("SyncId")
+                        .HasColumnType("TEXT");
+
                     b.HasKey("Id");
 
                     b.ToTable("Products");

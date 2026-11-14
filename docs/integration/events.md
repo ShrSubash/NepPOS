@@ -108,6 +108,55 @@ A line was written to the register's journal: sign-in and out, voids, removed li
 }
 ```
 
+## `product.changed` (version 1)
+
+A product was added, edited or deactivated at a register (Manage → PLU), or the owner pressed **Send all products** on the Head Office screen. The payload is the **whole product as it is now**, so the newest event is always enough. Cost price is never sent.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `productId` | GUID | The product's id in every system (`Product.SyncId` on the register; the register's own number stays local) |
+| `name`, `category` | text | Name and department |
+| `price` | number | Shelf price, AUD inc GST |
+| `barcode`, `plu` | text | Main barcode and PLU, `null` when blank |
+| `enableOnWebsite` | true/false | The register's "Enable on website" tick, a hint only: the website decides what it shows |
+| `isActive` | true/false | `false` = deactivated at the register; stop selling it online too |
+| `variants` | list | Other pack sizes: `packType` (`Single`, `Pack`, `SplitCase`, `SplitCase2`, `FullCase`), `barcode`, `plu`, `unitQuantity`, `price`, `isActive` |
+
+```json
+{
+  "eventId": "5d2e8f1a-3b4c-4d5e-9f60-718293a4b5c6",
+  "type": "product.changed",
+  "version": 1,
+  "storeId": "STORE-001",
+  "registerId": "REG-001",
+  "sequence": 1844,
+  "occurredAtUtc": "2026-11-14T13:05:00Z",
+  "payload": {
+    "productId": "8f14e45f-ceea-4672-a4c8-1f0b6c2d3e4a",
+    "name": "Heineken 6-Pack",
+    "category": "Beer",
+    "price": 23.50,
+    "barcode": "9300000000011",
+    "plu": "101",
+    "enableOnWebsite": true,
+    "isActive": true,
+    "variants": [
+      { "packType": "FullCase", "barcode": "9300000000099", "plu": null, "unitQuantity": 24, "price": 65.00, "isActive": true }
+    ]
+  }
+}
+```
+
+Head Office keeps the latest copy per store (`CatalogItems`). A change that is older than the one it holds (it arrived late) is stored as an event but doesn't overwrite the newer product. A product with no `productId` or name, a negative price, or a field that is too long is rejected.
+
+The website reads the catalog with `GET /api/v1/catalog/changes?storeId=…&after=N` (website key):
+
+- returns products changed after change number `N`, oldest first, up to 500 (`limit`, max 1000);
+- keep `next` and send it as `after` next time; while `more` is true, ask again straight away;
+- `after=0` returns the whole catalog. Asking again from an older number is harmless: apply products by `productId`.
+
+Types: `NepPOS.Contracts.Catalog` (`CatalogChanges`, `CatalogProduct`).
+
 ## How Head Office answers
 
 `POST /api/v1/sync/events` takes up to 500 events (`{"events":[…]}`) and answers, per event:

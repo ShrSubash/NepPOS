@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Contracts.Sync;
+using NepPOS.HeadOffice.Api.Catalog;
 using NepPOS.HeadOffice.Api.Data;
 using NepPOS.HeadOffice.Api.Security;
 
@@ -76,6 +77,7 @@ public static class RegisterEndpoints
         var accepted = new List<Guid>();
         var duplicates = new List<Guid>();
         var rejected = new List<RejectedEvent>();
+        var productChanges = new List<(ReceivedEvent Row, ProductChangedV1 Product)>();
 
         var eventIds = events.Select(e => e.EventId).Distinct().ToList();
         var sequences = events.Select(e => e.Sequence).Distinct().ToList();
@@ -101,6 +103,9 @@ public static class RegisterEndpoints
                 continue;
             }
 
+            ProductChangedV1? product = null;
+            var productProblem = e.Type == SyncEventTypes.ProductChanged ? CatalogProjection.Read(e, out product) : null;
+
             var problem = e switch
             {
                 _ when e.EventId == Guid.Empty => "Missing eventId.",
@@ -111,6 +116,7 @@ public static class RegisterEndpoints
                 _ when e.Sequence < 1 => "Sequence must be 1 or more.",
                 _ when e.Payload.ValueKind != System.Text.Json.JsonValueKind.Object => "Payload must be a JSON object.",
                 _ when usedSequences.Contains(e.Sequence) => $"Sequence {e.Sequence} is already used by a different event from this register.",
+                _ when productProblem is not null => productProblem,
                 _ => null
             };
             if (problem is not null)
@@ -119,7 +125,7 @@ public static class RegisterEndpoints
                 continue;
             }
 
-            db.ReceivedEvents.Add(new ReceivedEvent
+            var row = new ReceivedEvent
             {
                 EventId = e.EventId,
                 TenantId = caller.TenantId,
@@ -130,12 +136,17 @@ public static class RegisterEndpoints
                 Sequence = e.Sequence,
                 OccurredAtUtc = DateTime.SpecifyKind(e.OccurredAtUtc, DateTimeKind.Utc),
                 Payload = e.Payload.GetRawText()
-            });
+            };
+            db.ReceivedEvents.Add(row);
+            if (product is not null)
+                productChanges.Add((row, product));
             usedSequences.Add(e.Sequence);
             known.Add(new { e.EventId, caller.RegisterId });
             accepted.Add(e.EventId);
         }
 
+        // The store's catalog changes in the same save as the events, so it can't fall behind them.
+        await CatalogProjection.ApplyAsync(db, caller, productChanges, ct);
         await db.SaveChangesAsync(ct);
 
         var lastSequence = await db.ReceivedEvents.AsNoTracking()

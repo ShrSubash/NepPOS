@@ -15,4 +15,7 @@ public interface IProductManagementService
     Task<Product> CreateAsync(Product product);
     Task UpdateAsync(Product product);
     Task DeactivateAsync(int id);
+
+    /// <summary>Queues every product for Head Office (first connection). Returns how many.</summary>
+    Task<int> SendAllToHeadOfficeAsync();
 }

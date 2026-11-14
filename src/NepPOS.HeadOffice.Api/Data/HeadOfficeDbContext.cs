@@ -19,6 +19,7 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<ActivationCode> ActivationCodes => Set<ActivationCode>();
     public DbSet<ReceivedEvent> ReceivedEvents => Set<ReceivedEvent>();
     public DbSet<WebsiteKey> WebsiteKeys => Set<WebsiteKey>();
+    public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -82,6 +83,22 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.HasIndex(e => e.EventId).IsUnique();
             entity.HasIndex(e => new { e.RegisterId, e.Sequence }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.StoreId, e.OccurredAtUtc });
+        });
+
+        modelBuilder.Entity<CatalogItem>(entity =>
+        {
+            entity.HasKey(c => new { c.StoreId, c.ProductId });
+            entity.Property(c => c.Name).IsRequired().HasMaxLength(200);
+            entity.Property(c => c.Category).IsRequired().HasMaxLength(100);
+            entity.Property(c => c.Barcode).HasMaxLength(50);
+            entity.Property(c => c.Plu).HasMaxLength(50);
+            entity.Property(c => c.Price).HasPrecision(18, 2);
+            entity.Property(c => c.VariantsJson).IsRequired();
+            entity.HasOne<Store>().WithMany().HasForeignKey(c => c.StoreId).OnDelete(DeleteBehavior.Restrict);
+
+            // The event that last changed it: its database id is the catalog's change number.
+            entity.HasOne(c => c.LastEvent).WithMany().HasForeignKey(c => c.LastEventId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(c => new { c.StoreId, c.LastEventId });
         });
 
         // Every time here is UTC. SQLite forgets that when it reads a time back, which would make
@@ -187,4 +204,32 @@ public sealed class WebsiteKey
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? LastUsedUtc { get; set; }
     public bool IsRevoked { get; set; }
+}
+
+/// <summary>
+/// The latest copy of one product at one store, from the newest <c>product.changed</c> its registers sent.
+/// The events themselves stay in <see cref="ReceivedEvent"/>; this is what the website reads.
+/// </summary>
+public sealed class CatalogItem
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+    public Guid ProductId { get; set; }
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
+    public decimal Price { get; set; }
+    public string? Barcode { get; set; }
+    public string? Plu { get; set; }
+    public bool EnableOnWebsite { get; set; }
+    public bool IsActive { get; set; }
+
+    /// <summary>Pack sizes as JSON (a list of ProductVariantV1).</summary>
+    public string VariantsJson { get; set; } = "[]";
+
+    /// <summary>When the register made the change. An older event arriving late doesn't undo a newer one.</summary>
+    public DateTime ChangedAtUtc { get; set; }
+
+    /// <summary>The <see cref="ReceivedEvent"/> that last changed it. Counts up, so the website asks "after N".</summary>
+    public long LastEventId { get; set; }
+    public ReceivedEvent LastEvent { get; set; } = null!;
 }

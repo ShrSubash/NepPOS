@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NepPOS.Contracts.Catalog;
 using NepPOS.Contracts.Reports;
 using NepPOS.Contracts.Sync;
+using NepPOS.HeadOffice.Api.Catalog;
 using NepPOS.HeadOffice.Api.Data;
 using NepPOS.HeadOffice.Api.Reports;
 using NepPOS.HeadOffice.Api.Security;
@@ -24,6 +26,7 @@ public static class WebsiteEndpoints
         var website = app.MapGroup("/api/v1").RequireAuthorization(WebsiteApiKeyHandler.Policy).WithTags("Website");
         website.MapGet("/stores", GetStoresAsync);
         website.MapGet("/reports/sales", GetSalesAsync);
+        website.MapGet("/catalog/changes", GetCatalogChangesAsync);
     }
 
     internal static async Task<IResult> GetStoresAsync(HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
@@ -82,5 +85,30 @@ public static class WebsiteEndpoints
             .ToList();
 
         return Results.Ok(SalesReportBuilder.Build(store.Id, store.StoreCode, store.Name, from, to, sales, zone));
+    }
+
+    /// <summary>
+    /// A store's products changed after <paramref name="after"/> (a change number), oldest first.
+    /// <c>after=0</c> gives the whole catalog. Inactive products are included, so the website can stop selling them.
+    /// </summary>
+    internal static async Task<IResult> GetCatalogChangesAsync(Guid storeId, long? after, int? limit, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var tenantId = WebsiteApiKeyHandler.TenantOf(http.User);
+        if (!await db.Stores.AsNoTracking().AnyAsync(s => s.Id == storeId && s.TenantId == tenantId, ct))
+            return Results.NotFound();
+
+        var from = Math.Max(0, after ?? 0);
+        var take = Math.Clamp(limit ?? CatalogChanges.DefaultLimit, 1, CatalogChanges.MaxLimit);
+
+        // One extra row tells us whether there is more without a second query.
+        var rows = await db.CatalogItems.AsNoTracking()
+            .Where(c => c.StoreId == storeId && c.TenantId == tenantId && c.LastEventId > from)
+            .OrderBy(c => c.LastEventId)
+            .Take(take + 1)
+            .ToListAsync(ct);
+
+        var more = rows.Count > take;
+        var page = rows.Take(take).Select(CatalogProjection.ToContract).ToList();
+        return Results.Ok(new CatalogChanges(page, page.Count > 0 ? page[^1].ChangeNumber : from, more));
     }
 }
