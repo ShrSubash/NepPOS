@@ -86,3 +86,36 @@ public static class SyncJson
         Converters = { new JsonStringEnumConverter() }
     };
 }
+
+// ---- Head Office API: register activation, sending events, heartbeat (docs/integration/README.md) ----
+
+/// <summary>POST /api/v1/activate: a one-time code from Head Office turns a PC into a register of one store.</summary>
+public sealed record ActivateRequest(string Code, string RegisterCode, string? DeviceName);
+
+/// <summary>
+/// The register keeps <paramref name="ApiKey"/> (encrypted) and sends it as "Authorization: Bearer …".
+/// It is shown only this once.
+/// </summary>
+public sealed record ActivateResponse(Guid TenantId, string TenantName, Guid StoreId, string StoreCode, string StoreName, string RegisterCode, string ApiKey);
+
+/// <summary>POST /api/v1/sync/events: up to <see cref="MaxEvents"/> outbox events, oldest first.</summary>
+public sealed record SyncEventsRequest(IReadOnlyList<SyncEvent> Events)
+{
+    public const int MaxEvents = 500;
+}
+
+/// <summary>
+/// What happened to each event. Accepted and Duplicate both mean "Head Office has it": the register
+/// marks those sent. A rejected event stays in the outbox with the reason, for a person to look at.
+/// <paramref name="LastSequence"/> is the highest sequence Head Office holds for this register.
+/// </summary>
+public sealed record SyncEventsResponse(
+    IReadOnlyList<Guid> Accepted,
+    IReadOnlyList<Guid> Duplicates,
+    IReadOnlyList<RejectedEvent> Rejected,
+    long LastSequence);
+
+public sealed record RejectedEvent(Guid EventId, string Reason);
+
+/// <summary>POST /api/v1/heartbeat, every minute: tells Head Office (and later the website) the register is online.</summary>
+public sealed record HeartbeatResponse(DateTime ServerTimeUtc);

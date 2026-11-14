@@ -482,3 +482,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Local Head Office database (SQLite) on a developer PC
+src/NepPOS.HeadOffice.Api/headoffice.db*
