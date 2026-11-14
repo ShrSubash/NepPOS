@@ -4,6 +4,7 @@ using NepPOS.Application.Abstractions;
 using NepPOS.Application.Journal;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
+using NepPOS.Infrastructure.Database.Outbox;
 
 namespace NepPOS.Infrastructure.Database.Journal;
 
@@ -51,7 +52,7 @@ public sealed class JournalService : IJournal
                 .Where(j => j.StoreId == _terminal.StoreId && j.RegisterId == _terminal.RegisterId)
                 .MaxAsync(j => (long?)j.Sequence, cancellationToken) ?? 0;
 
-            db.JournalEntries.Add(new JournalEntry(
+            var entry = new JournalEntry(
                 lastSequence + 1,
                 _terminal.StoreId,
                 _terminal.RegisterId,
@@ -61,7 +62,11 @@ public sealed class JournalService : IJournal
                 detail,
                 saleId,
                 invoiceNumber,
-                amount));
+                amount);
+
+            // Saved together: the journal line and its Head Office event.
+            db.JournalEntries.Add(entry);
+            db.OutboxMessages.Add(OutboxMessage.JournalRecorded(entry));
 
             await db.SaveChangesAsync(cancellationToken);
         }
