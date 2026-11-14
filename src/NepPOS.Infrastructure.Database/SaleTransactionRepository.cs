@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Abstractions;
 using NepPOS.Domain.Entities;
+using NepPOS.Infrastructure.Database.Outbox;
 
 namespace NepPOS.Infrastructure.Database;
 
@@ -23,6 +24,11 @@ public sealed class SaleTransactionRepository : ISaleTransactionRepository
         ArgumentNullException.ThrowIfNull(saleTransaction);
 
         await _dbContext.SaleTransactions.AddAsync(saleTransaction, cancellationToken);
+
+        // Same SaveChanges = same transaction: the sale and its Head Office event are saved together or not at all.
+        if (saleTransaction.Status == SaleTransactionStatus.Completed)
+            _dbContext.OutboxMessages.Add(OutboxMessage.SaleCompleted(saleTransaction));
+
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 

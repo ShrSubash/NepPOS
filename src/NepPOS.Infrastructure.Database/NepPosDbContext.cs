@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Domain.Entities;
+using NepPOS.Infrastructure.Database.Outbox;
 
 namespace NepPOS.Infrastructure.Database;
 
@@ -16,6 +17,7 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     public NepPosDbContext(DbContextOptions<NepPosDbContext> options) : base(options)
     {
@@ -93,6 +95,26 @@ public sealed class NepPosDbContext : DbContext
             // One gapless sequence per register, enforced by the database.
             entity.HasIndex(j => new { j.StoreId, j.RegisterId, j.Sequence }).IsUnique();
             entity.HasIndex(j => j.OccurredAtUtc);
+        });
+
+        modelBuilder.Entity<OutboxMessage>(entity =>
+        {
+            // Id is the SQLite row number: assigned on insert, never reused (rows are never deleted).
+            entity.HasKey(o => o.Id);
+            entity.Property(o => o.Id).ValueGeneratedOnAdd();
+            entity.Property(o => o.Type).IsRequired().HasMaxLength(50);
+            entity.Property(o => o.StoreId).IsRequired().HasMaxLength(50);
+            entity.Property(o => o.RegisterId).IsRequired().HasMaxLength(50);
+            entity.Property(o => o.Payload).IsRequired();
+            entity.Property(o => o.LastError).HasMaxLength(500);
+
+            // SQLite returns DateTime without a Kind; everything here is stored as UTC.
+            entity.Property(o => o.OccurredAtUtc)
+                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            // A resend can never create a second copy; the sync worker finds unsent rows fast.
+            entity.HasIndex(o => o.EventId).IsUnique();
+            entity.HasIndex(o => o.SentAtUtc);
         });
 
         modelBuilder.Entity<ProductVariant>(entity =>
