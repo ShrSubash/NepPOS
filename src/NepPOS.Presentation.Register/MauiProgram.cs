@@ -5,11 +5,13 @@ using Serilog;
 using Serilog.Events;
 using NepPOS.Application.Authentication;
 using NepPOS.Application.Catalog;
+using NepPOS.Application.Email;
 using NepPOS.Application.Scanning;
 using NepPOS.Application.Abstractions;
 using NepPOS.Application.Hardware;
 using NepPOS.Application.Payments;
 using NepPOS.Application.Reports;
+using NepPOS.Infrastructure.Adapters.Email;
 using NepPOS.Infrastructure.Adapters.Hardware;
 using NepPOS.Infrastructure.Adapters.Payments;
 using NepPOS.Infrastructure.Adapters.Reports;
@@ -110,7 +112,15 @@ public static class MauiProgram
         // Saved report files (PDF / CSV) - Manage → Reports & End of Day.
         builder.Services.AddSingleton<IReportFileStore, LocalReportFileStore>();
 
+        // Email (Manage → Email): settings with the password encrypted, and an outbox that sends in the background.
+        builder.Services.AddSingleton<IEmailSettingsStore, JsonEmailSettingsStore>();
+        builder.Services.AddSingleton<FileEmailOutbox>();
+        builder.Services.AddSingleton<IEmailOutbox>(sp => sp.GetRequiredService<FileEmailOutbox>());
+
         var app = builder.Build();
+
+        // Sends anything left in the email outbox (e.g. a Z emailed while the internet was down).
+        app.Services.GetRequiredService<FileEmailOutbox>().Start();
 
         // Apply pending migrations and seed test data on startup.
         // CreateMauiApp() is synchronous, so block on the async work here
