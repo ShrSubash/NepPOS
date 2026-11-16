@@ -1,5 +1,5 @@
 @page "/manage/head-office"
-@layout EmptyLayout
+@layout ManageLayout
 @implements IDisposable
 @using NepPOS.Application.Abstractions
 @using NepPOS.Application.Catalog
@@ -30,7 +30,6 @@ else
 {
     <div class="settings-shell">
         <div class="settings-topbar">
-            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
             <span class="brand-text">Head Office</span>
         </div>
 

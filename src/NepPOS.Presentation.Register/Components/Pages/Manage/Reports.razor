@@ -1,6 +1,6 @@
 @page "/manage/reports"
 @page "/manage/end-of-day"
-@layout EmptyLayout
+@layout ManageLayout
 @using NepPOS.Application.Email
 @using NepPOS.Application.Hardware
 @using NepPOS.Application.Journal
@@ -28,7 +28,6 @@ else
 {
     <div class="rpt-shell">
         <div class="rpt-topbar">
-            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
             <span class="brand-text">Reports &amp; End of Day</span>
             <button class="top-print" disabled="@(Busy || Document is null)" @onclick="PrintAsync">🖨️ Print</button>
             <button class="top-save" disabled="@(Busy || Report is null)" @onclick="() => SaveAsync(pdf: true)">📄 Save PDF</button>

@@ -1,0 +1,333 @@
+/* Manage: one settings screen. Sidebar (grouped) + the page. Touch-sized targets (44px+). */
+
+.mg-shell {
+    --mg-ink: #14162b;
+    --mg-muted: #6b7090;
+    --mg-line: #e6e8f0;
+    --mg-bg: #f4f5f9;
+    --mg-accent: #4f46e5;
+    --mg-accent-soft: #eef0ff;
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    height: 100vh;
+    background: var(--mg-bg);
+    color: var(--mg-ink);
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+/* ---- Sidebar ---- */
+
+.mg-sidebar {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #fff;
+    border-right: 1px solid var(--mg-line);
+}
+
+.mg-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.25rem 1.25rem 1rem;
+}
+
+.mg-logo {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    background: var(--mg-ink);
+    color: #fff;
+    font-weight: 800;
+    font-size: 1.1rem;
+}
+
+.mg-brand-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.15;
+}
+
+    .mg-brand-text small {
+        color: var(--mg-muted);
+        font-size: 0.8rem;
+    }
+
+.mg-nav {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 0.25rem 0.75rem 1rem;
+}
+
+.mg-group {
+    margin: 1.1rem 0.75rem 0.35rem;
+    color: var(--mg-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.mg-link {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    min-height: 44px;
+    padding: 0.55rem 0.75rem;
+    margin: 1px 0;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #3a3e5c;
+    font: inherit;
+    font-size: 0.93rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+
+    .mg-link svg {
+        flex: none;
+        color: #8a8fae;
+    }
+
+    .mg-link:hover {
+        background: #f3f4f9;
+    }
+
+    .mg-link:focus-visible {
+        outline: 2px solid var(--mg-accent);
+        outline-offset: 1px;
+    }
+
+    .mg-link.active {
+        background: var(--mg-accent-soft);
+        color: var(--mg-accent);
+        font-weight: 600;
+    }
+
+        .mg-link.active svg {
+            color: var(--mg-accent);
+        }
+
+.mg-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mg-footer {
+    padding: 0.85rem 0.85rem 1rem;
+    border-top: 1px solid var(--mg-line);
+}
+
+.mg-user {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0 0.35rem 0.75rem;
+}
+
+.mg-avatar {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--mg-accent-soft);
+    color: var(--mg-accent);
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.mg-user-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+}
+
+    .mg-user-text strong,
+    .mg-user-text small {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .mg-user-text small {
+        color: var(--mg-muted);
+        font-size: 0.76rem;
+    }
+
+.mg-back {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    width: 100%;
+    min-height: 46px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--mg-ink);
+    color: #fff;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+    .mg-back:hover {
+        background: #23264a;
+    }
+
+/* ---- The page ---- */
+
+.mg-content {
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+}
+
+/* Each page keeps its own markup (xxx-shell, xxx-topbar). Here they get one look: a light page header
+   instead of the old dark bar, and the page fills the space beside the sidebar. */
+
+.mg-content ::deep [class$="-shell"] {
+    height: 100%;
+    min-height: 0;
+    background: var(--mg-bg);
+}
+
+.mg-content ::deep [class$="-topbar"] {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 72px;
+    padding: 0.9rem 2rem;
+    background: #fff;
+    color: var(--mg-ink);
+    border-bottom: 1px solid var(--mg-line);
+}
+
+    .mg-content ::deep [class$="-topbar"] .brand-text {
+        margin-right: auto;
+        color: var(--mg-ink);
+        font-size: 1.35rem;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+    }
+
+.mg-content ::deep .count {
+    color: var(--mg-muted);
+}
+
+/* Page actions: one primary style, one secondary style, one danger style. */
+.mg-content ::deep .save-btn,
+.mg-content ::deep .add-btn,
+.mg-content ::deep .top-print {
+    min-height: 44px;
+    padding: 0.55rem 1.3rem;
+    border: 0;
+    border-radius: 10px;
+    background: var(--mg-accent);
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.92rem;
+    cursor: pointer;
+}
+
+.mg-content ::deep .top-save {
+    min-height: 44px;
+    padding: 0.55rem 1.1rem;
+    border: 1px solid var(--mg-line);
+    border-radius: 10px;
+    background: #fff;
+    color: var(--mg-ink);
+    font-weight: 600;
+    font-size: 0.92rem;
+}
+
+.mg-content ::deep .close-day {
+    min-height: 44px;
+    border-radius: 10px;
+    font-size: 0.92rem;
+}
+
+.mg-content ::deep .top-print {
+    margin-left: 0;
+}
+
+/* ---- No access ---- */
+
+.mg-denied {
+    display: grid;
+    place-items: center;
+    height: 100vh;
+    background: #f4f5f9;
+    font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+.mg-denied-card {
+    padding: 2rem 2.5rem;
+    border-radius: 16px;
+    background: #fff;
+    border: 1px solid #e6e8f0;
+    text-align: center;
+}
+
+    .mg-denied-card h1 {
+        margin: 0 0 0.4rem;
+        font-size: 1.3rem;
+    }
+
+    .mg-denied-card p {
+        margin: 0 0 1.2rem;
+        color: #6b7090;
+    }
+
+.mg-primary {
+    min-height: 44px;
+    padding: 0.5rem 1.4rem;
+    border: 0;
+    border-radius: 10px;
+    background: #14162b;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+/* ---- Small screens: icons only ---- */
+
+@media (max-width: 900px) {
+    .mg-shell {
+        grid-template-columns: 76px minmax(0, 1fr);
+    }
+
+    .mg-brand-text,
+    .mg-group,
+    .mg-label,
+    .mg-user-text,
+    .mg-back span {
+        display: none;
+    }
+
+    .mg-brand,
+    .mg-user {
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .mg-link {
+        justify-content: center;
+    }
+
+    .mg-nav {
+        padding: 0.25rem 0.6rem 1rem;
+    }
+}

@@ -1,5 +1,5 @@
 @page "/manage/receipt-settings"
-@layout EmptyLayout
+@layout ManageLayout
 @using NepPOS.Application.Abstractions
 @using NepPOS.Application.Hardware
 @using NepPOS.Application.Payments
@@ -26,7 +26,6 @@ else
 {
     <div class="settings-shell">
         <div class="settings-topbar">
-            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
             <span class="brand-text">Receipt &amp; Printer</span>
             <button class="save-btn" @onclick="Save">Save</button>
         </div>
