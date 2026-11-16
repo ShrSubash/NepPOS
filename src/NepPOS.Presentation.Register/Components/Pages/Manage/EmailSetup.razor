@@ -1,5 +1,5 @@
 @page "/manage/email"
-@layout EmptyLayout
+@layout ManageLayout
 @using NepPOS.Application.Email
 @using NepPOS.Application.Journal
 @using NepPOS.Domain.Enums
@@ -21,7 +21,6 @@ else
 {
     <div class="settings-shell">
         <div class="settings-topbar">
-            <button class="back-btn" @onclick='() => Nav.NavigateTo("/manage")'>← Manage</button>
             <span class="brand-text">Email</span>
             <button class="save-btn" disabled="@Busy" @onclick="Save">Save</button>
         </div>

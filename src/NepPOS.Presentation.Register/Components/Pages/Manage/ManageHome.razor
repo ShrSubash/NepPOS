@@ -1,70 +1,82 @@
 @page "/manage"
-@layout EmptyLayout
-@using NepPOS.Domain.Enums
+@layout ManageLayout
+@using NepPOS.Application.Sync
+@using NepPOS.Infrastructure.Integration.HeadOffice
 @using NepPOS.Presentation.Register.Services
 @inject CurrentUserSession Session
+@inject IHeadOfficeConnectionStore Connections
+@inject SyncWorker Worker
 @inject NavigationManager Nav
 
-@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
-{
-    <div class="manage-denied">
-        <p>Manager access required.</p>
-        <button @onclick="GoToRegister">Back to Register</button>
+<div class="home-shell">
+    <div class="home-topbar">
+        <span class="brand-text">Overview</span>
     </div>
-}
-else
-{
-    <div class="manage-shell">
-        <div class="manage-topbar">
-            <span class="brand-text">NepPOS Management</span>
-            <button class="back-btn" @onclick="GoToRegister">← Register</button>
-        </div>
 
-        <div class="manage-grid">
-            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/plu")'>
-                <span class="tile-icon">🏷️</span>
-                <span class="tile-label">PLU / Products</span>
-            </button>
-            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/journal")'>
-                <span class="tile-icon">📒</span>
-                <span class="tile-label">Journal</span>
-            </button>
-            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/receipt-settings")'>
-                <span class="tile-icon">🖨️</span>
-                <span class="tile-label">Receipt &amp; Printer</span>
-            </button>
-            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/reports")'>
-                <span class="tile-icon">📊</span>
-                <span class="tile-label">Reports &amp; End of Day</span>
-            </button>
-            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/email")'>
-                <span class="tile-icon">✉️</span>
-                <span class="tile-label">Email</span>
-            </button>
-            <button class="manage-tile" @onclick='() => Nav.NavigateTo("/manage/head-office")'>
-                <span class="tile-icon">☁️</span>
-                <span class="tile-label">Head Office</span>
-            </button>
-            <button class="manage-tile" disabled>
-                <span class="tile-icon">👤</span>
-                <span class="tile-label">Customers</span>
-            </button>
-            <button class="manage-tile" disabled>
-                <span class="tile-icon">💳</span>
-                <span class="tile-label">Debtors</span>
-            </button>
-            <button class="manage-tile" disabled>
-                <span class="tile-icon">🚚</span>
-                <span class="tile-label">Suppliers</span>
-            </button>
-            <button class="manage-tile" disabled>
-                <span class="tile-icon">💰</span>
-                <span class="tile-label">Tender / Payment Setup</span>
-            </button>
-        </div>
+    <div class="home-body">
+        <p class="greeting">@Greeting, @FirstName. What would you like to manage?</p>
+
+        <button class="status @StatusClass" @onclick='() => Nav.NavigateTo("manage/head-office")'>
+            <span class="dot"></span>
+            <span class="status-text">
+                <strong>@StatusTitle</strong>
+                <small>@StatusDetail</small>
+            </span>
+            <span class="chevron">›</span>
+        </button>
+
+        @foreach (var group in ManageNav.Sections)
+        {
+            <h2>@group.Title</h2>
+            <div class="cards">
+                @foreach (var item in group.Items)
+                {
+                    @if (item.Href is null)
+                    {
+                        <div class="card soon">
+                            <span class="icon">@((MarkupString)ManageNav.Svg(item.Icon))</span>
+                            <span class="text">
+                                <strong>@item.Label <span class="soon-tag">Soon</span></strong>
+                                <small>@item.Description</small>
+                            </span>
+                        </div>
+                    }
+                    else
+                    {
+                        <button class="card" @onclick="() => Nav.NavigateTo(item.Href!)">
+                            <span class="icon">@((MarkupString)ManageNav.Svg(item.Icon))</span>
+                            <span class="text">
+                                <strong>@item.Label</strong>
+                                <small>@item.Description</small>
+                            </span>
+                            <span class="chevron">›</span>
+                        </button>
+                    }
+                }
+            </div>
+        }
     </div>
-}
+</div>
 
 @code {
-    private void GoToRegister() => Nav.NavigateTo("/register");
+    private HeadOfficeConnection? Connection;
+
+    protected override void OnInitialized() => Connection = Connections.Load();
+
+    private string FirstName => Session.Employee?.FullName.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? "there";
+
+    private static string Greeting =>
+        DateTime.Now.Hour >= 17 ? "Good evening" : DateTime.Now.Hour >= 12 ? "Good afternoon" : "Good morning";
+
+    // Head Office at a glance: the one thing on this page that can need attention.
+    private string StatusClass => Connection is null ? "off" : Worker.Status.Problem is null ? "ok" : "warn";
+
+    private string StatusTitle => Connection is null
+        ? "Head Office not connected"
+        : Worker.Status.Problem is null ? $"Connected to Head Office · {Connection.TenantName}" : "Head Office needs attention";
+
+    private string StatusDetail => Connection is null
+        ? "Connect to send sales and products to Head Office and your website."
+        : Worker.Status.Problem
+          ?? (Worker.Status.LastSuccessUtc is { } at ? $"Up to date · last sent {at.ToLocalTime():HH:mm}" : $"{Connection.StoreCode} · {Connection.RegisterCode}");
 }

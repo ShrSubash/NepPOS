@@ -1,0 +1,97 @@
+@inherits LayoutComponentBase
+@implements IDisposable
+@using Microsoft.AspNetCore.Components.Routing
+@using NepPOS.Application.Abstractions
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+@inject RegisterTerminal Terminal
+
+@* Every Manage page: sidebar on the left, the page on the right. Managers and owners only. *@
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="mg-denied">
+        <div class="mg-denied-card">
+            <h1>Manager access required</h1>
+            <p>Ask a manager or the owner to sign in.</p>
+            <button class="mg-primary" @onclick="BackToRegister">Back to register</button>
+        </div>
+    </div>
+}
+else
+{
+    <div class="mg-shell">
+        <aside class="mg-sidebar">
+            <div class="mg-brand">
+                <span class="mg-logo">N</span>
+                <span class="mg-brand-text">
+                    <strong>NepPOS</strong>
+                    <small>Manage</small>
+                </span>
+            </div>
+
+            <nav class="mg-nav" aria-label="Manage">
+                @NavButton(ManageNav.Overview)
+
+                @* Pages that aren't built yet are listed on the Overview only, so the sidebar fits on a register screen. *@
+                @foreach (var group in ManageNav.Sections.Where(g => g.Items.Any(i => i.Href is not null)))
+                {
+                    <div class="mg-group">@group.Title</div>
+                    @foreach (var item in group.Items.Where(i => i.Href is not null))
+                    {
+                        @NavButton(item)
+                    }
+                }
+            </nav>
+
+            <div class="mg-footer">
+                <div class="mg-user">
+                    <span class="mg-avatar">@Initials(Session.Employee.FullName)</span>
+                    <span class="mg-user-text">
+                        <strong>@Session.Employee.FullName</strong>
+                        <small>@Session.Employee.Role · @Terminal.StoreId · @Terminal.RegisterId</small>
+                    </span>
+                </div>
+                <button class="mg-back" title="Back to register" @onclick="BackToRegister">
+                    @((MarkupString)ManageNav.Svg("back"))
+                    <span>Back to register</span>
+                </button>
+            </div>
+        </aside>
+
+        <main class="mg-content">
+            @Body
+        </main>
+    </div>
+}
+
+@code {
+    protected override void OnInitialized() => Nav.LocationChanged += OnLocationChanged;
+
+    // The layout stays on screen between Manage pages, so redraw the sidebar's highlight on each move.
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e) => InvokeAsync(StateHasChanged);
+
+    private RenderFragment NavButton(ManageItem item) => __builder =>
+    {
+        var active = IsActive(item);
+        <button class="mg-link @(active ? "active" : "")" title="@item.Label" aria-current="@(active ? "page" : null)" @onclick="() => Nav.NavigateTo(item.Href!)">
+            @((MarkupString)ManageNav.Svg(item.Icon))
+            <span class="mg-label">@item.Label</span>
+        </button>
+    };
+
+    private bool IsActive(ManageItem item)
+    {
+        var path = "/" + Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].TrimEnd('/');
+        return item.AlsoActiveOn.Append(item.Href!).Any(href => string.Equals(path, "/" + href, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string Initials(string name) =>
+        string.Concat(name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(part => char.ToUpperInvariant(part[0])));
+
+    private void BackToRegister() => Nav.NavigateTo("/register");
+
+    public void Dispose() => Nav.LocationChanged -= OnLocationChanged;
+}

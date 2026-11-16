@@ -1,67 +1,175 @@
-﻿.manage-denied {
+/* Overview: the old tile grid, grouped and explained. Header and page frame come from ManageLayout. */
+
+.home-shell {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100vh;
-    gap: 1rem;
-    font-family: "Segoe UI", sans-serif;
 }
 
-.manage-shell {
-    height: 100vh;
-    background: #f4f5f9;
-    font-family: "Segoe UI", sans-serif;
+.home-body {
+    width: 100%;
+    max-width: 1100px;
+    padding: 1.5rem 2rem 2.5rem;
 }
 
-.manage-topbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 1rem 1.5rem;
-    background: #14162b;
-    color: #fff;
+.greeting {
+    margin: 0 0 1.25rem;
+    color: #6b7090;
+    font-size: 1rem;
 }
 
-.back-btn {
-    background: rgba(255,255,255,0.08);
-    border: none;
-    color: #fff;
-    padding: 0.5rem 1rem;
-    border-radius: 8px;
-    cursor: pointer;
+h2 {
+    margin: 1.75rem 0 0.75rem;
+    color: #6b7090;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
 
-.manage-grid {
+.cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-    gap: 1rem;
-    padding: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.75rem;
 }
 
-.manage-tile {
-    background: #fff;
-    border: 1px solid #e8e9f2;
-    border-radius: 14px;
-    padding: 1.5rem 1rem;
+.card,
+.status {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.9rem;
+    width: 100%;
+    min-height: 76px;
+    padding: 0.9rem 1rem;
+    border: 1px solid #e6e8f0;
+    border-radius: 14px;
+    background: #fff;
+    color: #14162b;
+    font: inherit;
+    text-align: left;
     cursor: pointer;
+    transition: border-color 0.12s, box-shadow 0.12s;
 }
 
-    .manage-tile:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
+    .card:hover,
+    .status:hover {
+        border-color: #c9ccf5;
+        box-shadow: 0 2px 10px rgba(20, 22, 43, 0.06);
     }
 
-.tile-icon {
-    font-size: 1.8rem;
+    .card:focus-visible,
+    .status:focus-visible {
+        outline: 2px solid #4f46e5;
+        outline-offset: 2px;
+    }
+
+.icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: #eef0ff;
+    color: #4f46e5;
 }
 
-.tile-label {
-    font-size: 0.85rem;
+.text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+    .text strong {
+        font-size: 0.98rem;
+        font-weight: 600;
+    }
+
+    .text small {
+        color: #6b7090;
+        font-size: 0.83rem;
+        line-height: 1.35;
+    }
+
+.chevron {
+    color: #b3b7cf;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
+.card.soon {
+    cursor: default;
+    background: #fafbfd;
+    color: #8a8fae;
+}
+
+    .card.soon:hover {
+        border-color: #e6e8f0;
+        box-shadow: none;
+    }
+
+    .card.soon .icon {
+        background: #f1f2f7;
+        color: #a6aac2;
+    }
+
+.soon-tag {
+    margin-left: 0.35rem;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: #f1f2f7;
+    font-size: 0.68rem;
     font-weight: 600;
-    color: #14162b;
+    vertical-align: middle;
+}
+
+/* Head Office status */
+.status {
+    max-width: 640px;
+}
+
+.dot {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    margin: 0 0.35rem 0 0.25rem;
+    border-radius: 50%;
+}
+
+.status-text {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+    .status-text small {
+        color: #6b7090;
+        font-size: 0.83rem;
+    }
+
+.status.ok {
+    background: #f2fbf6;
+    border-color: #cdebd9;
+}
+
+    .status.ok .dot {
+        background: #1f9d55;
+        box-shadow: 0 0 0 4px rgba(31, 157, 85, 0.15);
+    }
+
+.status.warn {
+    background: #fff8ec;
+    border-color: #f3dcb0;
+}
+
+    .status.warn .dot {
+        background: #d98a00;
+        box-shadow: 0 0 0 4px rgba(217, 138, 0, 0.15);
+    }
+
+.status.off .dot {
+    background: #b3b7cf;
 }

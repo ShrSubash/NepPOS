@@ -1,5 +1,5 @@
 ﻿@page "/manage/plu"
-@layout EmptyLayout
+@layout ManageLayout
 @using NepPOS.Application.Catalog
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
@@ -16,7 +16,6 @@ else
 {
     <div class="plu-shell">
         <div class="plu-topbar">
-            <button class="back-btn" @onclick="GoToManage">← Manage</button>
             <span class="brand-text">PLU / Product Management</span>
             @if (CanCreate)
             {
@@ -140,7 +139,6 @@ else
 
     private async Task LoadAsync() => Products = (await ProductService.GetAllAsync()).ToList();
 
-    private void GoToManage() => Nav.NavigateTo("/manage");
 
     private void StartNew()
     {
