@@ -1,0 +1,9 @@
+@* One sentence about what went wrong, from Head Office or the page. *@
+@if (!string.IsNullOrEmpty(Text))
+{
+    <div class="alert alert-bad" role="alert">@Text</div>
+}
+
+@code {
+    [Parameter] public string? Text { get; set; }
+}

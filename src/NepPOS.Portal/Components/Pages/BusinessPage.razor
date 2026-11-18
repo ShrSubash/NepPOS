@@ -1,0 +1,255 @@
+@page "/businesses/{Id:guid}"
+@inject HeadOfficeAdmin HeadOffice
+
+<PageTitle>@(_business?.Name ?? "Business") · NepPOS Portal</PageTitle>
+
+<a class="back" href="businesses">← Businesses</a>
+
+<ProblemMessage Text="@_problem" />
+
+@if (_business is { } b)
+{
+    <header class="page-head">
+        <div>
+            @if (_renaming)
+            {
+                <form class="inline-form" @onsubmit="RenameAsync">
+                    <input @bind="_newName" aria-label="Business name" maxlength="200" autofocus />
+                    <button type="submit" class="btn btn-primary btn-small">Save</button>
+                    <button type="button" class="btn btn-small" @onclick="() => _renaming = false">Cancel</button>
+                </form>
+            }
+            else
+            {
+                <h1>@b.Name <button class="link-button small" @onclick="StartRename">Rename</button></h1>
+            }
+            <p class="muted">Customer since @b.CreatedUtc.ToString("d MMMM yyyy") · @Registers.Count() @(Registers.Count() == 1 ? "register" : "registers"), @Registers.Count(r => r.Online) online</p>
+        </div>
+        <button class="btn" @onclick="() => _addingStore = !_addingStore">Add store</button>
+    </header>
+
+    @if (_addingStore)
+    {
+        <section class="card">
+            <h2>New store</h2>
+            <EditForm Model="_store" OnValidSubmit="AddStoreAsync" class="form">
+                <DataAnnotationsValidator />
+                <div class="row3">
+                    <div>
+                        <label for="sc">Store code</label>
+                        <InputText id="sc" @bind-Value="_store.StoreCode" placeholder="STORE-002" />
+                        <ValidationMessage For="() => _store.StoreCode" />
+                    </div>
+                    <div>
+                        <label for="sn">Name</label>
+                        <InputText id="sn" @bind-Value="_store.Name" placeholder="e.g. Harris Park" />
+                        <ValidationMessage For="() => _store.Name" />
+                    </div>
+                    <div>
+                        <label for="tz">Time zone</label>
+                        <TimeZonePicker Id="tz" @bind-Value="_store.TimeZoneId" />
+                    </div>
+                </div>
+                <div class="actions">
+                    <button type="submit" class="btn btn-primary">Add store</button>
+                    <button type="button" class="btn" @onclick="() => _addingStore = false">Cancel</button>
+                </div>
+            </EditForm>
+        </section>
+    }
+
+    @foreach (var store in b.Stores)
+    {
+        <section class="card">
+            <div class="card-head">
+                <div>
+                    <h2>@store.Name <span class="tag">@store.StoreCode</span></h2>
+                    <div class="sub">@store.TimeZoneId</div>
+                </div>
+                <button class="btn btn-small" @onclick="() => IssueCodeAsync(store)">New activation code</button>
+            </div>
+
+            @if (_codes.TryGetValue(store.Id, out var issued))
+            {
+                <ShownOnce Label="Activation code" Value="@issued.Code"
+                           Note="@($"Enter it on the new register (Manage → Head Office). Works once, expires {issued.ExpiresUtc:d MMM yyyy}.")" />
+            }
+
+            @if (store.Registers.Count == 0)
+            {
+                <p class="muted">No registers yet. Issue an activation code and enter it on the shop's PC.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <thead><tr><th>Register</th><th>Key</th><th>Activated</th><th>Status</th><th></th></tr></thead>
+                    <tbody>
+                        @foreach (var r in store.Registers)
+                        {
+                            <tr class="@(r.IsRevoked ? "dim" : "")">
+                                <td>@r.RegisterCode<div class="sub">@(r.DeviceName ?? "Unnamed device")</div></td>
+                                <td><code>@r.ApiKeyPrefix…</code></td>
+                                <td title="@Format.Exact(r.ActivatedUtc)">@Format.Ago(r.ActivatedUtc)</td>
+                                <td><RegisterStatus Register="r" /><div class="sub">@Format.When(r.LastSeenUtc)</div></td>
+                                <td class="right">
+                                    @if (!r.IsRevoked)
+                                    {
+                                        <ConfirmButton Text="Revoke" ConfirmText="Revoke: it stops syncing" OnConfirm="() => RevokeRegisterAsync(r)" />
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+    }
+
+    <section class="card">
+        <div class="card-head">
+            <div>
+                <h2>Website keys</h2>
+                <div class="sub">For an online shop that sends orders and reads the catalogue.</div>
+            </div>
+        </div>
+
+        @if (_newKey is { } key)
+        {
+            <ShownOnce Label="@($"Website key: {key.Name}")" Value="@key.ApiKey"
+                       Note="Put it in the website's settings (NepPOS:ApiKey). Copy it now. It won't be shown again." />
+        }
+
+        @if (b.WebsiteKeys.Count > 0)
+        {
+            <table class="table">
+                <thead><tr><th>Name</th><th>Key</th><th>Created</th><th>Last used</th><th></th></tr></thead>
+                <tbody>
+                    @foreach (var k in b.WebsiteKeys)
+                    {
+                        <tr class="@(k.IsRevoked ? "dim" : "")">
+                            <td>@k.Name</td>
+                            <td><code>@k.ApiKeyPrefix…</code></td>
+                            <td>@Format.Ago(k.CreatedUtc)</td>
+                            <td title="@Format.Exact(k.LastUsedUtc)">@Format.Ago(k.LastUsedUtc)</td>
+                            <td class="right">
+                                @if (k.IsRevoked)
+                                {
+                                    <span class="pill pill-off">Revoked</span>
+                                }
+                                else
+                                {
+                                    <ConfirmButton Text="Revoke" ConfirmText="Revoke: the website stops working" OnConfirm="() => RevokeKeyAsync(k)" />
+                                }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <form class="inline-form" @onsubmit="CreateKeyAsync">
+            <input @bind="_keyName" placeholder="Name, e.g. hamrogrocery.com.au" aria-label="Website key name" maxlength="100" />
+            <button type="submit" class="btn btn-small">Create website key</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <div class="card-head"><h2>Activity</h2></div>
+        <ActivityList Entries="_activity" ShowBusiness="false" />
+    </section>
+}
+else if (_problem is null)
+{
+    <p class="muted">Loading…</p>
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private BusinessDetail? _business;
+    private List<AuditEntryRow> _activity = [];
+    private readonly Dictionary<Guid, IssuedActivationCode> _codes = [];
+    private IssuedWebsiteKey? _newKey;
+    private string? _problem;
+
+    private bool _renaming;
+    private string _newName = "";
+    private bool _addingStore;
+    private NewStoreInput _store = new();
+    private string _keyName = "";
+
+    private IEnumerable<RegisterRow> Registers => _business?.Stores.SelectMany(s => s.Registers).Where(r => !r.IsRevoked) ?? [];
+
+    protected override Task OnParametersSetAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var business = await HeadOffice.BusinessAsync(Id);
+        (_business, _problem) = (business.Value, business.Problem);
+        if (business.Ok)
+        {
+            var activity = await HeadOffice.AuditAsync(Id, 20);
+            _activity = activity.Value ?? [];
+        }
+    }
+
+    /// <summary>Runs a change, then reloads so the page shows what Head Office now has.</summary>
+    private async Task<bool> ChangeAsync(Func<Task<string?>> change)
+    {
+        _problem = await change();
+        var ok = _problem is null;
+        var problem = _problem;
+        await LoadAsync();
+        _problem ??= problem;
+        return ok;
+    }
+
+    private void StartRename() => (_renaming, _newName) = (true, _business?.Name ?? "");
+
+    private async Task RenameAsync()
+    {
+        if (await ChangeAsync(async () => (await HeadOffice.RenameBusinessAsync(Id, _newName.Trim())).Problem))
+            _renaming = false;
+    }
+
+    private async Task AddStoreAsync()
+    {
+        if (await ChangeAsync(async () => (await HeadOffice.CreateStoreAsync(Id, _store.StoreCode.Trim().ToUpperInvariant(), _store.Name.Trim(), _store.TimeZoneId)).Problem))
+            (_addingStore, _store) = (false, new());
+    }
+
+    private async Task IssueCodeAsync(StoreDetail store)
+    {
+        var result = await HeadOffice.IssueActivationCodeAsync(store.Id);
+        if (result.Ok)
+            _codes[store.Id] = result.Value!;
+        await ChangeAsync(() => Task.FromResult(result.Problem));
+    }
+
+    private Task RevokeRegisterAsync(RegisterRow register) =>
+        ChangeAsync(async () => (await HeadOffice.RevokeRegisterAsync(register.Id)).Problem);
+
+    private Task RevokeKeyAsync(WebsiteKeyRow key) =>
+        ChangeAsync(async () => (await HeadOffice.RevokeWebsiteKeyAsync(key.Id)).Problem);
+
+    private async Task CreateKeyAsync()
+    {
+        var name = string.IsNullOrWhiteSpace(_keyName) ? "Website" : _keyName.Trim();
+        var result = await HeadOffice.CreateWebsiteKeyAsync(Id, name);
+        if (result.Ok)
+            (_newKey, _keyName) = (result.Value, "");
+        await ChangeAsync(() => Task.FromResult(result.Problem));
+    }
+
+    private sealed class NewStoreInput
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter a store code.")]
+        [System.ComponentModel.DataAnnotations.RegularExpression("^[A-Za-z0-9-]{2,32}$", ErrorMessage = "Letters, numbers and dashes, e.g. STORE-002.")]
+        public string StoreCode { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter the store's name.")]
+        public string Name { get; set; } = "";
+
+        public string TimeZoneId { get; set; } = TimeZonePicker.Zones[0].Id;
+    }
+}

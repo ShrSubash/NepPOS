@@ -1,0 +1,42 @@
+@inherits LayoutComponentBase
+
+<div class="shell">
+    <aside class="side">
+        <a class="brand" href="/">
+            <span class="brand-mark">N</span>
+            <span><strong>NepPOS</strong> Portal</span>
+        </a>
+
+        <nav class="nav">
+            <NavLink href="/" Match="NavLinkMatch.All">Overview</NavLink>
+
+            <div class="nav-group">Customers</div>
+            <NavLink href="businesses">Businesses</NavLink>
+            <NavLink href="registers">Registers</NavLink>
+
+            <div class="nav-group">Settings</div>
+            <NavLink href="team">Team</NavLink>
+            <NavLink href="audit">Audit log</NavLink>
+        </nav>
+
+        <AuthorizeView>
+            <div class="me">
+                <div class="me-name">@context.User.Identity?.Name</div>
+                <div class="me-role">@context.User.FindFirst(ClaimTypes.Role)?.Value</div>
+                <form method="post" action="account/sign-out">
+                    <AntiforgeryToken />
+                    <button type="submit" class="link-button">Sign out</button>
+                </form>
+            </div>
+        </AuthorizeView>
+    </aside>
+
+    <main class="main">
+        @Body
+    </main>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet>
+    Something went wrong. <a href="" class="reload">Reload</a>
+    <span class="dismiss">✕</span>
+</div>

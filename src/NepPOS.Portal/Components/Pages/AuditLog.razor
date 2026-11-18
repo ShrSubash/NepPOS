@@ -1,0 +1,66 @@
+@page "/audit"
+@inject HeadOfficeAdmin HeadOffice
+
+<PageTitle>Audit log · NepPOS Portal</PageTitle>
+
+<header class="page-head">
+    <div>
+        <h1>Audit log</h1>
+        <p class="muted">Every change made from the Portal or with the admin key, newest first. It can't be edited.</p>
+    </div>
+</header>
+
+<ProblemMessage Text="@_problem" />
+
+@if (_rows is { } rows)
+{
+    @if (rows.Count == 0)
+    {
+        <div class="empty"><p>Nothing recorded yet.</p></div>
+    }
+    else
+    {
+        <div class="card flush">
+            <table class="table">
+                <thead><tr><th>When</th><th>Who</th><th>What</th><th>Business</th></tr></thead>
+                <tbody>
+                    @foreach (var e in rows)
+                    {
+                        <tr>
+                            <td title="@Format.Exact(e.AtUtc)">@Format.Ago(e.AtUtc)</td>
+                            <td>@e.Actor</td>
+                            <td>@e.Summary<div class="sub"><code>@e.Action</code></div></td>
+                            <td>
+                                @if (e.BusinessId is { } id) { <a href="businesses/@id">@e.BusinessName</a> }
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+        @if (rows.Count >= _take && _take < 500)
+        {
+            <button class="btn" @onclick="MoreAsync">Show more</button>
+        }
+    }
+}
+
+@code {
+    private List<AuditEntryRow>? _rows;
+    private string? _problem;
+    private int _take = 100;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task MoreAsync()
+    {
+        _take = Math.Min(_take + 200, 500);
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await HeadOffice.AuditAsync(null, _take);
+        (_rows, _problem) = (result.Value, result.Problem);
+    }
+}

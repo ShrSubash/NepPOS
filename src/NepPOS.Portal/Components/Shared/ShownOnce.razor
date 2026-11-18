@@ -1,0 +1,31 @@
+@inject IJSRuntime JS
+@* A code or key Head Office shows once: big, copyable, with a warning it won't be shown again. *@
+<div class="once">
+    <div class="once-label">@Label</div>
+    <div class="once-row">
+        <code class="once-value">@Value</code>
+        <button type="button" class="btn btn-small" @onclick="CopyAsync">@(_copied ? "Copied" : "Copy")</button>
+    </div>
+    <p class="once-note">@Note</p>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Value { get; set; } = "";
+    [Parameter] public string Note { get; set; } = "Copy it now. It won't be shown again.";
+
+    private bool _copied;
+
+    private async Task CopyAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("portal.copy", Value);
+            _copied = true;
+        }
+        catch (JSException)
+        {
+            // Clipboard refused (e.g. plain http on another PC): the value is on screen to select by hand.
+        }
+    }
+}

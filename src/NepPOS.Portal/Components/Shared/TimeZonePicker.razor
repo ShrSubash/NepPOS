@@ -1,0 +1,27 @@
+@* The store's time zone decides its trading day (end-of-day reports, Z reads). *@
+<select id="@Id" value="@Value" @onchange="ChangedAsync">
+    @foreach (var (id, label) in Zones)
+    {
+        <option value="@id">@label</option>
+    }
+</select>
+
+@code {
+    public static readonly (string Id, string Label)[] Zones =
+    [
+        ("Australia/Sydney", "Sydney, Canberra, Melbourne"),
+        ("Australia/Brisbane", "Brisbane (no daylight saving)"),
+        ("Australia/Adelaide", "Adelaide"),
+        ("Australia/Darwin", "Darwin"),
+        ("Australia/Perth", "Perth"),
+        ("Australia/Hobart", "Hobart"),
+        ("Pacific/Auckland", "Auckland"),
+        ("Asia/Kathmandu", "Kathmandu")
+    ];
+
+    [Parameter] public string? Id { get; set; }
+    [Parameter] public string Value { get; set; } = Zones[0].Id;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+
+    private Task ChangedAsync(ChangeEventArgs e) => ValueChanged.InvokeAsync(e.Value?.ToString() ?? Zones[0].Id);
+}

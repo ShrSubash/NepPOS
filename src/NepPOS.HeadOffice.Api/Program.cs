@@ -57,6 +57,9 @@ using (var scope = app.Services.CreateScope())
     }
     else
         db.Database.Migrate();
+
+    // The first NepPOS Portal owner, from settings, when there are no staff yet.
+    PortalEndpoints.CreateFirstOwner(db, app.Configuration, app.Logger);
 }
 
 app.UseExceptionHandler();
@@ -69,6 +72,7 @@ app.MapOpenApi();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", timeUtc = DateTime.UtcNow })).WithTags("Health");
 app.MapAdminEndpoints();
+app.MapPortalEndpoints();
 app.MapRegisterEndpoints();
 app.MapWebsiteEndpoints();
 

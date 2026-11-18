@@ -1,0 +1,70 @@
+@page "/registers"
+@inject HeadOfficeAdmin HeadOffice
+
+<PageTitle>Registers · NepPOS Portal</PageTitle>
+
+<header class="page-head">
+    <div>
+        <h1>Registers</h1>
+        <p class="muted">Every till in every store. Online means a heartbeat in the last 10 minutes.</p>
+    </div>
+</header>
+
+<nav class="tabs">
+    @foreach (var (value, label) in Filters)
+    {
+        <a href="@(value is null ? "registers" : $"registers?status={value}")" class="@(Status == value ? "active" : "")">@label</a>
+    }
+</nav>
+
+<ProblemMessage Text="@_problem" />
+
+@if (_rows is { } rows)
+{
+    @if (rows.Count == 0)
+    {
+        <div class="empty"><p>No registers here.</p></div>
+    }
+    else
+    {
+        <div class="card flush">
+            <table class="table">
+                <thead>
+                    <tr><th>Business</th><th>Store</th><th>Register</th><th>Key</th><th>Activated</th><th>Status</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var r in rows)
+                    {
+                        <tr>
+                            <td><a href="businesses/@r.BusinessId">@r.BusinessName</a></td>
+                            <td>@r.StoreCode</td>
+                            <td>@r.RegisterCode<div class="sub">@(r.DeviceName ?? "Unnamed device")</div></td>
+                            <td><code>@r.ApiKeyPrefix…</code></td>
+                            <td title="@Format.Exact(r.ActivatedUtc)">@Format.Ago(r.ActivatedUtc)</td>
+                            <td><RegisterStatus Register="r" /><div class="sub">@Format.When(r.LastSeenUtc)</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private static readonly (string? Value, string Label)[] Filters =
+        [(null, "All"), ("online", "Online"), ("offline", "Offline"), ("revoked", "Revoked")];
+
+    [SupplyParameterFromQuery]
+    private string? Status { get; set; }
+
+    private List<RegisterRow>? _rows;
+    private string? _problem;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Status is not null && Filters.All(f => f.Value != Status))
+            Status = null;
+        var result = await HeadOffice.RegistersAsync(Status);
+        (_rows, _problem) = (result.Value, result.Problem);
+    }
+}

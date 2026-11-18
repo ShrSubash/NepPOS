@@ -1,0 +1,23 @@
+@page "/account/denied"
+@attribute [ExcludeFromInteractiveRouting]
+@attribute [AllowAnonymous]
+@layout AuthLayout
+@inject NavigationManager Nav
+
+<PageTitle>Not allowed · NepPOS Portal</PageTitle>
+
+<h1>Not allowed</h1>
+<p class="muted">Your account can't open that page. Ask an owner if you need it.</p>
+<a class="btn" href="/">Back to Overview</a>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    protected override void OnInitialized()
+    {
+        // Refused only because two-step sign-in isn't set up yet: go and set it up.
+        if (HttpContext.User.HasClaim(PortalClaims.TwoFactorSetup, "required"))
+            Nav.NavigateTo("/account/two-factor");
+    }
+}

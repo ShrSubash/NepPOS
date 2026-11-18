@@ -1,0 +1,151 @@
+@page "/businesses/new"
+@inject HeadOfficeAdmin HeadOffice
+
+<PageTitle>New business · NepPOS Portal</PageTitle>
+
+<header class="page-head">
+    <div>
+        <a class="back" href="businesses">← Businesses</a>
+        <h1>New business</h1>
+        <p class="muted">Sets up a customer in one go: the business, its first store and an activation code for the first register.</p>
+    </div>
+</header>
+
+@if (_done is null)
+{
+    <section class="card narrow">
+        <EditForm Model="_input" OnValidSubmit="CreateAsync" class="form">
+            <DataAnnotationsValidator />
+
+            <h2>Business</h2>
+            <label for="name">Business name</label>
+            <InputText id="name" @bind-Value="_input.BusinessName" placeholder="e.g. Himalayan Café" />
+            <ValidationMessage For="() => _input.BusinessName" />
+
+            <h2>First store</h2>
+            <div class="row2">
+                <div>
+                    <label for="code">Store code</label>
+                    <InputText id="code" @bind-Value="_input.StoreCode" placeholder="STORE-001" />
+                    <ValidationMessage For="() => _input.StoreCode" />
+                </div>
+                <div>
+                    <label for="store">Store name</label>
+                    <InputText id="store" @bind-Value="_input.StoreName" placeholder="e.g. Parramatta" />
+                    <ValidationMessage For="() => _input.StoreName" />
+                </div>
+            </div>
+            <label for="tz">Time zone</label>
+            <TimeZonePicker Id="tz" @bind-Value="_input.TimeZoneId" />
+
+            <h2>Website</h2>
+            <label class="check">
+                <InputCheckbox @bind-Value="_input.WebsiteKey" />
+                They have an online shop that sends orders to NepPOS (creates a website key)
+            </label>
+
+            <ProblemMessage Text="@_problem" />
+
+            <div class="actions">
+                <button type="submit" class="btn btn-primary" disabled="@_busy">@(_busy ? "Creating…" : "Create business")</button>
+                <a class="btn" href="businesses">Cancel</a>
+            </div>
+        </EditForm>
+    </section>
+}
+else
+{
+    <section class="card narrow">
+        <div class="alert alert-ok">@_done.Name is set up.</div>
+
+        @if (_code is { } issued)
+        {
+            <ShownOnce Label="Register activation code" Value="@issued.Code"
+                       Note="@($"On the shop's register, open Manage → Head Office and enter this code. It works once and expires {issued.ExpiresUtc:d MMM yyyy}.")" />
+        }
+        @if (_websiteKey is { } key)
+        {
+            <ShownOnce Label="Website key" Value="@key.ApiKey"
+                       Note="Put it in the website's settings (NepPOS:ApiKey). Copy it now. It won't be shown again." />
+        }
+
+        <ProblemMessage Text="@_problem" />
+
+        <div class="actions">
+            <a class="btn btn-primary" href="businesses/@_done.Id">Open @_done.Name</a>
+            <button type="button" class="btn" @onclick="Reset">Add another</button>
+        </div>
+    </section>
+}
+
+@code {
+    private NewBusinessInput _input = new();
+    private CreatedBusiness? _done;
+    private IssuedActivationCode? _code;
+    private IssuedWebsiteKey? _websiteKey;
+    private string? _problem;
+    private bool _busy;
+
+    private void Reset() => (_input, _done, _code, _websiteKey, _problem) = (new(), null, null, null, null);
+
+    private async Task CreateAsync()
+    {
+        _busy = true;
+        _problem = null;
+        try
+        {
+            var business = await HeadOffice.CreateBusinessAsync(_input.BusinessName.Trim());
+            if (!business.Ok)
+            {
+                _problem = business.Problem;
+                return;
+            }
+
+            // From here the business exists: show what worked, and say what to finish on its page.
+            _done = business.Value!;
+            var store = await HeadOffice.CreateStoreAsync(_done.Id, _input.StoreCode.Trim().ToUpperInvariant(), _input.StoreName.Trim(), _input.TimeZoneId);
+            if (!store.Ok)
+            {
+                _problem = $"The business was created but the store wasn't: {store.Problem} Add the store on the business page.";
+                return;
+            }
+
+            var code = await HeadOffice.IssueActivationCodeAsync(store.Value!.Id);
+            if (code.Ok)
+                _code = code.Value;
+            else
+                _problem = $"Couldn't issue an activation code: {code.Problem} Issue one on the business page.";
+
+            if (_input.WebsiteKey)
+            {
+                var key = await HeadOffice.CreateWebsiteKeyAsync(_done.Id, "Website");
+                if (key.Ok)
+                    _websiteKey = key.Value;
+                else
+                    _problem = $"Couldn't create the website key: {key.Problem} Create it on the business page.";
+            }
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class NewBusinessInput
+    {
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter the business name.")]
+        [System.ComponentModel.DataAnnotations.StringLength(200)]
+        public string BusinessName { get; set; } = "";
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter a store code.")]
+        [System.ComponentModel.DataAnnotations.RegularExpression("^[A-Za-z0-9-]{2,32}$", ErrorMessage = "Letters, numbers and dashes, e.g. STORE-001.")]
+        public string StoreCode { get; set; } = "STORE-001";
+
+        [System.ComponentModel.DataAnnotations.Required(ErrorMessage = "Enter the store's name.")]
+        public string StoreName { get; set; } = "";
+
+        public string TimeZoneId { get; set; } = TimeZonePicker.Zones[0].Id;
+
+        public bool WebsiteKey { get; set; }
+    }
+}

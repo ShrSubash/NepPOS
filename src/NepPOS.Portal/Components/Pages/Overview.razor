@@ -1,0 +1,90 @@
+@page "/"
+@inject HeadOfficeAdmin HeadOffice
+
+<PageTitle>Overview · NepPOS Portal</PageTitle>
+
+<header class="page-head">
+    <div>
+        <h1>Overview</h1>
+        <p class="muted">Every customer's businesses, stores and registers.</p>
+    </div>
+    <a class="btn btn-primary" href="businesses/new">New business</a>
+</header>
+
+<ProblemMessage Text="@_problem" />
+
+@if (_overview is { } o)
+{
+    <section class="tiles">
+        <a class="tile" href="businesses">
+            <span class="tile-label">Businesses</span>
+            <span class="tile-value">@o.Businesses</span>
+            <span class="tile-note">@o.Stores @(o.Stores == 1 ? "store" : "stores")</span>
+        </a>
+        <a class="tile" href="registers?status=online">
+            <span class="tile-label">Registers online</span>
+            <span class="tile-value">@o.OnlineRegisters<small> / @o.Registers</small></span>
+            <span class="tile-note">Heartbeat in the last 10 min</span>
+        </a>
+        <a class="tile @(o.OfflineRegisters > 0 ? "tile-warn" : "")" href="registers?status=offline">
+            <span class="tile-label">Registers offline</span>
+            <span class="tile-value">@o.OfflineRegisters</span>
+            <span class="tile-note">Not revoked, silent for longer</span>
+        </a>
+        <div class="tile">
+            <span class="tile-label">Activation codes waiting</span>
+            <span class="tile-value">@o.ActivationCodesWaiting</span>
+            <span class="tile-note">Issued, not used yet</span>
+        </div>
+    </section>
+
+    <div class="cols">
+        <section class="card">
+            <div class="card-head">
+                <h2>Needs attention</h2>
+                <a href="registers?status=offline">All offline</a>
+            </div>
+            @if (o.RegistersNeedingAttention.Count == 0)
+            {
+                <p class="muted">Every register is online.</p>
+            }
+            else
+            {
+                <table class="table">
+                    <tbody>
+                        @foreach (var r in o.RegistersNeedingAttention)
+                        {
+                            <tr>
+                                <td><a href="businesses/@r.BusinessId">@r.BusinessName</a><div class="sub">@r.StoreCode · @r.RegisterCode</div></td>
+                                <td class="right"><RegisterStatus Register="r" /><div class="sub">@Format.When(r.LastSeenUtc)</div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </section>
+
+        <section class="card">
+            <div class="card-head">
+                <h2>Recent activity</h2>
+                <a href="audit">Audit log</a>
+            </div>
+            <ActivityList Entries="o.RecentActivity" />
+        </section>
+    </div>
+}
+else if (_problem is null)
+{
+    <p class="muted">Loading…</p>
+}
+
+@code {
+    private AdminOverview? _overview;
+    private string? _problem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var result = await HeadOffice.OverviewAsync();
+        (_overview, _problem) = (result.Value, result.Problem);
+    }
+}
