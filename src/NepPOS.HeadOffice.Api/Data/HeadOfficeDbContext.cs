@@ -20,6 +20,8 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<ReceivedEvent> ReceivedEvents => Set<ReceivedEvent>();
     public DbSet<WebsiteKey> WebsiteKeys => Set<WebsiteKey>();
     public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
+    public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
+    public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -99,6 +101,28 @@ public sealed class HeadOfficeDbContext : DbContext
             // The event that last changed it: its database id is the catalog's change number.
             entity.HasOne(c => c.LastEvent).WithMany().HasForeignKey(c => c.LastEventId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(c => new { c.StoreId, c.LastEventId });
+        });
+
+        modelBuilder.Entity<PlatformUser>(entity =>
+        {
+            entity.HasKey(u => u.Id);
+            entity.Property(u => u.Email).IsRequired().HasMaxLength(256);
+            entity.Property(u => u.Name).IsRequired().HasMaxLength(100);
+            entity.Property(u => u.Role).IsRequired().HasMaxLength(20);
+            entity.Property(u => u.PasswordHash).IsRequired();
+            entity.Property(u => u.TotpSecret).HasMaxLength(64);
+            entity.Property(u => u.PendingTotpSecret).HasMaxLength(64);
+            entity.HasIndex(u => u.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<AuditEntry>(entity =>
+        {
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.Actor).IsRequired().HasMaxLength(256);
+            entity.Property(a => a.Action).IsRequired().HasMaxLength(50);
+            entity.Property(a => a.Summary).IsRequired().HasMaxLength(500);
+            entity.HasIndex(a => a.AtUtc);
+            entity.HasIndex(a => new { a.TenantId, a.AtUtc });
         });
 
         // Every time here is UTC. SQLite forgets that when it reads a time back, which would make
@@ -232,4 +256,57 @@ public sealed class CatalogItem
     /// <summary>The <see cref="ReceivedEvent"/> that last changed it. Counts up, so the website asks "after N".</summary>
     public long LastEventId { get; set; }
     public ReceivedEvent LastEvent { get; set; } = null!;
+}
+
+/// <summary>
+/// Someone at the NepPOS company who signs in to NepPOS Portal (docs/portal/README.md). Not a shop's
+/// staff: they never see the Portal.
+/// </summary>
+public sealed class PlatformUser
+{
+    public Guid Id { get; set; } = Guid.NewGuid();
+
+    /// <summary>Stored in lower case; the sign-in name.</summary>
+    public string Email { get; set; } = "";
+    public string Name { get; set; } = "";
+
+    /// <summary>Owner or Support (NepPOS.Contracts.Admin.StaffRoles).</summary>
+    public string Role { get; set; } = "Support";
+
+    /// <summary>ASP.NET Identity's password hash (PBKDF2, salted, slow on purpose).</summary>
+    public string PasswordHash { get; set; } = "";
+
+    /// <summary>The authenticator app's secret (Base32), once set up.</summary>
+    public string? TotpSecret { get; set; }
+    public bool TwoFactorEnabled { get; set; }
+
+    /// <summary>A secret shown on the setup page, waiting for its first code.</summary>
+    public string? PendingTotpSecret { get; set; }
+
+    /// <summary>The time step of the last code accepted, so the same code can't be used twice.</summary>
+    public long LastTotpStep { get; set; } = -1;
+
+    public bool IsActive { get; set; } = true;
+    public int FailedSignIns { get; set; }
+    public DateTime? LockedUntilUtc { get; set; }
+    public DateTime? LastSignInUtc { get; set; }
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>
+/// One change made through the admin API: who (Portal user, or "admin key" for scripts), what,
+/// to which business, when. Never edited or deleted.
+/// </summary>
+public sealed class AuditEntry
+{
+    public long Id { get; set; }
+    public DateTime AtUtc { get; set; } = DateTime.UtcNow;
+    public string Actor { get; set; } = "";
+
+    /// <summary>A short code, e.g. "store.created", "register.revoked".</summary>
+    public string Action { get; set; } = "";
+    public Guid? TenantId { get; set; }
+
+    /// <summary>In words, e.g. "Created store STORE-002 (Parramatta)". Never contains a secret.</summary>
+    public string Summary { get; set; } = "";
 }

@@ -1,0 +1,28 @@
+@* Audit entries, newest first. *@
+@if (Entries.Count == 0)
+{
+    <p class="muted">Nothing yet.</p>
+}
+else
+{
+    <ul class="activity">
+        @foreach (var entry in Entries)
+        {
+            <li>
+                <span class="activity-what">
+                    @entry.Summary
+                    @if (ShowBusiness && entry.BusinessId is { } id)
+                    {
+                        <text> · </text><a href="businesses/@id">@entry.BusinessName</a>
+                    }
+                </span>
+                <span class="activity-who" title="@Format.Exact(entry.AtUtc)">@entry.Actor · @Format.Ago(entry.AtUtc)</span>
+            </li>
+        }
+    </ul>
+}
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<AuditEntryRow> Entries { get; set; } = [];
+    [Parameter] public bool ShowBusiness { get; set; } = true;
+}

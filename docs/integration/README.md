@@ -186,7 +186,7 @@ The build runs in eight steps, each small enough to merge and test on its own. O
 | 8 | **Store sales on the website** (brought forward, built next): website keys, `GET /api/v1/stores` and `GET /api/v1/reports/sales` in Head Office; *Connect to NepPOS* and a Store sales page in the website admin | Both | The admin page matches the register's Reports screen for the same day |
 | 9 | **Customers and points**: members, points ledger, points at the till and online | Both | Points earned in store show online within a minute, and the reverse |
 
-Next after the catalog link: **NepPOS Portal** (`NepPOS.Portal`, same repo and database as Head Office): businesses, stores and registers on screens instead of curl, subscriptions (plan, register limit, expiry, status, enforced by Head Office without ever stopping a sale) and support tickets.
+Next after the catalog link: **NepPOS Portal** (`NepPOS.Portal`, same repo; it works through Head Office's admin API, see [docs/portal](../portal/README.md)): businesses, stores and registers on screens instead of curl, then subscriptions (plan, register limit, expiry, status, enforced by Head Office without ever stopping a sale), support tickets and software updates.
 
 Later, only if the business needs it: a multi-tenant website, Stripe Connect.
 

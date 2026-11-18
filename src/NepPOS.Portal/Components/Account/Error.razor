@@ -1,0 +1,20 @@
+@page "/error"
+@attribute [ExcludeFromInteractiveRouting]
+@attribute [AllowAnonymous]
+@layout AuthLayout
+@using System.Diagnostics
+
+<PageTitle>Error · NepPOS Portal</PageTitle>
+
+<h1>Something went wrong</h1>
+<p class="muted">The Portal hit an error. Try again; if it keeps happening, check the Portal's log for request <code>@_requestId</code>.</p>
+<a class="btn" href="/">Back to Overview</a>
+
+@code {
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? _requestId;
+
+    protected override void OnInitialized() => _requestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

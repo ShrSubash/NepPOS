@@ -1,0 +1,120 @@
+@page "/account/two-factor"
+@attribute [ExcludeFromInteractiveRouting]
+@attribute [Authorize(Policy = PortalPolicies.SignedIn)]
+@layout AuthLayout
+@using System.ComponentModel.DataAnnotations
+@inject HeadOfficeAdmin HeadOffice
+@inject NavigationManager Nav
+
+<PageTitle>Set up two-step sign-in · NepPOS Portal</PageTitle>
+
+<h1>Set up two-step sign-in</h1>
+<p class="muted">The Portal can create businesses and revoke registers, so every account needs a code from an authenticator app (Microsoft Authenticator, Google Authenticator, 1Password…).</p>
+
+<ProblemMessage Text="@_problem" />
+
+@if (!string.IsNullOrEmpty(Input.Secret))
+{
+    <ol class="steps">
+        <li>
+            Scan this with the app:
+            <qr-code data-text="@Input.Uri"></qr-code>
+            <span class="hint">Can't scan? Enter this key: <code class="secret">@Spaced(Input.Secret)</code></span>
+        </li>
+        <li>Enter the 6-digit code the app shows for <strong>NepPOS Portal</strong>.</li>
+    </ol>
+
+    <EditForm Model="Input" method="post" OnValidSubmit="ConfirmAsync" FormName="two-factor" class="form">
+        <DataAnnotationsValidator />
+        <input type="hidden" name="Input.Secret" value="@Input.Secret" />
+        <input type="hidden" name="Input.Uri" value="@Input.Uri" />
+
+        <label for="code">Code</label>
+        <InputText id="code" @bind-Value="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" autofocus />
+        <ValidationMessage For="() => Input.Code" />
+
+        <button type="submit" class="btn btn-primary btn-block">Turn on and continue</button>
+    </EditForm>
+}
+else
+{
+    <a class="btn" href="account/two-factor">Try again</a>
+}
+
+<form method="post" action="account/sign-out" class="auth-alt">
+    <AntiforgeryToken />
+    <button type="submit" class="link-button">Sign out</button>
+</form>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private SetupInput Input { get; set; } = default!;
+
+    private string? _problem;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Input ??= new();
+        var user = HttpContext.User;
+
+        if (!user.HasClaim(PortalClaims.TwoFactorSetup, "required"))
+        {
+            Nav.NavigateTo("/");
+            return;
+        }
+
+        // A new key only when the page is opened, never when the form is sent (that would replace the one just scanned).
+        if (HttpMethods.IsGet(HttpContext.Request.Method) && user.StaffId() is { } id)
+        {
+            var setup = await HeadOffice.StartTwoFactorAsync(id);
+            if (setup.Ok)
+            {
+                Input.Secret = setup.Value!.Secret;
+                Input.Uri = setup.Value.OtpAuthUri;
+            }
+            else
+            {
+                _problem = setup.Problem;
+            }
+        }
+    }
+
+    private async Task ConfirmAsync()
+    {
+        var user = HttpContext.User;
+        if (user.StaffId() is not { } id)
+            return;
+
+        var result = await HeadOffice.ConfirmTwoFactorAsync(id, Input.Code.Replace(" ", ""));
+        if (!result.Ok)
+        {
+            _problem = result.Problem;
+            Input.Code = "";
+            return;
+        }
+
+        // Same person, now without the "setup required" mark: every page opens.
+        var staff = new StaffSignInResponse(id,
+            user.FindFirstValue(ClaimTypes.Email) ?? "",
+            user.FindFirstValue(ClaimTypes.Name) ?? "",
+            user.FindFirstValue(ClaimTypes.Role) ?? StaffRoles.Support,
+            NeedsTwoFactorSetup: false);
+        await PortalClaims.SignInAsync(HttpContext, staff, needsTwoFactorSetup: false);
+        Nav.NavigateTo("/");
+    }
+
+    private static string Spaced(string secret) =>
+        string.Join(' ', Enumerable.Range(0, (secret.Length + 3) / 4).Select(i => secret.Substring(i * 4, Math.Min(4, secret.Length - i * 4))));
+
+    private sealed class SetupInput
+    {
+        public string Secret { get; set; } = "";
+        public string Uri { get; set; } = "";
+
+        [Required(ErrorMessage = "Enter the code from the app.")]
+        public string Code { get; set; } = "";
+    }
+}

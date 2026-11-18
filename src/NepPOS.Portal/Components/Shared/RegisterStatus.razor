@@ -1,0 +1,17 @@
+@* Online / offline / revoked pill for a register. *@
+@if (Register.IsRevoked)
+{
+    <span class="pill pill-off">Revoked</span>
+}
+else if (Register.Online)
+{
+    <span class="pill pill-ok">Online</span>
+}
+else
+{
+    <span class="pill pill-warn" title="@Format.When(Register.LastSeenUtc)">Offline</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public RegisterRow Register { get; set; } = default!;
+}

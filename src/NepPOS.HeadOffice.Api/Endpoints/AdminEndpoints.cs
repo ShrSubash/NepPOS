@@ -6,7 +6,8 @@ namespace NepPOS.HeadOffice.Api.Endpoints;
 
 /// <summary>
 /// Setting up a customer: create the tenant, its stores, and a one-time activation code per register.
-/// Protected by the platform admin key (X-Admin-Key) until the platform portal exists.
+/// Protected by the platform admin key (X-Admin-Key). NepPOS Portal calls these on behalf of the signed-in
+/// person (X-Portal-User), and every change is written to the audit log in the same save.
 /// </summary>
 public static class AdminEndpoints
 {
@@ -24,18 +25,19 @@ public static class AdminEndpoints
     {
         var admin = app.MapGroup("/api/v1/admin").AddEndpointFilter<AdminKeyFilter>().WithTags("Admin");
 
-        admin.MapPost("/tenants", async (CreateTenantRequest request, HeadOfficeDbContext db, CancellationToken ct) =>
+        admin.MapPost("/tenants", async (CreateTenantRequest request, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
         {
             if (string.IsNullOrWhiteSpace(request.Name))
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["name"] = new[] { "Enter the business name." } });
 
             var tenant = new Tenant { Name = request.Name.Trim() };
             db.Tenants.Add(tenant);
+            Audit.Add(db, http, "business.created", tenant.Id, $"Created business {tenant.Name}");
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/admin/tenants/{tenant.Id}", new TenantResponse(tenant.Id, tenant.Name));
         });
 
-        admin.MapPost("/tenants/{tenantId:guid}/stores", async (Guid tenantId, CreateStoreRequest request, HeadOfficeDbContext db, CancellationToken ct) =>
+        admin.MapPost("/tenants/{tenantId:guid}/stores", async (Guid tenantId, CreateStoreRequest request, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
         {
             if (!await db.Tenants.AnyAsync(t => t.Id == tenantId, ct))
                 return Results.NotFound();
@@ -52,12 +54,13 @@ public static class AdminEndpoints
 
             var store = new Store { TenantId = tenantId, StoreCode = code, Name = request.Name.Trim(), TimeZoneId = timeZone };
             db.Stores.Add(store);
+            Audit.Add(db, http, "store.created", tenantId, $"Created store {store.StoreCode} ({store.Name})");
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/admin/stores/{store.Id}", new StoreResponse(store.Id, store.TenantId, store.StoreCode, store.Name, store.TimeZoneId));
         });
 
         // The code is returned once, in plain text, to read out or send to the store; only its hash is kept.
-        admin.MapPost("/stores/{storeId:guid}/activation-codes", async (Guid storeId, CreateActivationCodeRequest? request, HeadOfficeDbContext db, CancellationToken ct) =>
+        admin.MapPost("/stores/{storeId:guid}/activation-codes", async (Guid storeId, CreateActivationCodeRequest? request, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
         {
             var store = await db.Stores.AsNoTracking().FirstOrDefaultAsync(s => s.Id == storeId, ct);
             if (store is null)
@@ -72,6 +75,7 @@ public static class AdminEndpoints
                 ExpiresUtc = DateTime.UtcNow.AddDays(Math.Clamp(request?.ValidDays ?? 7, 1, 30))
             };
             db.ActivationCodes.Add(activation);
+            Audit.Add(db, http, "activation-code.issued", store.TenantId, $"Issued an activation code for {store.StoreCode}, valid until {activation.ExpiresUtc:yyyy-MM-dd HH:mm} UTC");
             await db.SaveChangesAsync(ct);
             return Results.Ok(new ActivationCodeResponse(code, store.Id, store.StoreCode, activation.ExpiresUtc));
         });
@@ -84,7 +88,7 @@ public static class AdminEndpoints
                 .ToListAsync(ct)));
 
         // The key the business's website uses to read its reports. Shown once; only its hash is kept.
-        admin.MapPost("/tenants/{tenantId:guid}/website-keys", async (Guid tenantId, CreateWebsiteKeyRequest? request, HeadOfficeDbContext db, CancellationToken ct) =>
+        admin.MapPost("/tenants/{tenantId:guid}/website-keys", async (Guid tenantId, CreateWebsiteKeyRequest? request, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
         {
             if (!await db.Tenants.AnyAsync(t => t.Id == tenantId, ct))
                 return Results.NotFound();
@@ -98,30 +102,39 @@ public static class AdminEndpoints
                 ApiKeyPrefix = apiKey[..10]
             };
             db.WebsiteKeys.Add(key);
+            Audit.Add(db, http, "website-key.created", tenantId, $"Created website key {key.Name} ({key.ApiKeyPrefix}…)");
             await db.SaveChangesAsync(ct);
             return Results.Ok(new WebsiteKeyResponse(key.Id, tenantId, key.Name, apiKey));
         });
 
-        admin.MapPost("/website-keys/{keyId:guid}/revoke", async (Guid keyId, HeadOfficeDbContext db, CancellationToken ct) =>
+        admin.MapPost("/website-keys/{keyId:guid}/revoke", async (Guid keyId, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
         {
             var key = await db.WebsiteKeys.FirstOrDefaultAsync(k => k.Id == keyId, ct);
             if (key is null)
                 return Results.NotFound();
 
-            key.IsRevoked = true;
-            await db.SaveChangesAsync(ct);
+            if (!key.IsRevoked)
+            {
+                key.IsRevoked = true;
+                Audit.Add(db, http, "website-key.revoked", key.TenantId, $"Revoked website key {key.Name} ({key.ApiKeyPrefix}…)");
+                await db.SaveChangesAsync(ct);
+            }
             return Results.NoContent();
         });
 
         // A stolen or replaced PC: its key stops working on the next request.
-        admin.MapPost("/registers/{registerId:guid}/revoke", async (Guid registerId, HeadOfficeDbContext db, CancellationToken ct) =>
+        admin.MapPost("/registers/{registerId:guid}/revoke", async (Guid registerId, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
         {
             var register = await db.Registers.FirstOrDefaultAsync(r => r.Id == registerId, ct);
             if (register is null)
                 return Results.NotFound();
 
-            register.IsRevoked = true;
-            await db.SaveChangesAsync(ct);
+            if (!register.IsRevoked)
+            {
+                register.IsRevoked = true;
+                Audit.Add(db, http, "register.revoked", register.TenantId, $"Revoked register {register.RegisterCode} ({register.ApiKeyPrefix}…)");
+                await db.SaveChangesAsync(ct);
+            }
             return Results.NoContent();
         });
     }

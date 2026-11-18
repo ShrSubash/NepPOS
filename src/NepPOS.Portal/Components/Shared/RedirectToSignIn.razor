@@ -1,0 +1,35 @@
+@inject NavigationManager Nav
+
+@if (_notAllowed)
+{
+    <div class="pad">
+        <h1>Not allowed</h1>
+        <p class="muted">Only an owner can open this page.</p>
+        <a class="btn" href="/">Back to Overview</a>
+    </div>
+}
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private bool _notAllowed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        if (user.Identity?.IsAuthenticated != true)
+        {
+            var back = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+            Nav.NavigateTo($"account/sign-in?returnUrl={Uri.EscapeDataString(back)}", forceLoad: true);
+        }
+        else if (user.HasClaim(PortalClaims.TwoFactorSetup, "required"))
+        {
+            Nav.NavigateTo("account/two-factor", forceLoad: true);
+        }
+        else
+        {
+            _notAllowed = true;
+        }
+    }
+}

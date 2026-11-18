@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    NepPOS Portal: the NepPOS company's own console (docs/portal/README.md). Customers' businesses,
+    stores, registers and keys, the audit log and staff. It reads and changes everything through
+    Head Office's admin API; it has no database of its own.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Portal:AdminKey lives in user secrets on a dev PC, never in appsettings.json. -->
+    <UserSecretsId>3df0e29d-3f0c-4c32-8a6f-f6014a679fbc</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NepPOS.Contracts\NepPOS.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

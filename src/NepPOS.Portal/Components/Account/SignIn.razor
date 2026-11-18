@@ -1,0 +1,77 @@
+@page "/account/sign-in"
+@attribute [ExcludeFromInteractiveRouting]
+@attribute [AllowAnonymous]
+@layout AuthLayout
+@using System.ComponentModel.DataAnnotations
+@inject HeadOfficeAdmin HeadOffice
+@inject NavigationManager Nav
+
+<PageTitle>Sign in · NepPOS Portal</PageTitle>
+
+<h1>Sign in</h1>
+
+<ProblemMessage Text="@_problem" />
+
+<EditForm Model="Input" method="post" OnValidSubmit="SignInAsync" FormName="sign-in" class="form">
+    <DataAnnotationsValidator />
+
+    <label for="email">Email</label>
+    <InputText id="email" @bind-Value="Input.Email" type="email" autocomplete="username" autofocus />
+    <ValidationMessage For="() => Input.Email" />
+
+    <label for="password">Password</label>
+    <InputText id="password" @bind-Value="Input.Password" type="password" autocomplete="current-password" />
+    <ValidationMessage For="() => Input.Password" />
+
+    <label for="code">Authenticator code</label>
+    <InputText id="code" @bind-Value="Input.Code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6 digits" />
+    <p class="hint">Leave empty the first time; you'll set up the app next.</p>
+
+    <button type="submit" class="btn btn-primary btn-block">Sign in</button>
+</EditForm>
+
+@code {
+    [CascadingParameter]
+    private HttpContext HttpContext { get; set; } = default!;
+
+    [SupplyParameterFromForm]
+    private SignInInput Input { get; set; } = default!;
+
+    [SupplyParameterFromQuery]
+    private string? ReturnUrl { get; set; }
+
+    private string? _problem;
+
+    protected override void OnInitialized() => Input ??= new();
+
+    private async Task SignInAsync()
+    {
+        var code = string.IsNullOrWhiteSpace(Input.Code) ? null : Input.Code.Replace(" ", "");
+        var result = await HeadOffice.SignInAsync(Input.Email.Trim(), Input.Password, code);
+        if (!result.Ok)
+        {
+            _problem = result.Problem;
+            return;
+        }
+
+        var staff = result.Value!;
+        await PortalClaims.SignInAsync(HttpContext, staff, staff.NeedsTwoFactorSetup);
+
+        // Only go back to a page on this site; anything else could send staff somewhere fake.
+        var next = staff.NeedsTwoFactorSetup ? "/account/two-factor"
+            : ReturnUrl is { Length: > 0 } url && url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\") ? url
+            : "/";
+        Nav.NavigateTo(next);
+    }
+
+    private sealed class SignInInput
+    {
+        [Required(ErrorMessage = "Enter your email.")]
+        public string Email { get; set; } = "";
+
+        [Required(ErrorMessage = "Enter your password.")]
+        public string Password { get; set; } = "";
+
+        public string? Code { get; set; }
+    }
+}

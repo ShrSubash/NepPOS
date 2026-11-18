@@ -1,0 +1,208 @@
+@page "/team"
+@using System.ComponentModel.DataAnnotations
+@inject HeadOfficeAdmin HeadOffice
+
+<PageTitle>Team · NepPOS Portal</PageTitle>
+
+<header class="page-head">
+    <div>
+        <h1>Team</h1>
+        <p class="muted">NepPOS staff who can sign in to the Portal. Owners manage the team; support staff look after customers.</p>
+    </div>
+</header>
+
+<ProblemMessage Text="@_problem" />
+@if (_message is not null)
+{
+    <div class="alert alert-ok">@_message</div>
+}
+
+@if (_staff is { } staff)
+{
+    <div class="card flush">
+        <table class="table">
+            <thead><tr><th>Name</th><th>Role</th><th>Two-step</th><th>Last sign-in</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var s in staff)
+                {
+                    <tr class="@(s.IsActive ? "" : "dim")">
+                        <td>@s.Name<div class="sub">@s.Email</div></td>
+                        <td>@s.Role</td>
+                        <td>
+                            @if (s.TwoFactorEnabled) { <span class="pill pill-ok">On</span> }
+                            else { <span class="pill pill-warn">Not set up</span> }
+                        </td>
+                        <td title="@Format.Exact(s.LastSignInUtc)">@Format.Ago(s.LastSignInUtc)</td>
+                        <td class="right">
+                            @if (!s.IsActive)
+                            {
+                                <span class="pill pill-off">Disabled</span>
+                            }
+                            else if (_isOwner && s.Id != _me)
+                            {
+                                <ConfirmButton Text="Disable" ConfirmText="Disable: they can't sign in" OnConfirm="() => DisableAsync(s)" />
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+<div class="cols">
+    @if (_isOwner)
+    {
+        <section class="card">
+            <h2>Add a team member</h2>
+            <EditForm Model="_new" OnValidSubmit="AddAsync" FormName="add-staff" class="form">
+                <DataAnnotationsValidator />
+                <label for="n">Name</label>
+                <InputText id="n" @bind-Value="_new.Name" />
+                <ValidationMessage For="() => _new.Name" />
+
+                <label for="e">Email</label>
+                <InputText id="e" @bind-Value="_new.Email" type="email" autocomplete="off" />
+                <ValidationMessage For="() => _new.Email" />
+
+                <label for="r">Role</label>
+                <InputSelect id="r" @bind-Value="_new.Role">
+                    <option value="@StaffRoles.Support">Support: customers, registers and keys</option>
+                    <option value="@StaffRoles.Owner">Owner: everything, including the team</option>
+                </InputSelect>
+
+                <label for="p">First password</label>
+                <InputText id="p" @bind-Value="_new.Password" type="password" autocomplete="new-password" />
+                <ValidationMessage For="() => _new.Password" />
+                <p class="hint">12 characters or more. Give it to them in person; they set up two-step sign-in the first time they sign in.</p>
+
+                <button type="submit" class="btn btn-primary">Add</button>
+            </EditForm>
+        </section>
+    }
+
+    <section class="card">
+        <h2>Change your password</h2>
+        <EditForm Model="_password" OnValidSubmit="ChangePasswordAsync" FormName="change-password" class="form">
+            <DataAnnotationsValidator />
+            <label for="cp">Current password</label>
+            <InputText id="cp" @bind-Value="_password.Current" type="password" autocomplete="current-password" />
+            <ValidationMessage For="() => _password.Current" />
+
+            <label for="np">New password</label>
+            <InputText id="np" @bind-Value="_password.Next" type="password" autocomplete="new-password" />
+            <ValidationMessage For="() => _password.Next" />
+
+            <label for="np2">New password again</label>
+            <InputText id="np2" @bind-Value="_password.Again" type="password" autocomplete="new-password" />
+            <ValidationMessage For="() => _password.Again" />
+
+            <button type="submit" class="btn">Change password</button>
+        </EditForm>
+    </section>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState> AuthState { get; set; } = default!;
+
+    private List<StaffRow>? _staff;
+    private string? _problem;
+    private string? _message;
+    private bool _isOwner;
+    private Guid? _me;
+
+    private NewStaffInput _new = new();
+    private PasswordInput _password = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var user = (await AuthState).User;
+        _isOwner = user.IsInRole(StaffRoles.Owner);
+        _me = user.StaffId();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        var result = await HeadOffice.StaffAsync();
+        _staff = result.Value;
+        _problem ??= result.Problem;
+    }
+
+    private async Task AddAsync()
+    {
+        (_problem, _message) = (null, null);
+        if (!_isOwner)
+            return;
+
+        var result = await HeadOffice.CreateStaffAsync(new CreateStaffRequest(_new.Email.Trim(), _new.Name.Trim(), _new.Role, _new.Password));
+        if (result.Ok)
+        {
+            _message = $"{result.Value!.Name} can now sign in.";
+            _new = new();
+        }
+        else
+        {
+            _problem = result.Problem;
+        }
+        await LoadAsync();
+    }
+
+    private async Task DisableAsync(StaffRow staff)
+    {
+        (_problem, _message) = (null, null);
+        if (!_isOwner)
+            return;
+
+        var result = await HeadOffice.DisableStaffAsync(staff.Id);
+        _problem = result.Problem;
+        if (result.Ok)
+            _message = $"{staff.Name} can no longer sign in.";
+        await LoadAsync();
+    }
+
+    private async Task ChangePasswordAsync()
+    {
+        (_problem, _message) = (null, null);
+        if (_me is not { } id)
+            return;
+
+        var result = await HeadOffice.ChangePasswordAsync(id, _password.Current, _password.Next);
+        if (result.Ok)
+        {
+            _message = "Password changed.";
+            _password = new();
+        }
+        else
+        {
+            _problem = result.Problem;
+        }
+    }
+
+    private sealed class NewStaffInput
+    {
+        [Required(ErrorMessage = "Enter their name.")]
+        public string Name { get; set; } = "";
+
+        [Required(ErrorMessage = "Enter their email."), EmailAddress(ErrorMessage = "That isn't an email address.")]
+        public string Email { get; set; } = "";
+
+        public string Role { get; set; } = StaffRoles.Support;
+
+        [Required(ErrorMessage = "Enter a first password."), MinLength(12, ErrorMessage = "Use 12 characters or more.")]
+        public string Password { get; set; } = "";
+    }
+
+    private sealed class PasswordInput
+    {
+        [Required(ErrorMessage = "Enter your current password.")]
+        public string Current { get; set; } = "";
+
+        [Required(ErrorMessage = "Enter a new password."), MinLength(12, ErrorMessage = "Use 12 characters or more.")]
+        public string Next { get; set; } = "";
+
+        [Compare(nameof(Next), ErrorMessage = "The two new passwords don't match.")]
+        public string Again { get; set; } = "";
+    }
+}
