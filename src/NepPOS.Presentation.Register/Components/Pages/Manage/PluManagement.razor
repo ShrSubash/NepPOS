@@ -1,10 +1,12 @@
 ﻿@page "/manage/plu"
 @layout ManageLayout
 @using NepPOS.Application.Catalog
+@using NepPOS.Application.Reports
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IProductManagementService ProductService
+@inject IReportFileStore Files
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -19,9 +21,28 @@ else
             <span class="brand-text">PLU / Product Management</span>
             @if (CanCreate)
             {
-                <button class="add-btn" @onclick="StartNew">+ New Product</button>
+                <div class="topbar-actions">
+                    <label class="top-save file-btn" title="Add or update many products from a CSV file (Excel: Save As → CSV)">
+                        ⬆ Import CSV
+                        <InputFile OnChange="ReadCsvAsync" accept=".csv,text/csv,.txt" />
+                    </label>
+                    <button class="top-save" title="Save every product to a CSV file: edit it in Excel and import it back" @onclick="ExportCsvAsync">⬇ Export CSV</button>
+                    <button class="add-btn" @onclick="StartNew">+ New Product</button>
+                </div>
             }
         </div>
+
+        @if (CsvMessage is not null)
+        {
+            <div class="csv-msg @(CsvMessageIsError ? "error" : "")">
+                <span>@CsvMessage</span>
+                @if (ExportedTo is not null)
+                {
+                    <button class="link" @onclick="Files.OpenFolder">Open folder</button>
+                }
+                <button class="link" @onclick="() => CsvMessage = null">✕</button>
+            </div>
+        }
 
         <div class="plu-table-wrap">
             <table class="plu-table">
@@ -58,6 +79,72 @@ else
                 </tbody>
             </table>
         </div>
+
+        @if (Import is { } plan)
+        {
+            <div class="plu-editor-overlay">
+                <div class="csv-preview">
+                    <h2>Import @ImportFileName</h2>
+                    <p class="csv-sub">Nothing is saved until you press Import. Empty cells keep what's already saved.</p>
+
+                    <div class="csv-counts">
+                        <div><strong>@plan.New.Count</strong><span>new</span></div>
+                        <div><strong>@plan.Updates.Count</strong><span>changed</span></div>
+                        <div><strong>@plan.Unchanged</strong><span>already the same</span></div>
+                        <div class="@(plan.Problems.Count > 0 ? "bad" : "")"><strong>@plan.Problems.Count</strong><span>@(plan.Problems.Count == 1 ? "line skipped" : "lines skipped")</span></div>
+                    </div>
+
+                    <div class="csv-lists">
+                        @if (plan.Problems.Count > 0)
+                        {
+                            <section>
+                                <h3>Skipped, fix these in the file</h3>
+                                <ul class="csv-problems">
+                                    @foreach (var problem in plan.Problems.Take(100))
+                                    {
+                                        <li><span class="csv-line">@(problem.Line == 0 ? "File" : $"Line {problem.Line}")</span>@problem.Message</li>
+                                    }
+                                </ul>
+                                @if (plan.Problems.Count > 100) { <p class="csv-sub">…and @(plan.Problems.Count - 100) more.</p> }
+                            </section>
+                        }
+                        @if (plan.New.Count > 0)
+                        {
+                            <section>
+                                <h3>New</h3>
+                                <table class="csv-table">
+                                    @foreach (var p in plan.New.Take(100))
+                                    {
+                                        <tr><td class="muted">@p.Plu</td><td>@p.Name</td><td class="muted">@p.Category</td><td class="num">@p.Price.ToString("C")</td></tr>
+                                    }
+                                </table>
+                                @if (plan.New.Count > 100) { <p class="csv-sub">…and @(plan.New.Count - 100) more.</p> }
+                            </section>
+                        }
+                        @if (plan.Updates.Count > 0)
+                        {
+                            <section>
+                                <h3>Changed</h3>
+                                <table class="csv-table">
+                                    @foreach (var u in plan.Updates.Take(100))
+                                    {
+                                        <tr><td class="muted">@u.Updated.Plu</td><td>@u.Updated.Name</td><td class="changes" colspan="2">@string.Join(" · ", u.Changes)</td></tr>
+                                    }
+                                </table>
+                                @if (plan.Updates.Count > 100) { <p class="csv-sub">…and @(plan.Updates.Count - 100) more.</p> }
+                            </section>
+                        }
+                    </div>
+
+                    <div class="editor-actions">
+                        <button @onclick="() => Import = null" disabled="@Importing">Cancel</button>
+                        <button class="primary" @onclick="ConfirmImportAsync" disabled="@(!plan.HasWork || Importing)">
+                            @(Importing ? "Importing…" : plan.HasWork ? $"Import {plan.New.Count + plan.Updates.Count} product(s)" : "Nothing to import")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
 
         @if (Editing is not null)
         {
@@ -181,6 +268,87 @@ else
         Editing = null;
         await LoadAsync();
     }
+
+    // ---- CSV import / export ----
+
+    private const long MaxCsvBytes = 5 * 1024 * 1024;
+
+    private ProductImportPlan? Import;
+    private string ImportFileName = "";
+    private bool Importing;
+    private string? CsvMessage;
+    private bool CsvMessageIsError;
+    private string? ExportedTo;
+
+    /// <summary>Reads the chosen file and shows what it would do. Saves nothing.</summary>
+    private async Task ReadCsvAsync(InputFileChangeEventArgs e)
+    {
+        (CsvMessage, ExportedTo, Import) = (null, null, null);
+        if (!CanCreate) return;
+
+        try
+        {
+            if (e.File.Size > MaxCsvBytes)
+            {
+                ShowCsv("That file is over 5 MB. Split it into smaller files.", error: true);
+                return;
+            }
+
+            using var memory = new MemoryStream();
+            await using (var stream = e.File.OpenReadStream(MaxCsvBytes))
+                await stream.CopyToAsync(memory);
+
+            ImportFileName = e.File.Name;
+            Import = ProductCsv.Plan(ProductCsv.Decode(memory.ToArray()), await ProductService.GetAllAsync());
+        }
+        catch (Exception)
+        {
+            ShowCsv("Couldn't read that file. Save it from Excel as \"CSV UTF-8 (Comma delimited)\" and try again.", error: true);
+        }
+    }
+
+    private async Task ConfirmImportAsync()
+    {
+        if (Import is null || Importing || !CanCreate) return;
+
+        Importing = true;
+        try
+        {
+            var (created, updated) = await ProductService.ImportAsync(Import);
+            var skipped = Import.Problems.Count;
+            Import = null;
+            await LoadAsync();
+            ShowCsv($"Imported: {created} new, {updated} changed{(skipped > 0 ? $", {skipped} line(s) skipped" : "")}. They go to Head Office and the website by themselves.");
+        }
+        catch (Exception)
+        {
+            Import = null;
+            ShowCsv("The import didn't save, so nothing changed. Details are in the log file.", error: true);
+        }
+        finally
+        {
+            Importing = false;
+        }
+    }
+
+    /// <summary>Every product to a CSV in the report folder. Edit it in Excel and import it back.</summary>
+    private async Task ExportCsvAsync()
+    {
+        (CsvMessage, ExportedTo) = (null, null);
+        try
+        {
+            var all = await ProductService.GetAllAsync();
+            ExportedTo = await Files.SaveAsync($"Products {DateTime.Now:yyyy-MM-dd HHmm}.csv", ProductCsv.Export(all));
+            ShowCsv($"Saved {all.Count} product(s) to {ExportedTo}. Edit it in Excel and use Import CSV to load it back.");
+        }
+        catch (Exception)
+        {
+            ExportedTo = null;
+            ShowCsv("Couldn't save the file. Check the report folder in Reports & End of Day.", error: true);
+        }
+    }
+
+    private void ShowCsv(string text, bool error = false) => (CsvMessage, CsvMessageIsError) = (text, error);
 
     private async Task Deactivate(Product p)
     {

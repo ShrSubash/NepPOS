@@ -16,6 +16,12 @@ public interface IProductManagementService
     Task UpdateAsync(Product product);
     Task DeactivateAsync(int id);
 
+    /// <summary>
+    /// Saves a confirmed CSV import (<see cref="ProductCsv.Plan"/>) in one go: every new and changed product,
+    /// each with its event for Head Office. All or nothing.
+    /// </summary>
+    Task<(int Created, int Updated)> ImportAsync(ProductImportPlan plan);
+
     /// <summary>Queues every product for Head Office (first connection). Returns how many.</summary>
     Task<int> SendAllToHeadOfficeAsync();
 }

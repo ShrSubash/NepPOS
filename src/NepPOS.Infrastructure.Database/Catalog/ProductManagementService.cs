@@ -69,6 +69,51 @@ public sealed class ProductManagementService : IProductManagementService
         await _dbContext.SaveChangesAsync();
     }
 
+    public async Task<(int Created, int Updated)> ImportAsync(ProductImportPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+
+        foreach (var product in plan.New)
+        {
+            product.Id = 0;
+            if (product.SyncId == Guid.Empty)
+                product.SyncId = Guid.NewGuid();
+            _dbContext.Products.Add(product);
+            _dbContext.OutboxMessages.Add(OutboxMessage.ProductChanged(product, Array.Empty<ProductVariant>(), _terminal.StoreId, _terminal.RegisterId));
+        }
+
+        var ids = plan.Updates.Select(u => u.Updated.Id).ToList();
+        var saved = await _dbContext.Products.Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+        var variants = (await _dbContext.ProductVariants.AsNoTracking().Where(v => ids.Contains(v.ProductId)).ToListAsync()).ToLookup(v => v.ProductId);
+
+        var updated = 0;
+        foreach (var update in plan.Updates)
+        {
+            // Deleted since the preview: skip it rather than fail the whole import.
+            if (!saved.TryGetValue(update.Updated.Id, out var product))
+                continue;
+
+            var values = update.Updated;
+            product.Name = values.Name;
+            product.Plu = values.Plu;
+            product.Barcode = values.Barcode;
+            product.Category = values.Category;
+            product.Price = values.Price;
+            product.CostPrice = values.CostPrice;
+            product.StockOnHand = values.StockOnHand;
+            product.EnableOnWebsite = values.EnableOnWebsite;
+            product.IsActive = values.IsActive;
+            if (product.SyncId == Guid.Empty)
+                product.SyncId = Guid.NewGuid();
+
+            _dbContext.OutboxMessages.Add(OutboxMessage.ProductChanged(product, variants[product.Id], _terminal.StoreId, _terminal.RegisterId));
+            updated++;
+        }
+
+        await _dbContext.SaveChangesAsync();
+        return (plan.New.Count, updated);
+    }
+
     /// <summary>
     /// Queues every product (active or not) for Head Office: the first link to Head Office, or to
     /// put things right after a restore. Resending is harmless; Head Office keeps the latest.
