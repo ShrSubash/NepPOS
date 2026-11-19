@@ -377,3 +377,66 @@
     .editor-actions button.primary:disabled {
         opacity: 0.5;
     }
+
+/* ---- Import from the old POS ---- */
+
+.legacy-files {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.legacy-file {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.8rem 1rem;
+    border: 1px solid #e8e9f2;
+    border-radius: 10px;
+    font-size: 0.9rem;
+    color: #14162b;
+}
+
+    .legacy-file code {
+        display: block;
+        margin-top: 0.25rem;
+        color: #4a52a8;
+        font-size: 0.8rem;
+    }
+
+    .legacy-file .file-btn {
+        flex: none;
+        max-width: 45%;
+        padding: 0 1rem;
+        border: 1px solid #e6e8f0;
+        border-radius: 10px;
+        background: #fff;
+        font-weight: 600;
+        font-size: 0.85rem;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+.csv-problems.notes .csv-line {
+    color: #8a5a12;
+}
+
+.csv-table tr.head td {
+    color: #6b6f8e;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.tag-free, .tag-off {
+    margin-left: 0.3rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 5px;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.tag-free { background: #e8f7ee; color: #15803d; }
+.tag-off { background: #f0f1f6; color: #6b6f8e; }

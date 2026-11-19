@@ -356,7 +356,7 @@ public static class ProductCsv
     }
 
     /// <summary>Comma, unless the heading line has more semicolons or tabs (some Excel set-ups save with ;).</summary>
-    private static char DetectDelimiter(string text)
+    internal static char DetectDelimiter(string text)
     {
         var firstLine = text.Split('\n', 2)[0];
         var counts = new[] { ',', ';', '\t' }.Select(c => (c, n: firstLine.Count(x => x == c))).OrderByDescending(x => x.n).First();
@@ -364,7 +364,7 @@ public static class ProductCsv
     }
 
     /// <summary>RFC 4180 records: quoted cells may hold the delimiter, "" and line breaks. Line numbers are 1-based.</summary>
-    private static IEnumerable<(int Line, List<string> Cells)> SplitRecords(string text, char delimiter)
+    internal static IEnumerable<(int Line, List<string> Cells)> SplitRecords(string text, char delimiter)
     {
         var cells = new List<string>();
         var cell = new StringBuilder();

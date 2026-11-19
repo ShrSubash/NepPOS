@@ -212,12 +212,12 @@
 
     private void AddToCart(Product product) =>
         AddLine($"P:{product.Id}", SkuFor(product.Plu, product.Barcode, $"P{product.Id}"),
-                product, product.Name, product.Price);
+                product, product.Name, product.Price, packUnits: 1);
 
     // A pack size (6-pack, carton…) sells at its own price but is still the same base product.
     private void AddToCart(ProductVariant variant) =>
         AddLine($"V:{variant.Id}", SkuFor(variant.Plu, variant.Barcode, $"V{variant.Id}"),
-                variant.Product, $"{variant.Product.Name} ({variant.PackType})", variant.Price);
+                variant.Product, $"{variant.Product.Name} ({variant.DisplayName})", variant.Price, Math.Max(1, variant.UnitQuantity));
 
     // PLU first, then barcode, then the internal id — PLU-screen edits can leave "" rather than null.
     private static string SkuFor(string? plu, string? barcode, string fallback) =>
@@ -225,7 +225,7 @@
         : !string.IsNullOrWhiteSpace(barcode) ? barcode
         : fallback;
 
-    private void AddLine(string key, string sku, Product product, string name, decimal unitPrice)
+    private void AddLine(string key, string sku, Product product, string name, decimal unitPrice, int packUnits)
     {
         var existing = CartLines.FirstOrDefault(l => l.Key == key);
         if (existing is not null)
@@ -234,7 +234,7 @@
         }
         else
         {
-            CartLines.Add(new CartLine { Key = key, Sku = sku, Product = product, Name = name, UnitPrice = unitPrice, Quantity = 1 });
+            CartLines.Add(new CartLine { Key = key, Sku = sku, Product = product, Name = name, UnitPrice = unitPrice, PackUnits = packUnits, Quantity = 1 });
         }
     }
 
@@ -249,7 +249,8 @@
                                        Session.Employee?.Id, Session.Employee?.FullName);
         foreach (var line in CartLines)
         {
-            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice, GstRate, line.Product.Category));
+            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice,
+                line.Product.IsGstFree ? 0m : GstRate, line.Product.Category, line.Product.Id, line.PackUnits));
         }
 
         ActiveSale = sale;
@@ -403,6 +404,9 @@
         public required Product Product { get; init; }
         public required string Name { get; init; }
         public required decimal UnitPrice { get; init; }
+
+        /// <summary>Singles per item: 1, or 6 for a 6-pack. Stock goes down by Quantity × PackUnits.</summary>
+        public required int PackUnits { get; init; }
         public int Quantity { get; set; }
     }
 }
