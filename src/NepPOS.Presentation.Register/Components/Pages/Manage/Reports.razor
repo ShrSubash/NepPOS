@@ -1,13 +1,16 @@
 @page "/manage/reports"
 @page "/manage/end-of-day"
 @layout ManageLayout
+@using NepPOS.Application.Catalog
 @using NepPOS.Application.Email
 @using NepPOS.Application.Hardware
 @using NepPOS.Application.Journal
 @using NepPOS.Application.Reports
+@using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IEndOfDayReportService ReportService
+@inject IProductManagementService ProductCatalog
 @inject IRegisterSettingsStore SettingsStore
 @inject ILocalHardwareService Hardware
 @inject IJournal Journal
@@ -101,18 +104,22 @@ else
                         <div class="report-title">@HeadingText</div>
                         <div class="report-sub">@SubText</div>
                     </div>
+                    @if (CompareText is not null)
+                    {
+                        <div class="compare-note">@CompareText</div>
+                    }
 
                     <div class="kpis">
-                        <div class="kpi main"><span class="k-label">Sales (inc GST)</span><span class="k-value">@Money(Report.GrossSales)</span><span class="k-note">incl. GST @Money(Report.Gst)</span></div>
-                        <div class="kpi"><span class="k-label">Transactions</span><span class="k-value">@Report.SaleCount</span><span class="k-note">@Report.ItemCount items</span></div>
-                        <div class="kpi"><span class="k-label">Average sale</span><span class="k-value">@Money(AverageSale)</span><span class="k-note">@(Report.SaleCount == 0 ? "—" : $"{(decimal)Report.ItemCount / Report.SaleCount:0.0} items per sale")</span></div>
+                        <div class="kpi main"><span class="k-label">Sales (inc GST)</span><span class="k-value">@Money(Report.GrossSales)</span>@Delta(Report.GrossSales, Previous?.GrossSales)<span class="k-note">incl. GST @Money(Report.Gst)</span></div>
+                        <div class="kpi"><span class="k-label">Transactions</span><span class="k-value">@Report.SaleCount</span>@Delta(Report.SaleCount, Previous?.SaleCount, money: false)<span class="k-note">@Report.ItemCount items</span></div>
+                        <div class="kpi"><span class="k-label">Average sale</span><span class="k-value">@Money(AverageSale)</span>@Delta(AverageSale, PreviousAverage)<span class="k-note">@(Report.SaleCount == 0 ? "—" : $"{(decimal)Report.ItemCount / Report.SaleCount:0.0} items per sale")</span></div>
                         <div class="kpi"><span class="k-label">Cash in drawer</span><span class="k-value">@Money(Report.CashExpected)</span><span class="k-note">plus your opening float</span></div>
                         <div class="kpi"><span class="k-label">EFTPOS</span><span class="k-value">@Money(EftposTotal)</span><span class="k-note">@Pct(EftposTotal, Report.TotalTaken) of money taken</span></div>
                         <div class="kpi @(ProblemCount > 0 ? "warn" : "")"><span class="k-label">Needs a look</span><span class="k-value">@ProblemCount</span><span class="k-note">voids, no sales, card issues</span></div>
                     </div>
 
                     <div class="tabs">
-                        @foreach (var tab in Enum.GetValues<ReportTab>())
+                        @foreach (var tab in Enum.GetValues<ReportTab>().Where(TabShown))
                         {
                             <button class="tab @(tab == Tab ? "active" : "")" @onclick="() => Tab = tab">@TabLabel(tab)</button>
                         }
@@ -171,6 +178,102 @@ else
                                         }
                                     </section>
                                 </div>
+                                break;
+
+                            case ReportTab.Days:
+                                <div class="day-facts">
+                                    <div class="kpi"><span class="k-label">Best day</span><span class="k-value">@(BestDay is { } best ? Money(best.GrossSales) : "—")</span><span class="k-note">@(BestDay is { } b ? $"{b.TradingDay:dddd d MMM}" : "")</span></div>
+                                    <div class="kpi"><span class="k-label">Quietest day</span><span class="k-value">@(QuietestDay is { } quiet ? Money(quiet.GrossSales) : "—")</span><span class="k-note">@(QuietestDay is { } q ? $"{q.TradingDay:dddd d MMM}" : "")</span></div>
+                                    <div class="kpi"><span class="k-label">Average day</span><span class="k-value">@Money(Report.Days.Count == 0 ? 0 : Report.GrossSales / Report.Days.Count)</span><span class="k-note">@Report.Days.Count trading day(s)</span></div>
+                                </div>
+
+                                <section class="panel">
+                                    <h3>@(ByMonth ? "Sales by month" : "Sales by day") @if (!ByMonth) { <span class="count"><span class="key-weekend"></span>weekends</span> }</h3>
+                                    <div class="columns" role="img" aria-label="@(ByMonth ? "Sales by month" : "Sales by day")">
+                                        @{ var top = Columns.Count == 0 ? 0 : Columns.Max(c => c.Amount); }
+                                        @foreach (var c in Columns)
+                                        {
+                                            <div class="col @(c.Weekend ? "weekend" : "")" title="@($"{c.Title}: {Money(c.Amount)} from {c.Count} sale(s)")">
+                                                <span class="col-value">@Short(c.Amount)</span>
+                                                <span class="col-bar"><span style="height:@Width(c.Amount, top)"></span></span>
+                                                <span class="col-label">@c.Label</span>
+                                                <span class="col-sub">@c.Sub</span>
+                                            </div>
+                                        }
+                                    </div>
+                                </section>
+
+                                @if (Report.Days.Count >= 14)
+                                {
+                                    <section class="panel">
+                                        <h3>Average by day of the week</h3>
+                                        <p class="none">Helps with rosters and ordering.</p>
+                                        @{ var weekdays = WeekdayAverages; var topWeekday = weekdays.Count == 0 ? 0 : weekdays.Max(w => w.Average); }
+                                        @foreach (var w in weekdays)
+                                        {
+                                            <div class="bar-row wide">
+                                                <span class="bar-label">@w.Day <small>(@w.Days @(w.Days == 1 ? "day" : "days"))</small></span>
+                                                <span class="bar"><span style="width:@Width(w.Average, topWeekday)"></span></span>
+                                                <span class="bar-value">@Money(w.Average)</span>
+                                            </div>
+                                        }
+                                    </section>
+                                }
+                                break;
+
+                            case ReportTab.SlowSellers:
+                                @if (Report.Title is null)
+                                {
+                                    <p class="none">Early in the day most products haven't sold yet. This is most useful for a week or longer.</p>
+                                }
+                                @if (ActiveProducts is null)
+                                {
+                                    <p class="none">Couldn't load the product list.</p>
+                                }
+                                else
+                                {
+                                    var unsold = Unsold;
+                                    <div class="slow">
+                                        <section class="panel">
+                                            <h3>Didn't sell <span class="count">@unsold.Count of @ActiveProducts.Count products</span></h3>
+                                            <p class="none">Products still on sale with no sales in this report. Ones with the most stock on hand (by value) come first.</p>
+                                            @if (unsold.Count == 0)
+                                            {
+                                                <p class="good">Every product sold at least once.</p>
+                                            }
+                                            else
+                                            {
+                                                <table class="grid">
+                                                    <thead><tr><th>PLU</th><th>Product</th><th>Department</th><th class="num">Price</th><th class="num">On hand</th></tr></thead>
+                                                    <tbody>
+                                                        @foreach (var p in unsold.Take(200))
+                                                        {
+                                                            <tr><td class="muted">@SkuOf(p)</td><td>@p.Name</td><td class="muted">@p.Category</td><td class="num">@Money(p.Price)</td><td class="num">@p.StockOnHand.ToString("0.##")</td></tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                                @if (unsold.Count > 200)
+                                                {
+                                                    <p class="none">Showing 200 of @unsold.Count.</p>
+                                                }
+                                            }
+                                        </section>
+
+                                        <section class="panel">
+                                            <h3>Sold the least</h3>
+                                            <p class="none">Sold, but only a few.</p>
+                                            @if (Report.Products.Count < 2) { <p class="none">Not enough sales yet.</p> }
+                                            @foreach (var p in Report.Products.Where(p => p.Quantity > 0).OrderBy(p => p.Quantity).ThenBy(p => p.Amount).Take(Math.Min(10, Report.Products.Count / 2)))
+                                            {
+                                                <div class="least-row">
+                                                    <span class="least-name">@p.Name</span>
+                                                    <span class="least-qty">× @p.Quantity</span>
+                                                    <span class="bar-value">@Money(p.Amount)</span>
+                                                </div>
+                                            }
+                                        </section>
+                                    </div>
+                                }
                                 break;
 
                             case ReportTab.Departments:
@@ -300,6 +403,7 @@ else
         var saved = SettingsStore.Load();
         Sections = saved.Reports;
         Output = saved.ReportOutput;
+        await LoadProductsAsync();
         await LoadAsync();
     }
 
@@ -333,6 +437,10 @@ else
                 ReportView.LastYear => await PeriodAsync(ReportPeriod.FinancialYear(TradingToday.AddYears(-1)), "YEARLY REPORT"),
                 _ => await PeriodAsync((From, To), "PERIOD REPORT")
             };
+
+            await LoadComparisonAsync();
+            if (Tab == ReportTab.Days && !TabShown(ReportTab.Days))
+                Tab = ReportTab.Overview;
 
             if (Report is null)
                 ShowInfo("No day has been closed yet.");
@@ -568,7 +676,7 @@ else
 
     // ---- owner view ----
 
-    private enum ReportTab { Overview, Departments, Products, Hourly, Employees, Activity, Printout }
+    private enum ReportTab { Overview, Days, Departments, Products, SlowSellers, Hourly, Employees, Activity, Printout }
 
     private ReportTab Tab = ReportTab.Overview;
     private string ProductFilter = "";
@@ -577,6 +685,8 @@ else
     private static string TabLabel(ReportTab tab) => tab switch
     {
         ReportTab.Products => "Products (PLU)",
+        ReportTab.Days => "By day",
+        ReportTab.SlowSellers => "Slow sellers",
         ReportTab.Printout => "🧾 Printout",
         _ => tab.ToString()
     };
@@ -643,6 +753,154 @@ else
     // Bar length relative to the biggest row (or the total), as a CSS width.
     private static string Width(decimal value, decimal max) =>
         max <= 0 ? "0%" : $"{Math.Clamp(value / max * 100, 0, 100).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}%";
+
+    // ---- compared with the period before ----
+
+    private EndOfDayReport? Previous;
+    private string? CompareText;
+
+    /// <summary>
+    /// Loads the same days of the period before (this week Mon–Wed against last week Mon–Wed), so a part
+    /// week or month is never compared with a whole one. Only for reports made of closed days.
+    /// </summary>
+    private async Task LoadComparisonAsync()
+    {
+        Previous = null;
+        CompareText = null;
+        if (Report?.Title is null || Report.RangeFrom is not { } from || Report.Days.Count == 0)
+            return;
+
+        var to = Report.Days.Max(d => d.TradingDay);
+        var days = to.DayNumber - from.DayNumber + 1;
+        var (prevFrom, prevTo, label) = Selected switch
+        {
+            ReportView.ThisWeek => (from.AddDays(-7), to.AddDays(-7), "the same days last week"),
+            ReportView.LastWeek => (from.AddDays(-7), to.AddDays(-7), "the week before"),
+            ReportView.ThisMonth => (from.AddMonths(-1), to.AddMonths(-1), "the same days last month"),
+            ReportView.LastMonth => (from.AddMonths(-1), to.AddMonths(-1), "the month before"),
+            ReportView.ThisYear => (from.AddYears(-1), to.AddYears(-1), "the same days last year"),
+            ReportView.LastYear => (from.AddYears(-1), to.AddYears(-1), "the year before"),
+            _ => (from.AddDays(-days), from.AddDays(-1), $"the {days} day{(days == 1 ? "" : "s")} before")
+        };
+
+        try
+        {
+            var previous = await ReportService.GetPeriodAsync(prevFrom, prevTo, Report.Title);
+            if (previous.Days.Count == 0)
+            {
+                CompareText = $"No closed days in {label} ({prevFrom:d MMM} – {prevTo:d MMM yyyy}) to compare with.";
+                return;
+            }
+
+            Previous = previous;
+            CompareText = $"Arrows compare with {label}: {prevFrom:ddd d MMM} – {prevTo:ddd d MMM yyyy}.";
+        }
+        catch (Exception)
+        {
+            // The report itself is fine; it just shows without arrows.
+            CompareText = null;
+        }
+    }
+
+    private decimal? PreviousAverage => Previous is null ? null : Previous.SaleCount == 0 ? 0 : Previous.GrossSales / Previous.SaleCount;
+
+    /// <summary>▲ 12% / ▼ 8% against the period before; nothing when there's nothing to compare.</summary>
+    private RenderFragment Delta(decimal now, decimal? before, bool money = true) => __builder =>
+    {
+        if (Previous is null || before is null) return;
+
+        string css, text;
+        if (before == 0)
+            (css, text) = now > 0 ? ("up", "new") : ("flat", "same");
+        else
+        {
+            var change = (now - before.Value) / before.Value * 100;
+            (css, text) = Math.Abs(change) < 0.5m
+                ? ("flat", "same")
+                : (change > 0 ? "up" : "down", $"{(change > 0 ? "▲" : "▼")} {Math.Abs(change).ToString(change is > -10 and < 10 ? "0.0" : "0", System.Globalization.CultureInfo.InvariantCulture)}%");
+        }
+
+        <span class="k-delta @css" title="@($"Before: {(money ? Money(before.Value) : before.Value.ToString("0"))}")">@text</span>
+    };
+
+    // ---- by day ----
+
+    private bool TabShown(ReportTab tab) => tab != ReportTab.Days || Report?.Days.Count > 0;
+
+    private DayTotal? BestDay => Report?.Days.Where(d => d.SaleCount > 0).OrderByDescending(d => d.GrossSales).FirstOrDefault();
+
+    private DayTotal? QuietestDay => Report?.Days.Where(d => d.SaleCount > 0).OrderBy(d => d.GrossSales).FirstOrDefault();
+
+    /// <summary>A year has too many days for one chart: months instead.</summary>
+    private bool ByMonth => Report?.Days.Count > 45;
+
+    private sealed record Column(string Label, string Sub, string Title, decimal Amount, int Count, bool Weekend);
+
+    private List<Column> Columns => Report is null ? new()
+        : ByMonth
+            ? Report.Days
+                .GroupBy(d => new DateOnly(d.TradingDay.Year, d.TradingDay.Month, 1))
+                .OrderBy(g => g.Key)
+                .Select(g => new Column(g.Key.ToString("MMM"), g.Key.ToString("yy"), g.Key.ToString("MMMM yyyy"), g.Sum(d => d.GrossSales), g.Sum(d => d.SaleCount), false))
+                .ToList()
+            : Report.Days
+                .OrderBy(d => d.TradingDay)
+                .Select(d => new Column(d.TradingDay.Day.ToString(), d.TradingDay.ToString("ddd")[..2], d.TradingDay.ToString("dddd d MMMM"), d.GrossSales, d.SaleCount,
+                    d.TradingDay.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday))
+                .ToList();
+
+    private sealed record WeekdayAverage(string Day, int Days, decimal Average);
+
+    private List<WeekdayAverage> WeekdayAverages => (Report?.Days ?? Array.Empty<DayTotal>())
+        .GroupBy(d => d.TradingDay.DayOfWeek)
+        .OrderBy(g => ((int)g.Key + 6) % 7)   // Monday first
+        .Select(g => new WeekdayAverage(g.Key.ToString(), g.Count(), g.Average(d => d.GrossSales)))
+        .ToList();
+
+    /// <summary>$1.2k, $940: short enough to sit above a narrow column.</summary>
+    private static string Short(decimal amount) => amount >= 1000
+        ? "$" + (amount / 1000).ToString(amount >= 10000 ? "0" : "0.0", System.Globalization.CultureInfo.InvariantCulture) + "k"
+        : "$" + amount.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+    // ---- slow sellers ----
+
+    private List<Product>? ActiveProducts;
+
+    private async Task LoadProductsAsync()
+    {
+        try
+        {
+            ActiveProducts = (await ProductCatalog.GetAllAsync()).Where(p => p.IsActive).ToList();
+        }
+        catch (Exception)
+        {
+            ActiveProducts = null;
+        }
+    }
+
+    // The same key the register puts on each sale line: PLU, else barcode, else the internal id.
+    private static string SkuOf(Product p) =>
+        !string.IsNullOrWhiteSpace(p.Plu) ? p.Plu
+        : !string.IsNullOrWhiteSpace(p.Barcode) ? p.Barcode
+        : $"P{p.Id}";
+
+    /// <summary>Active products with no sale line in this report (a pack size sold counts for its product).</summary>
+    private List<Product> Unsold
+    {
+        get
+        {
+            if (Report is null || ActiveProducts is null) return new();
+            var skus = Report.Products.Select(p => p.Sku).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var names = Report.Products.Select(p => p.Name).ToList();
+            return ActiveProducts
+                .Where(p => !skus.Contains(SkuOf(p))
+                            && !names.Any(n => n.Equals(p.Name, StringComparison.OrdinalIgnoreCase)
+                                               || n.StartsWith(p.Name + " (", StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(p => p.StockOnHand * p.Price)
+                .ThenBy(p => p.Name)
+                .ToList();
+        }
+    }
 
     private void ShowInfo(string text) { Message = text; MessageIsError = false; }
 

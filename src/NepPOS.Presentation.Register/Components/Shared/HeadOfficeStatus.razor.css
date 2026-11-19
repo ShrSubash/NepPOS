@@ -1,0 +1,88 @@
+/* A status light: a dot and one word. Green online, red not, grey while checking. */
+
+.ho-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 30px;
+    padding: 0 0.7rem 0 0.6rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    font-family: inherit;
+    font-size: 0.76rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.ho-status:disabled {
+    cursor: default;
+}
+
+.ho-dot {
+    position: relative;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    flex: none;
+}
+
+/* ---- On the register's dark top bar ---- */
+
+.ho-dark {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: #c9cbe0;
+}
+
+.ho-dark.ho-ok { color: #4ade80; }
+.ho-dark.ho-bad { color: #fb7185; background: rgba(244, 63, 94, 0.14); border-color: rgba(251, 113, 133, 0.45); }
+.ho-dark .ho-label { color: #e8e9f5; }
+.ho-dark.ho-bad .ho-label { color: #ffe4e8; }
+
+/* ---- On the light Manage sidebar ---- */
+
+.ho-light {
+    background: #f4f5f9;
+    border-color: #e4e6ef;
+    color: #8a8fa6;
+}
+
+.ho-light.ho-ok { color: #16a34a; background: #effaf2; border-color: #c9eed4; }
+.ho-light.ho-bad { color: #e11d48; background: #fff1f3; border-color: #fecdd6; }
+.ho-light .ho-label { color: #23264a; }
+.ho-light.ho-bad .ho-label { color: #9f1239; }
+
+/* Online: a slow ring so it reads as "live", not just a coloured blob. */
+.ho-ok .ho-dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    border: 2px solid currentColor;
+    opacity: 0;
+    animation: ho-ring 2.8s ease-out infinite;
+}
+
+@keyframes ho-ring {
+    0% { transform: scale(0.5); opacity: 0.55; }
+    70%, 100% { transform: scale(1.35); opacity: 0; }
+}
+
+.ho-wait .ho-dot {
+    animation: ho-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes ho-blink {
+    50% { opacity: 0.3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ho-ok .ho-dot::after,
+    .ho-wait .ho-dot {
+        animation: none;
+    }
+}

@@ -127,6 +127,10 @@
     border-top: 1px solid var(--mg-line);
 }
 
+.mg-connection {
+    padding: 0 0.35rem 0.75rem;
+}
+
 .mg-user {
     display: flex;
     align-items: center;
@@ -313,6 +317,16 @@
     .mg-label,
     .mg-user-text,
     .mg-back span {
+        display: none;
+    }
+
+    /* Narrow sidebar: just the light. */
+    .mg-connection {
+        display: flex;
+        justify-content: center;
+    }
+
+    .mg-connection ::deep .ho-label {
         display: none;
     }
 
