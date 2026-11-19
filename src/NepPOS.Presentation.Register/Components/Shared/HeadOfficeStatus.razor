@@ -1,0 +1,87 @@
+@implements IDisposable
+@using NepPOS.Application.Sync
+@using NepPOS.Domain.Enums
+@using NepPOS.Infrastructure.Integration.HeadOffice
+@using NepPOS.Presentation.Register.Services
+@inject SyncWorker Worker
+@inject IHeadOfficeConnectionStore Connections
+@inject NavigationManager Nav
+@inject CurrentUserSession Session
+
+@*
+    Green = Head Office answered in the last few minutes. Red = not connected, can't reach it, or the
+    key was refused. Selling never depends on it: sales wait on this register and go when it's back.
+    Managers can tap it to open Manage → Head Office.
+*@
+<button type="button" class="ho-status ho-@_state.Kind @(Dark ? "ho-dark" : "ho-light")"
+        title="@_state.Detail" aria-label="@($"Head Office: {_state.Label}. {_state.Detail}")"
+        disabled="@(!CanOpen)" @onclick='() => Nav.NavigateTo("/manage/head-office")'>
+    <span class="ho-dot" aria-hidden="true"></span>
+    <span class="ho-label">@_state.Label</span>
+</button>
+
+@code {
+    /// <summary>True on the register's dark top bar, false on the light Manage sidebar.</summary>
+    [Parameter] public bool Dark { get; set; }
+
+    // Heartbeats run every minute; three missed in a row means the line is down even if no send failed yet.
+    private static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(3);
+    private static readonly TimeSpan RefreshEvery = TimeSpan.FromSeconds(5);
+
+    private Timer? _timer;
+    private State _state = new("wait", "Checking…", "Checking the connection to Head Office.");
+
+    private bool CanOpen => Session.Employee?.Role >= EmployeeRole.Manager;
+
+    protected override void OnInitialized()
+    {
+        _state = Read();
+        _timer = new Timer(_ => InvokeAsync(Refresh), null, RefreshEvery, RefreshEvery);
+    }
+
+    private void Refresh()
+    {
+        var next = Read();
+        if (next == _state) return;
+        _state = next;
+        StateHasChanged();
+    }
+
+    private State Read()
+    {
+        HeadOfficeConnection? connection;
+        try
+        {
+            connection = Connections.Load();
+        }
+        catch (Exception)
+        {
+            connection = null;
+        }
+
+        if (connection is null)
+            return new("bad", "Not connected", "This register isn't connected to Head Office. Sales stay on this register only. Manage → Head Office to connect.");
+
+        var status = Worker.Status;
+        var lastContact = status.LastSuccessUtc is { } seen ? $" Last contact {seen.ToLocalTime():h:mm tt}." : "";
+
+        return status.Outcome switch
+        {
+            SyncOutcome.Unauthorized =>
+                new("bad", "Key refused", "Head Office no longer accepts this register (revoked or reset). Sales are kept here. Connect again in Manage → Head Office."),
+            SyncOutcome.Failed =>
+                new("bad", "Offline", $"Can't reach Head Office.{lastContact} Selling carries on; sales are kept here and sent when it's back."),
+            SyncOutcome.UpToDate when status.LastSuccessUtc is { } at && DateTime.UtcNow - at > StaleAfter =>
+                new("bad", "Offline", $"No answer from Head Office for a few minutes.{lastContact} Sales are kept here and sent when it's back."),
+            SyncOutcome.UpToDate =>
+                new("ok", "Online", $"Connected to {connection.TenantName} – {connection.StoreName}.{lastContact}"),
+            // Just started: the first run hasn't finished yet.
+            _ => new("wait", "Connecting…", $"Connecting to {connection.TenantName} – {connection.StoreName}.")
+        };
+    }
+
+    public void Dispose() => _timer?.Dispose();
+
+    /// <param name="Kind">ok, bad or wait: picks the colour.</param>
+    private sealed record State(string Kind, string Label, string Detail);
+}

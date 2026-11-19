@@ -4,6 +4,7 @@
 @using NepPOS.Application.Abstractions
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
+@using NepPOS.Presentation.Register.Components.Shared
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 @inject RegisterTerminal Terminal
@@ -47,6 +48,7 @@ else
             </nav>
 
             <div class="mg-footer">
+                <div class="mg-connection"><HeadOfficeStatus /></div>
                 <div class="mg-user">
                     <span class="mg-avatar">@Initials(Session.Employee.FullName)</span>
                     <span class="mg-user-text">
