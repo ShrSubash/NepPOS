@@ -21,15 +21,6 @@
             <span class="brand-dot">N</span>
             <span class="brand-text">NepPOS</span>
         </div>
-        <div class="topbar-categories">
-            @foreach (var category in Categories)
-            {
-                <button class="category-pill @(category == SelectedCategory && SearchTerm is null ? "active" : "")"
-                        @onclick="() => SelectCategoryAsync(category)">
-                    @category
-                </button>
-            }
-        </div>
         <div class="topbar-right">
             <HeadOfficeStatus Dark="true" />
             @if (Session.Employee?.Role >= EmployeeRole.Manager)
@@ -48,6 +39,29 @@
 
     <div class="pos-body">
 
+        @* Departments down the side: works for 5 or 150, a tap each, no sideways scrolling. *@
+        <nav class="dept-rail" aria-label="Departments">
+            <div class="dept-head">Departments <span class="dept-count">@Categories.Count</span></div>
+            @if (Categories.Count > 12)
+            {
+                <input class="dept-find" placeholder="Find a department" aria-label="Find a department"
+                       @bind="DepartmentFilter" @bind:event="oninput" />
+            }
+            <div class="dept-list">
+                @foreach (var category in VisibleCategories)
+                {
+                    <button class="dept @(category == SelectedCategory && SearchTerm is null ? "active" : "")"
+                            @onclick="() => SelectCategoryAsync(category)">
+                        @category
+                    </button>
+                }
+                @if (!VisibleCategories.Any())
+                {
+                    <p class="dept-none">No department matches.</p>
+                }
+            </div>
+        </nav>
+
         <div class="product-grid-area">
 
             <div class="scan-entry-bar" @onclick="OpenScanKeyboard">
@@ -57,6 +71,14 @@
                     <span class="scan-error">@ScanError</span>
                 }
             </div>
+
+            @if (SearchTerm is null && SelectedCategory is not null)
+            {
+                <div class="grid-head">
+                    <h2>@SelectedCategory</h2>
+                    <span>@Products.Count @(Products.Count == 1 ? "product" : "products")</span>
+                </div>
+            }
 
             @if (SearchTerm is not null)
             {
@@ -77,7 +99,7 @@
                             }
                             else
                             {
-                                <div class="image-placeholder">@product.Name.Substring(0, 1)</div>
+                                <div class="image-placeholder" style="--hue:@Hue(product.Name)">@Initials(product.Name)</div>
                             }
                         </div>
                         <div class="product-name">@product.Name</div>
@@ -148,6 +170,26 @@
 
 @code {
     private IReadOnlyList<string> Categories = new List<string>();
+    private string DepartmentFilter = "";
+
+    private IEnumerable<string> VisibleCategories => DepartmentFilter.Length == 0
+        ? Categories
+        : Categories.Where(c => c.Contains(DepartmentFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // A product without a photo gets its initials on a colour picked from its name: the same product
+    // always looks the same, and neighbours look different, so it can be found at a glance.
+    private static int Hue(string name) => (int)((uint)name.Aggregate(17, (h, c) => unchecked(h * 31 + char.ToUpperInvariant(c))) % 360);
+
+    private static string Initials(string name)
+    {
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => char.IsLetterOrDigit(w[0])).ToList();
+        return words.Count switch
+        {
+            0 => "?",
+            1 => words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant(),
+            _ => string.Concat(char.ToUpperInvariant(words[0][0]), char.ToUpperInvariant(words[1][0]))
+        };
+    }
     private IReadOnlyList<Product> Products = new List<Product>();
     private string? SelectedCategory;
 
