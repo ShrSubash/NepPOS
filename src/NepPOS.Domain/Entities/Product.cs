@@ -25,6 +25,9 @@ public sealed class Product
     public bool EnableOnWebsite { get; set; }
     public bool IsActive { get; set; } = true;
 
+    /// <summary>Cost of one single on the latest delivery, ex GST. <see cref="CostPrice"/> is the average cost.</summary>
+    public decimal? LastCost { get; set; }
+
     /// <summary>GST-free (fresh food, some basics). False = 10% GST included in the price.</summary>
     public bool IsGstFree { get; set; }
 

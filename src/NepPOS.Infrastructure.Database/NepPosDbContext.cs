@@ -20,6 +20,8 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<ProductSupplierCode> ProductSupplierCodes => Set<ProductSupplierCode>();
+    public DbSet<StockReceipt> StockReceipts => Set<StockReceipt>();
+    public DbSet<StockReceiptLine> StockReceiptLines => Set<StockReceiptLine>();
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
@@ -179,6 +181,32 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(s => s.Name).IsRequired().HasMaxLength(200);
             entity.Property(s => s.LegacyNumber).HasMaxLength(50);
             entity.HasIndex(s => s.Name);
+        });
+
+        modelBuilder.Entity<StockReceipt>(entity =>
+        {
+            entity.Property(r => r.SupplierName).IsRequired().HasMaxLength(200);
+            entity.Property(r => r.InvoiceNumber).IsRequired().HasMaxLength(50);
+            entity.Property(r => r.EmployeeName).HasMaxLength(200);
+            entity.Property(r => r.PostedUtc)
+                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.HasIndex(r => new { r.SupplierId, r.InvoiceNumber });
+            entity.HasOne<Supplier>().WithMany().HasForeignKey(r => r.SupplierId).OnDelete(DeleteBehavior.SetNull);
+            entity.HasMany(r => r.Lines).WithOne().HasForeignKey(l => l.StockReceiptId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StockReceiptLine>(entity =>
+        {
+            entity.Property(l => l.ProductName).IsRequired().HasMaxLength(200);
+            entity.Property(l => l.PackName).IsRequired().HasMaxLength(50);
+            entity.Property(l => l.Quantity).HasPrecision(18, 3);
+            entity.Property(l => l.CostPerPack).HasPrecision(18, 4);
+            entity.Property(l => l.PreviousUnitCost).HasPrecision(18, 4);
+            entity.Ignore(l => l.Singles);
+            entity.Ignore(l => l.UnitCost);
+            entity.Ignore(l => l.LineCost);
+            // History stays even if a product is deleted: no foreign key to Products.
+            entity.HasIndex(l => l.ProductId);
         });
 
         modelBuilder.Entity<ProductSupplierCode>(entity =>

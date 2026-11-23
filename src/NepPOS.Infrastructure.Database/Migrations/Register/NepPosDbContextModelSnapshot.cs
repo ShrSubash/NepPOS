@@ -104,6 +104,9 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<bool>("IsGstFree")
                         .HasColumnType("INTEGER");
 
+                    b.Property<decimal?>("LastCost")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -430,6 +433,88 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("StockMovements");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockReceipt", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EmployeeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly>("InvoiceDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("InvoiceNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("PostedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("SupplierId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SupplierName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierId", "InvoiceNumber");
+
+                    b.ToTable("StockReceipts");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockReceiptLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("CostPerPack")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PackName")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PackUnits")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("PreviousUnitCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("StockReceiptId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("StockReceiptId");
+
+                    b.ToTable("StockReceiptLines");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.Supplier", b =>
                 {
                     b.Property<int>("Id")
@@ -590,11 +675,33 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockReceipt", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.SetNull);
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockReceiptLine", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.StockReceipt", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("StockReceiptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleTransaction", b =>
                 {
                     b.Navigation("LineItems");
 
                     b.Navigation("Payments");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockReceipt", b =>
+                {
+                    b.Navigation("Lines");
                 });
 #pragma warning restore 612, 618
         }
