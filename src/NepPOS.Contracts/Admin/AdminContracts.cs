@@ -1,3 +1,5 @@
+﻿using NepPOS.Contracts.Licensing;
+
 namespace NepPOS.Contracts.Admin;
 
 // What NepPOS Portal reads from and sends to Head Office's admin API (/api/v1/admin, X-Admin-Key).
@@ -30,7 +32,8 @@ public sealed record AdminOverview(
     int OfflineRegisters,
     int ActivationCodesWaiting,
     IReadOnlyList<RegisterRow> RegistersNeedingAttention,
-    IReadOnlyList<AuditEntryRow> RecentActivity);
+    IReadOnlyList<AuditEntryRow> RecentActivity,
+    IReadOnlyList<BusinessRow>? LicencesNeedingAttention = null);
 
 /// <summary>One business in the Businesses list.</summary>
 public sealed record BusinessRow(
@@ -40,7 +43,39 @@ public sealed record BusinessRow(
     int Stores,
     int Registers,
     int OnlineRegisters,
-    DateTime? LastSeenUtc);
+    DateTime? LastSeenUtc,
+    LicenceSummary? Licence = null);
+
+/// <summary>A business's licence in one line, for lists.</summary>
+public sealed record LicenceSummary(string Plan, LicenceStatus Status, DateTime ValidUntilUtc, LicenceLevel Level, string Headline);
+
+/// <summary>Everything about a business's licence, for its page in the Portal.</summary>
+public sealed record LicenceDetail(
+    string Plan,
+    LicenceStatus Status,
+    DateTime ValidUntilUtc,
+    int MaxStores,
+    int MaxRegisters,
+    IReadOnlyList<string> Features,
+    string? Message,
+    DateTime UpdatedUtc,
+    int StoresUsed,
+    int RegistersUsed,
+    LicenceState State);
+
+/// <summary>
+/// PUT /tenants/{id}/licence. <paramref name="Message"/> is shown on the shop's registers and is required to
+/// suspend or cancel; <paramref name="Note"/> goes only in the audit log (e.g. "Paid by bank transfer, inv 1042").
+/// </summary>
+public sealed record UpdateLicenceRequest(
+    string Plan,
+    LicenceStatus Status,
+    DateTime ValidUntilUtc,
+    int MaxStores,
+    int MaxRegisters,
+    IReadOnlyList<string> Features,
+    string? Message,
+    string? Note);
 
 /// <summary>A business with everything under it.</summary>
 public sealed record BusinessDetail(

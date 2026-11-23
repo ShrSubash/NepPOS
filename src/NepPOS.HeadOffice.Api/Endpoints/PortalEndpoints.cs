@@ -1,7 +1,9 @@
-using Microsoft.AspNetCore.Identity;
+﻿using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Contracts.Admin;
+using NepPOS.Contracts.Licensing;
 using NepPOS.HeadOffice.Api.Data;
+using NepPOS.HeadOffice.Api.Licensing;
 using NepPOS.HeadOffice.Api.Security;
 
 namespace NepPOS.HeadOffice.Api.Endpoints;
@@ -24,6 +26,8 @@ public static class PortalEndpoints
         admin.MapGet("/tenants", ListBusinessesAsync);
         admin.MapGet("/tenants/{tenantId:guid}", GetBusinessAsync);
         admin.MapPut("/tenants/{tenantId:guid}", RenameBusinessAsync);
+        admin.MapGet("/tenants/{tenantId:guid}/licence", GetLicenceAsync);
+        admin.MapPut("/tenants/{tenantId:guid}/licence", UpdateLicenceAsync);
         admin.MapGet("/registers", ListRegistersAsync);
         admin.MapGet("/audit", ListAuditAsync);
 
@@ -52,7 +56,8 @@ public static class PortalEndpoints
             OfflineRegisters: registers.Count(r => !r.Online),
             ActivationCodesWaiting: await db.ActivationCodes.CountAsync(a => a.UsedUtc == null && a.ExpiresUtc > now, ct),
             RegistersNeedingAttention: attention,
-            RecentActivity: await AuditRowsAsync(db, null, 8, ct)));
+            RecentActivity: await AuditRowsAsync(db, null, 8, ct),
+            LicencesNeedingAttention: await LicencesNeedingAttentionAsync(db, ct)));
     }
 
     internal static async Task<IResult> ListBusinessesAsync(string? search, HeadOfficeDbContext db, CancellationToken ct)
@@ -77,7 +82,12 @@ public static class PortalEndpoints
             .Take(500)
             .ToListAsync(ct);
 
-        return Results.Ok(rows.Select(r => new BusinessRow(r.Id, r.Name, r.CreatedUtc, r.Stores, r.Registers, r.Online, Utc(r.LastSeen))).ToList());
+        var ids = rows.Select(r => r.Id).ToList();
+        var licences = await db.TenantLicences.AsNoTracking().Where(l => ids.Contains(l.TenantId)).ToDictionaryAsync(l => l.TenantId, ct);
+        var now = DateTime.UtcNow;
+
+        return Results.Ok(rows.Select(r => new BusinessRow(r.Id, r.Name, r.CreatedUtc, r.Stores, r.Registers, r.Online, Utc(r.LastSeen),
+            licences.TryGetValue(r.Id, out var l) ? Summary(l, r.Name, now) : null)).ToList());
     }
 
     internal static async Task<IResult> GetBusinessAsync(Guid tenantId, HeadOfficeDbContext db, CancellationToken ct)
@@ -120,6 +130,119 @@ public static class PortalEndpoints
             await db.SaveChangesAsync(ct);
         }
         return Results.NoContent();
+    }
+
+    // ---- Licences ----
+
+    internal static async Task<IResult> GetLicenceAsync(Guid tenantId, HeadOfficeDbContext db, LicenceService licences, CancellationToken ct)
+    {
+        var tenant = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+        if (tenant is null)
+            return Results.NotFound();
+
+        var licence = await licences.GetOrStartTrialAsync(tenantId, ct);
+        return Results.Ok(await DetailAsync(db, licence, tenant.Name, ct));
+    }
+
+    /// <summary>
+    /// Sets the plan, limits, dates and status. Registers get the change with their next heartbeat (within a minute).
+    /// Every change is in the audit log with what changed; suspending or cancelling needs a message for the shop.
+    /// </summary>
+    internal static async Task<IResult> UpdateLicenceAsync(Guid tenantId, UpdateLicenceRequest request, HeadOfficeDbContext db, LicenceService licences, HttpContext http, CancellationToken ct)
+    {
+        var tenant = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == tenantId, ct);
+        if (tenant is null)
+            return Results.NotFound();
+
+        var errors = new Dictionary<string, string[]>();
+        if (LicencePlans.Find(request.Plan) is null)
+            errors["plan"] = new[] { "Choose a plan." };
+        if (!Enum.IsDefined(request.Status))
+            errors["status"] = new[] { "Choose a status." };
+        if (request.MaxStores is < 1 or > 100)
+            errors["maxStores"] = new[] { "Stores: 1 to 100." };
+        if (request.MaxRegisters is < 1 or > 500)
+            errors["maxRegisters"] = new[] { "Registers: 1 to 500." };
+        if (request.ValidUntilUtc.Year is < 2020 or > 2100)
+            errors["validUntilUtc"] = new[] { "Enter the date it's paid until." };
+        var features = (request.Features ?? Array.Empty<string>()).Select(f => f.Trim().ToLowerInvariant()).Distinct().ToList();
+        if (features.Any(f => !LicenceFeatures.All.Contains(f)))
+            errors["features"] = new[] { "Unknown feature." };
+        var message = string.IsNullOrWhiteSpace(request.Message) ? null : request.Message.Trim();
+        if (message?.Length > 300)
+            errors["message"] = new[] { "The message for the shop can be up to 300 characters." };
+        if (request.Status is LicenceStatus.Suspended or LicenceStatus.Cancelled && message is null)
+            errors["message"] = new[] { "Say why, for the shop. It's shown on their registers." };
+        if (errors.Count > 0)
+            return Results.ValidationProblem(errors);
+
+        var licence = await licences.GetOrStartTrialAsync(tenantId, ct);
+        var validUntil = DateTime.SpecifyKind(request.ValidUntilUtc, DateTimeKind.Utc);
+
+        var changes = new List<string>();
+        void Note(string what, object? from, object? to)
+        {
+            if (!Equals(from, to)) changes.Add($"{what} {from ?? "none"} → {to ?? "none"}");
+        }
+        Note("plan", LicencePlans.NameOf(licence.Plan), LicencePlans.NameOf(request.Plan));
+        Note("status", licence.Status, request.Status);
+        Note("valid until", licence.ValidUntilUtc.ToString("yyyy-MM-dd"), validUntil.ToString("yyyy-MM-dd"));
+        Note("stores", licence.MaxStores, request.MaxStores);
+        Note("registers", licence.MaxRegisters, request.MaxRegisters);
+        Note("features", Features(licence.FeatureList), Features(features));
+        Note("message", licence.Message, message);
+        if (changes.Count == 0)
+            return Results.Ok(await DetailAsync(db, licence, tenant.Name, ct));
+
+        licence.Plan = LicencePlans.Find(request.Plan)!.Code;
+        licence.Status = request.Status;
+        licence.ValidUntilUtc = validUntil;
+        licence.MaxStores = request.MaxStores;
+        licence.MaxRegisters = request.MaxRegisters;
+        licence.Features = string.Join(',', features);
+        licence.Message = message;
+        licence.UpdatedUtc = DateTime.UtcNow;
+
+        var note = string.IsNullOrWhiteSpace(request.Note) ? "" : $" ({request.Note.Trim()})";
+        Audit.Add(db, http, "licence.changed", tenantId, $"Licence for {tenant.Name}: {string.Join("; ", changes)}{note}");
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(await DetailAsync(db, licence, tenant.Name, ct));
+    }
+
+    private static string Features(IEnumerable<string> features)
+    {
+        var list = features.Select(LicenceFeatures.Label).ToList();
+        return list.Count == 0 ? "none" : string.Join(", ", list);
+    }
+
+    private static async Task<LicenceDetail> DetailAsync(HeadOfficeDbContext db, TenantLicence licence, string name, CancellationToken ct) =>
+        new(licence.Plan, licence.Status, licence.ValidUntilUtc, licence.MaxStores, licence.MaxRegisters, licence.FeatureList, licence.Message,
+            licence.UpdatedUtc,
+            await db.Stores.CountAsync(s => s.TenantId == licence.TenantId, ct),
+            await db.Registers.CountAsync(r => r.TenantId == licence.TenantId && !r.IsRevoked, ct),
+            LicenceService.StateOf(licence, name, DateTime.UtcNow));
+
+    private static LicenceSummary Summary(TenantLicence licence, string name, DateTime now)
+    {
+        var state = LicenceService.StateOf(licence, name, now);
+        return new LicenceSummary(licence.Plan, licence.Status, licence.ValidUntilUtc, state.Level, state.Headline);
+    }
+
+    /// <summary>Suspended, ended, in grace or ending within 14 days: the businesses to chase.</summary>
+    private static async Task<IReadOnlyList<BusinessRow>> LicencesNeedingAttentionAsync(HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var soon = DateTime.UtcNow.AddDays(14);
+        var rows = await db.TenantLicences.AsNoTracking()
+            .Where(l => l.Status == LicenceStatus.Suspended || l.ValidUntilUtc <= soon)
+            .Where(l => l.Status != LicenceStatus.Cancelled)
+            .Join(db.Tenants, l => l.TenantId, t => t.Id, (l, t) => new { Licence = l, t.Name, t.CreatedUtc })
+            .OrderBy(x => x.Licence.ValidUntilUtc)
+            .Take(10)
+            .ToListAsync(ct);
+
+        var now = DateTime.UtcNow;
+        return rows.Select(x => new BusinessRow(x.Licence.TenantId, x.Name, x.CreatedUtc, 0, 0, 0, null, Summary(x.Licence, x.Name, now))).ToList();
     }
 
     /// <summary>Every register; ?status=offline for those that need attention.</summary>

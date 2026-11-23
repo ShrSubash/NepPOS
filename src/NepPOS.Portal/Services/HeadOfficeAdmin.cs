@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Json;
@@ -90,6 +90,14 @@ public sealed class HeadOfficeAdmin
 
     public Task<AdminResult<bool>> RevokeWebsiteKeyAsync(Guid keyId, CancellationToken ct = default) =>
         SendAsync<bool>(HttpMethod.Post, $"website-keys/{keyId}/revoke", null, ct);
+
+    // ---- Licences ----
+
+    public Task<AdminResult<LicenceDetail>> LicenceAsync(Guid businessId, CancellationToken ct = default) =>
+        GetAsync<LicenceDetail>($"tenants/{businessId}/licence", ct);
+
+    public Task<AdminResult<LicenceDetail>> UpdateLicenceAsync(Guid businessId, UpdateLicenceRequest request, CancellationToken ct = default) =>
+        SendAsync<LicenceDetail>(HttpMethod.Put, $"tenants/{businessId}/licence", request, ct);
 
     // ---- Staff ----
 

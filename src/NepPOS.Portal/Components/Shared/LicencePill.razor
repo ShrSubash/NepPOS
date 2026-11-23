@@ -1,0 +1,29 @@
+@using NepPOS.Contracts.Licensing
+@* A business's licence at a glance: green in force, amber ending soon, red in grace, suspended or ended. *@
+<span class="pill @PillClass" title="@Title">@Text</span>
+
+@code {
+    [Parameter, EditorRequired] public LicenceStatus Status { get; set; }
+    [Parameter, EditorRequired] public LicenceLevel Level { get; set; }
+    [Parameter] public string? Title { get; set; }
+
+    private string PillClass => (Status, Level) switch
+    {
+        (LicenceStatus.Cancelled, _) => "pill-off",
+        (_, LicenceLevel.Locked or LicenceLevel.Grace) => "pill-bad",
+        (_, LicenceLevel.Warning) => "pill-warn",
+        _ => "pill-ok"
+    };
+
+    private string Text => (Status, Level) switch
+    {
+        (LicenceStatus.Suspended, _) => "Suspended",
+        (LicenceStatus.Cancelled, _) => "Cancelled",
+        (_, LicenceLevel.Locked) => "Ended",
+        (_, LicenceLevel.Grace) => "Overdue",
+        (LicenceStatus.Trial, LicenceLevel.Warning) => "Trial ending",
+        (_, LicenceLevel.Warning) => "Ending soon",
+        (LicenceStatus.Trial, _) => "Trial",
+        _ => "Active"
+    };
+}

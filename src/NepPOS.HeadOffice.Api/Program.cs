@@ -1,8 +1,9 @@
-using Microsoft.AspNetCore.Authentication;
+﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Contracts.Sync;
 using NepPOS.HeadOffice.Api.Data;
 using NepPOS.HeadOffice.Api.Endpoints;
+using NepPOS.HeadOffice.Api.Licensing;
 using NepPOS.HeadOffice.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -33,6 +34,10 @@ builder.Services.AddAuthorizationBuilder()
         .AddAuthenticationSchemes(WebsiteApiKeyHandler.Scheme)
         .RequireClaim(WebsiteApiKeyHandler.WebsiteKeyIdClaim));
 builder.Services.AddScoped<AdminKeyFilter>();
+
+// ---- Licences: signed with HeadOffice:LicenceSigningKey (required in production) ----
+builder.Services.AddSingleton<LicenceKeyRing>();
+builder.Services.AddScoped<LicenceService>();
 
 // Same JSON as the events themselves (camelCase, enums as text).
 builder.Services.ConfigureHttpJsonOptions(options =>

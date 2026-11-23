@@ -1,4 +1,4 @@
-@inherits LayoutComponentBase
+﻿@inherits LayoutComponentBase
 @implements IDisposable
 @using Microsoft.AspNetCore.Components.Routing
 @using NepPOS.Application.Abstractions
@@ -64,6 +64,7 @@ else
         </aside>
 
         <main class="mg-content">
+            <LicenceBanner />
             @Body
         </main>
     </div>

@@ -1,4 +1,4 @@
-@page "/register"
+﻿@page "/register"
 @layout EmptyLayout
 @using NepPOS.Application.Catalog
 @using NepPOS.Domain.Entities
@@ -13,6 +13,7 @@
 @inject NavigationManager Nav
 @inject IProductCatalogService Catalog
 @inject CurrentUserSession Session
+@inject NepPOS.Application.Licensing.LicenceGuard Licence
 
 <div class="pos-shell">
 
@@ -37,9 +38,34 @@
         </div>
     </div>
 
+    <LicenceBanner Dark="true" />
+
     <div class="pos-body">
 
         <div class="product-grid-area">
+            @if (!Licence.CanStartSale && CartLines.Count == 0)
+            {
+                var lockState = Licence.Current;
+                <div class="lic-lock">
+                    <div class="lic-lock-card">
+                        <div class="lic-lock-icon" aria-hidden="true">⛔</div>
+                        <h2>New sales are paused</h2>
+                        <p class="lic-lock-headline">@lockState.Headline.</p>
+                        <p>@lockState.Detail</p>
+                        @if (Session.Employee?.Role >= EmployeeRole.Manager)
+                        {
+                            <button class="lic-lock-btn" @onclick='() => Nav.NavigateTo("/manage")'>Open Manage: reports, end of day, Head Office</button>
+                        }
+                        else
+                        {
+                            <p class="lic-lock-ask">Ask the manager or owner.</p>
+                        }
+                    </div>
+                </div>
+            }
+            else
+            {
+            <div class="grid-content">
 
             <div class="scan-entry-bar" @onclick="OpenScanKeyboard">
                 <span class="scan-display">@(string.IsNullOrEmpty(ScanInput) ? "Tap to scan, enter a code or search by name..." : ScanInput)</span>
@@ -128,6 +154,8 @@
                 }
             }
 
+            </div>
+            }
         </div>
 
         <div class="order-panel">
@@ -372,6 +400,13 @@
 
     private void AddLine(string key, string sku, Product product, string name, decimal unitPrice, int packUnits)
     {
+        // A locked licence stops new sales from starting; one already on the screen can still be paid.
+        if (CartLines.Count == 0 && !Licence.CanStartSale)
+        {
+            ScanError = Licence.Current.Headline;
+            return;
+        }
+
         var existing = CartLines.FirstOrDefault(l => l.Key == key);
         if (existing is not null)
         {
