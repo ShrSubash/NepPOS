@@ -16,6 +16,10 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<SalePayment> SalePayments => Set<SalePayment>();
     public DbSet<Product> Products => Set<Product>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+    public DbSet<ProductBarcode> ProductBarcodes => Set<ProductBarcode>();
+    public DbSet<StockMovement> StockMovements => Set<StockMovement>();
+    public DbSet<Supplier> Suppliers => Set<Supplier>();
+    public DbSet<ProductSupplierCode> ProductSupplierCodes => Set<ProductSupplierCode>();
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
@@ -76,6 +80,7 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(li => li.UnitPriceIncGst).HasPrecision(18, 4);
             entity.Property(li => li.GstRate).HasPrecision(5, 4);
             entity.Property(li => li.Category).HasMaxLength(100);
+            entity.Ignore(li => li.StockUnits);
         });
 
         modelBuilder.Entity<JournalEntry>(entity =>
@@ -124,8 +129,64 @@ public sealed class NepPosDbContext : DbContext
                   .HasForeignKey(v => v.ProductId)
                   .OnDelete(DeleteBehavior.Cascade);
 
+            entity.Property(v => v.Name).HasMaxLength(50);
+            entity.Ignore(v => v.DisplayName);
             entity.HasIndex(v => v.Barcode);
             entity.HasIndex(v => v.Plu);
+        });
+
+        modelBuilder.Entity<Product>(entity =>
+        {
+            entity.HasOne<Supplier>()
+                  .WithMany()
+                  .HasForeignKey(p => p.SupplierId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<ProductBarcode>(entity =>
+        {
+            entity.Property(b => b.Code).IsRequired().HasMaxLength(50);
+            entity.Property(b => b.LookupKey).IsRequired().HasMaxLength(50);
+
+            // One barcode can only ever mean one thing.
+            entity.HasIndex(b => b.LookupKey).IsUnique();
+
+            entity.HasOne(b => b.Product).WithMany().HasForeignKey(b => b.ProductId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(b => b.Variant).WithMany().HasForeignKey(b => b.VariantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StockMovement>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.Id).ValueGeneratedOnAdd();
+            entity.Property(m => m.Type).HasConversion<string>().HasMaxLength(20);
+            entity.Property(m => m.Quantity).HasPrecision(18, 3);
+            entity.Property(m => m.UnitCost).HasPrecision(18, 4);
+            entity.Property(m => m.Reference).HasMaxLength(100);
+            entity.Property(m => m.EmployeeName).HasMaxLength(200);
+
+            // SQLite returns DateTime without a Kind; everything here is stored as UTC.
+            entity.Property(m => m.AtUtc)
+                  .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            // History is kept even if a product is deleted by hand in the database: no cascade.
+            entity.HasOne(m => m.Product).WithMany().HasForeignKey(m => m.ProductId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(m => new { m.ProductId, m.AtUtc });
+        });
+
+        modelBuilder.Entity<Supplier>(entity =>
+        {
+            entity.Property(s => s.Name).IsRequired().HasMaxLength(200);
+            entity.Property(s => s.LegacyNumber).HasMaxLength(50);
+            entity.HasIndex(s => s.Name);
+        });
+
+        modelBuilder.Entity<ProductSupplierCode>(entity =>
+        {
+            entity.Property(c => c.Code).IsRequired().HasMaxLength(50);
+            entity.HasIndex(c => c.Code);
+            entity.HasOne<Product>().WithMany().HasForeignKey(c => c.ProductId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Supplier>().WithMany().HasForeignKey(c => c.SupplierId).OnDelete(DeleteBehavior.SetNull);
         });
     }
 }

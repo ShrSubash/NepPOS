@@ -19,6 +19,15 @@ public sealed class SaleLineItem
     /// </summary>
     public string? Category { get; private set; }
 
+    /// <summary>The product sold (this register's id), so stock can be taken off. Null for lines that aren't a product.</summary>
+    public int? ProductId { get; private set; }
+
+    /// <summary>Singles in one of this line's items: 1, or 6 for a 6-pack, 24 for a case.</summary>
+    public int PackUnits { get; private set; } = 1;
+
+    /// <summary>Singles this line takes off stock (a refund line puts them back).</summary>
+    public int StockUnits => Quantity * PackUnits;
+
     // Derived from tax-inclusive unit price — never the other way around.
     public decimal LineTotalIncGst => UnitPriceIncGst * Quantity;
     public decimal GstAmount => LineTotalIncGst - LineTotalIncGst / (1 + GstRate);
@@ -27,7 +36,8 @@ public sealed class SaleLineItem
     // EF Core requires a parameterless constructor for materialization.
     private SaleLineItem() { }
 
-    public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate, string? category = null)
+    public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate, string? category = null,
+        int? productId = null, int packUnits = 1)
     {
         if (string.IsNullOrWhiteSpace(sku))
             throw new ArgumentException("SKU is required.", nameof(sku));
@@ -37,6 +47,8 @@ public sealed class SaleLineItem
             throw new ArgumentException("Unit price cannot be negative.", nameof(unitPriceIncGst));
         if (gstRate < 0 || gstRate > 1)
             throw new ArgumentOutOfRangeException(nameof(gstRate), "GST rate must be between 0 and 1.");
+        if (packUnits < 1)
+            throw new ArgumentOutOfRangeException(nameof(packUnits), "A pack holds at least one single.");
 
         Id = Guid.NewGuid();
         Sku = sku;
@@ -45,5 +57,7 @@ public sealed class SaleLineItem
         UnitPriceIncGst = unitPriceIncGst;
         GstRate = gstRate;
         Category = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
+        ProductId = productId;
+        PackUnits = packUnits;
     }
 }

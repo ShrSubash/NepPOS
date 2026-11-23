@@ -1,4 +1,6 @@
-﻿namespace NepPOS.Domain.Entities;
+﻿using NepPOS.Domain.Enums;
+
+namespace NepPOS.Domain.Entities;
 
 public sealed class Product
 {
@@ -22,4 +24,31 @@ public sealed class Product
     public int PointsPerUnit { get; set; }
     public bool EnableOnWebsite { get; set; }
     public bool IsActive { get; set; } = true;
+
+    /// <summary>GST-free (fresh food, some basics). False = 10% GST included in the price.</summary>
+    public bool IsGstFree { get; set; }
+
+    /// <summary>The usual supplier.</summary>
+    public int? SupplierId { get; set; }
+
+    /// <summary>
+    /// Changes stock on hand and returns the movement that explains it, to be saved in the same
+    /// transaction. <paramref name="quantity"/> is in singles: positive in, negative out.
+    /// </summary>
+    public StockMovement MoveStock(StockMovementType type, decimal quantity, string? reference, DateTime atUtc,
+        decimal? unitCost = null, string? employeeName = null)
+    {
+        StockOnHand += quantity;
+        return new StockMovement
+        {
+            ProductId = Id,
+            Product = this,
+            Type = type,
+            Quantity = quantity,
+            UnitCost = unitCost,
+            Reference = reference,
+            EmployeeName = employeeName,
+            AtUtc = atUtc
+        };
+    }
 }

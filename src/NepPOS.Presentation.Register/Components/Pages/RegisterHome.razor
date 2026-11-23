@@ -21,15 +21,6 @@
             <span class="brand-dot">N</span>
             <span class="brand-text">NepPOS</span>
         </div>
-        <div class="topbar-categories">
-            @foreach (var category in Categories)
-            {
-                <button class="category-pill @(category == SelectedCategory && SearchTerm is null ? "active" : "")"
-                        @onclick="() => SelectCategoryAsync(category)">
-                    @category
-                </button>
-            }
-        </div>
         <div class="topbar-right">
             <HeadOfficeStatus Dark="true" />
             @if (Session.Employee?.Role >= EmployeeRole.Manager)
@@ -60,31 +51,82 @@
 
             @if (SearchTerm is not null)
             {
-                <div class="search-results-bar">
-                    <span>Results for "@SearchTerm" (@Products.Count)</span>
-                    <button class="search-clear" @onclick="ClearSearchAsync">Clear</button>
+                <div class="browse-head">
+                    <button class="back-btn" @onclick="ClearSearchAsync">← Back</button>
+                    <h2>Results for “@SearchTerm”</h2>
+                    <span class="browse-count">@Products.Count</span>
                 </div>
+                @ProductTiles
             }
-
-            <div class="product-grid">
-                @foreach (var product in Products)
+            else if (OpenDepartment is not null || OpenLetter is not null)
+            {
+                <div class="browse-head">
+                    <button class="back-btn" @onclick="BackHome">← @(OpenDepartment is not null ? "Departments" : "A–Z")</button>
+                    <h2>@(OpenDepartment is not null ? DepartmentLabel(OpenDepartment) : OpenLetter)</h2>
+                    <span class="browse-count">@Products.Count @(Products.Count == 1 ? "product" : "products")</span>
+                </div>
+                @ProductTiles
+            }
+            else
+            {
+                @* What a shop sells most, its departments, or A–Z when it has none: big tiles, no typing. *@
+                @if (Tabs.Count > 1)
                 {
-                    <button class="product-tile" @onclick="() => AddToCart(product)">
-                        <div class="product-image">
-                            @if (!string.IsNullOrEmpty(product.ImageUrl))
+                    <div class="home-tabs" role="tablist">
+                        @foreach (var tab in Tabs)
+                        {
+                            <button role="tab" class="home-tab @(tab == Tab ? "active" : "")" aria-selected="@(tab == Tab)"
+                                    @onclick="() => ShowTabAsync(tab)">
+                                @TabLabel(tab)
+                            </button>
+                        }
+                    </div>
+                }
+
+                @switch (Tab)
+                {
+                    case HomeTab.Favourites:
+                        @ProductTiles
+                        break;
+
+                    case HomeTab.Departments:
+                        <div class="big-grid">
+                            @foreach (var department in Departments)
                             {
-                                <img src="@product.ImageUrl" alt="@product.Name" />
-                            }
-                            else
-                            {
-                                <div class="image-placeholder">@product.Name.Substring(0, 1)</div>
+                                <button class="dept-tile" style="--hue:@Hue(DepartmentLabel(department.Name))"
+                                        @onclick="() => OpenDepartmentAsync(department.Name)">
+                                    <span class="dept-name">@DepartmentLabel(department.Name)</span>
+                                    <span class="dept-count">@department.ProductCount @(department.ProductCount == 1 ? "product" : "products")</span>
+                                </button>
                             }
                         </div>
-                        <div class="product-name">@product.Name</div>
-                        <div class="product-price">@product.Price.ToString("C")</div>
-                    </button>
+                        break;
+
+                    case HomeTab.Letters when AllProducts.Count <= ShowAllUpTo:
+                        @ProductTiles
+                        break;
+
+                    case HomeTab.Letters:
+                        <div class="letter-grid">
+                            @foreach (var (letter, count) in Letters)
+                            {
+                                <button class="letter-tile" @onclick="() => ShowLetter(letter)">
+                                    <span class="letter">@letter</span>
+                                    <span class="dept-count">@count</span>
+                                </button>
+                            }
+                        </div>
+                        break;
                 }
-            </div>
+
+                @if (Tabs.Count == 0)
+                {
+                    <div class="empty-home">
+                        <p>No products yet.</p>
+                        <p class="muted">Add them in Manage → Products &amp; PLUs, or import them from a CSV or the old POS.</p>
+                    </div>
+                }
+            }
 
         </div>
 
@@ -147,9 +189,127 @@
 </div>
 
 @code {
-    private IReadOnlyList<string> Categories = new List<string>();
+    // ---- the sell screen's home: Favourites, Departments, A–Z ----
+
+    private enum HomeTab { Favourites, Departments, Letters }
+
+    /// <summary>Up to this many products, A–Z shows them straight away (a café); above it, letters first.</summary>
+    private const int ShowAllUpTo = 40;
+
+    private IReadOnlyList<Product> Favourites = Array.Empty<Product>();
+    private IReadOnlyList<DepartmentSummary> Departments = Array.Empty<DepartmentSummary>();
+    private IReadOnlyList<Product> AllProducts = Array.Empty<Product>();
+    private List<HomeTab> Tabs = new();
+    private HomeTab Tab;
+    private string? OpenDepartment;
+    private string? OpenLetter;
+
+    // One real department isn't worth a page: products without departments use A–Z instead.
+    private bool HasDepartments => Departments.Count(d => d.Name.Length > 0) >= 2;
+
+    private static string DepartmentLabel(string name) => name.Length == 0 ? "No department" : name;
+
+    private static string TabLabel(HomeTab tab) => tab switch
+    {
+        HomeTab.Favourites => "★ Favourites",
+        HomeTab.Departments => "Departments",
+        _ => "A–Z"
+    };
+
+    private IEnumerable<(string Letter, int Count)> Letters => AllProducts
+        .GroupBy(p => LetterOf(p.Name))
+        .OrderBy(g => g.Key == "#" ? "~" : g.Key)
+        .Select(g => (g.Key, g.Count()));
+
+    private static string LetterOf(string name)
+    {
+        var first = name.TrimStart().FirstOrDefault();
+        return char.IsLetter(first) ? char.ToUpperInvariant(first).ToString() : "#";
+    }
+
+    private async Task LoadHomeAsync()
+    {
+        Favourites = await Catalog.GetBestSellersAsync();
+        Departments = await Catalog.GetDepartmentsAsync();
+        AllProducts = HasDepartments ? Array.Empty<Product>() : await Catalog.GetAllActiveAsync();
+
+        Tabs = new();
+        if (Favourites.Count > 0) Tabs.Add(HomeTab.Favourites);
+        if (HasDepartments) Tabs.Add(HomeTab.Departments);
+        else if (AllProducts.Count > 0) Tabs.Add(HomeTab.Letters);
+
+        if (Tabs.Count > 0 && !Tabs.Contains(Tab))
+            Tab = Tabs[0];
+        await ShowTabAsync(Tab);
+    }
+
+    private Task ShowTabAsync(HomeTab tab)
+    {
+        Tab = tab;
+        (OpenDepartment, OpenLetter, SearchTerm) = (null, null, null);
+        Products = tab switch
+        {
+            HomeTab.Favourites => Favourites,
+            HomeTab.Letters when AllProducts.Count <= ShowAllUpTo => AllProducts,
+            _ => Array.Empty<Product>()
+        };
+        return Task.CompletedTask;
+    }
+
+    private async Task OpenDepartmentAsync(string name)
+    {
+        (OpenDepartment, OpenLetter, SearchTerm) = (name, null, null);
+        Products = await Catalog.GetProductsByCategoryAsync(name);
+    }
+
+    private void ShowLetter(string letter)
+    {
+        (OpenDepartment, OpenLetter, SearchTerm) = (null, letter, null);
+        Products = AllProducts.Where(p => LetterOf(p.Name) == letter).ToList();
+    }
+
+    private Task BackHome() => ShowTabAsync(Tab);
+
+    /// <summary>The product tiles for whatever is open: favourites, a department, a letter or search results.</summary>
+    private RenderFragment ProductTiles => __builder =>
+    {
+        <div class="product-grid">
+            @foreach (var product in Products)
+            {
+                <button class="product-tile" @onclick="() => AddToCart(product)">
+                    <div class="product-image">
+                        @if (!string.IsNullOrEmpty(product.ImageUrl))
+                        {
+                            <img src="@product.ImageUrl" alt="@product.Name" />
+                        }
+                        else
+                        {
+                            <div class="image-placeholder" style="--hue:@Hue(product.Name)">@Initials(product.Name)</div>
+                        }
+                    </div>
+                    <div class="product-name">@product.Name</div>
+                    <div class="product-price">@product.Price.ToString("C")</div>
+                </button>
+            }
+        </div>
+    };
+
+    // A product without a photo gets its initials on a colour picked from its name: the same product
+    // always looks the same, and neighbours look different, so it can be found at a glance.
+    private static int Hue(string name) => (int)((uint)name.Aggregate(17, (h, c) => unchecked(h * 31 + char.ToUpperInvariant(c))) % 360);
+
+    private static string Initials(string name)
+    {
+        // Words that start with a letter: "Absolut 6pk" is AB, not A6.
+        var words = name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Where(w => char.IsLetter(w[0])).ToList();
+        return words.Count switch
+        {
+            0 => "?",
+            1 => words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant(),
+            _ => string.Concat(char.ToUpperInvariant(words[0][0]), char.ToUpperInvariant(words[1][0]))
+        };
+    }
     private IReadOnlyList<Product> Products = new List<Product>();
-    private string? SelectedCategory;
 
     // Non-null while the grid is showing name-search results instead of a category.
     private string? SearchTerm;
@@ -168,8 +328,7 @@
     // "No sale" is only offered when a cash drawer is set up (Manage → Receipt & Printer).
     private bool DrawerEnabled;
 
-    // Every product is GST-taxable at 10% for now.
-    // TODO: per-product GST flag (GST-free items) once Product has one.
+    // GST included in prices, unless the product is GST-free.
     private const decimal GstRate = 0.10m;
 
     // The sale being paid for while the tender panel is open; null otherwise.
@@ -182,43 +341,28 @@
     {
         DrawerEnabled = SettingsStore.Load().Printer.DrawerMode != CashDrawerMode.None;
 
-        Categories = await Catalog.GetCategoriesAsync();
-        if (Categories.Count > 0)
-        {
-            await SelectCategoryAsync(Categories[0]);
-        }
-    }
-
-    private async Task SelectCategoryAsync(string category)
-    {
-        SearchTerm = null;
-        SelectedCategory = category;
-        Products = await Catalog.GetProductsByCategoryAsync(category);
+        await LoadHomeAsync();
     }
 
     private async Task ClearSearchAsync()
     {
-        SearchTerm = null;
         ScanError = null;
-
-        if (SelectedCategory is not null)
-        {
-            await SelectCategoryAsync(SelectedCategory);
-        }
+        if (OpenDepartment is not null)
+            await OpenDepartmentAsync(OpenDepartment);
+        else if (OpenLetter is not null)
+            ShowLetter(OpenLetter);
         else
-        {
-            Products = new List<Product>();
-        }
+            await ShowTabAsync(Tab);
     }
 
     private void AddToCart(Product product) =>
         AddLine($"P:{product.Id}", SkuFor(product.Plu, product.Barcode, $"P{product.Id}"),
-                product, product.Name, product.Price);
+                product, product.Name, product.Price, packUnits: 1);
 
     // A pack size (6-pack, carton…) sells at its own price but is still the same base product.
     private void AddToCart(ProductVariant variant) =>
         AddLine($"V:{variant.Id}", SkuFor(variant.Plu, variant.Barcode, $"V{variant.Id}"),
-                variant.Product, $"{variant.Product.Name} ({variant.PackType})", variant.Price);
+                variant.Product, $"{variant.Product.Name} ({variant.DisplayName})", variant.Price, Math.Max(1, variant.UnitQuantity));
 
     // PLU first, then barcode, then the internal id — PLU-screen edits can leave "" rather than null.
     private static string SkuFor(string? plu, string? barcode, string fallback) =>
@@ -226,7 +370,7 @@
         : !string.IsNullOrWhiteSpace(barcode) ? barcode
         : fallback;
 
-    private void AddLine(string key, string sku, Product product, string name, decimal unitPrice)
+    private void AddLine(string key, string sku, Product product, string name, decimal unitPrice, int packUnits)
     {
         var existing = CartLines.FirstOrDefault(l => l.Key == key);
         if (existing is not null)
@@ -235,7 +379,7 @@
         }
         else
         {
-            CartLines.Add(new CartLine { Key = key, Sku = sku, Product = product, Name = name, UnitPrice = unitPrice, Quantity = 1 });
+            CartLines.Add(new CartLine { Key = key, Sku = sku, Product = product, Name = name, UnitPrice = unitPrice, PackUnits = packUnits, Quantity = 1 });
         }
     }
 
@@ -250,7 +394,8 @@
                                        Session.Employee?.Id, Session.Employee?.FullName);
         foreach (var line in CartLines)
         {
-            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice, GstRate, line.Product.Category));
+            sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.Quantity, line.UnitPrice,
+                line.Product.IsGstFree ? 0m : GstRate, line.Product.Category, line.Product.Id, line.PackUnits));
         }
 
         ActiveSale = sale;
@@ -404,6 +549,9 @@
         public required Product Product { get; init; }
         public required string Name { get; init; }
         public required decimal UnitPrice { get; init; }
+
+        /// <summary>Singles per item: 1, or 6 for a 6-pack. Stock goes down by Quantity × PackUnits.</summary>
+        public required int PackUnits { get; init; }
         public int Quantity { get; set; }
     }
 }

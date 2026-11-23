@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Abstractions;
 using NepPOS.Domain.Entities;
+using NepPOS.Domain.Enums;
 using NepPOS.Infrastructure.Database.Outbox;
 
 namespace NepPOS.Infrastructure.Database;
@@ -25,11 +26,41 @@ public sealed class SaleTransactionRepository : ISaleTransactionRepository
 
         await _dbContext.SaleTransactions.AddAsync(saleTransaction, cancellationToken);
 
-        // Same SaveChanges = same transaction: the sale and its Head Office event are saved together or not at all.
+        // Same SaveChanges = same transaction: the sale, its stock movements and its Head Office event
+        // are saved together or not at all.
         if (saleTransaction.Status == SaleTransactionStatus.Completed)
+        {
             _dbContext.OutboxMessages.Add(OutboxMessage.SaleCompleted(saleTransaction));
+            await TakeStockAsync(saleTransaction, cancellationToken);
+        }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Takes each product line off stock in singles (a case of 24 is −24; a refund line puts stock back).
+    /// Products deleted since they were rung up are skipped: the sale must still save.
+    /// </summary>
+    private async Task TakeStockAsync(SaleTransaction sale, CancellationToken cancellationToken)
+    {
+        var byProduct = sale.LineItems
+            .Where(li => li.ProductId is not null)
+            .GroupBy(li => li.ProductId!.Value)
+            .ToDictionary(g => g.Key, g => g.Sum(li => li.StockUnits));
+        if (byProduct.Count == 0)
+            return;
+
+        var ids = byProduct.Keys.ToList();
+        var products = await _dbContext.Products.Where(p => ids.Contains(p.Id)).ToListAsync(cancellationToken);
+        var reference = sale.InvoiceNumber is { } invoice ? $"Invoice {invoice}" : "Sale";
+        var now = DateTime.UtcNow;
+
+        foreach (var product in products)
+        {
+            var units = byProduct[product.Id];
+            if (units != 0)
+                _dbContext.StockMovements.Add(product.MoveStock(StockMovementType.Sale, -units, reference, now, employeeName: sale.EmployeeName));
+        }
     }
 
     public async Task<SaleTransaction?> GetByIdAsync(Guid saleId, CancellationToken cancellationToken = default)

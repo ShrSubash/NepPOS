@@ -1,10 +1,12 @@
 ﻿@page "/manage/plu"
 @layout ManageLayout
 @using NepPOS.Application.Catalog
+@using NepPOS.Application.Reports
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IProductManagementService ProductService
+@inject IReportFileStore Files
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
 
@@ -19,9 +21,29 @@ else
             <span class="brand-text">PLU / Product Management</span>
             @if (CanCreate)
             {
-                <button class="add-btn" @onclick="StartNew">+ New Product</button>
+                <div class="topbar-actions">
+                    <label class="top-save file-btn" title="Add or update many products from a CSV file (Excel: Save As → CSV)">
+                        ⬆ Import CSV
+                        <InputFile OnChange="ReadCsvAsync" accept=".csv,text/csv,.txt" />
+                    </label>
+                    <button class="top-save" title="Save every product to a CSV file: edit it in Excel and import it back" @onclick="ExportCsvAsync">⬇ Export CSV</button>
+                    <button class="top-save" title="Bring products, packs, barcodes and stock across from the previous POS" @onclick="OpenLegacy">From old POS</button>
+                    <button class="add-btn" @onclick="StartNew">+ New Product</button>
+                </div>
             }
         </div>
+
+        @if (CsvMessage is not null)
+        {
+            <div class="csv-msg @(CsvMessageIsError ? "error" : "")">
+                <span>@CsvMessage</span>
+                @if (ExportedTo is not null)
+                {
+                    <button class="link" @onclick="Files.OpenFolder">Open folder</button>
+                }
+                <button class="link" @onclick="() => CsvMessage = null">✕</button>
+            </div>
+        }
 
         <div class="plu-table-wrap">
             <table class="plu-table">
@@ -58,6 +80,172 @@ else
                 </tbody>
             </table>
         </div>
+
+        @if (Import is { } plan)
+        {
+            <div class="plu-editor-overlay">
+                <div class="csv-preview">
+                    <h2>Import @ImportFileName</h2>
+                    <p class="csv-sub">Nothing is saved until you press Import. Empty cells keep what's already saved.</p>
+
+                    <div class="csv-counts">
+                        <div><strong>@plan.New.Count</strong><span>new</span></div>
+                        <div><strong>@plan.Updates.Count</strong><span>changed</span></div>
+                        <div><strong>@plan.Unchanged</strong><span>already the same</span></div>
+                        <div class="@(plan.Problems.Count > 0 ? "bad" : "")"><strong>@plan.Problems.Count</strong><span>@(plan.Problems.Count == 1 ? "line skipped" : "lines skipped")</span></div>
+                    </div>
+
+                    <div class="csv-lists">
+                        @if (plan.Problems.Count > 0)
+                        {
+                            <section>
+                                <h3>Skipped, fix these in the file</h3>
+                                <ul class="csv-problems">
+                                    @foreach (var problem in plan.Problems.Take(100))
+                                    {
+                                        <li><span class="csv-line">@(problem.Line == 0 ? "File" : $"Line {problem.Line}")</span>@problem.Message</li>
+                                    }
+                                </ul>
+                                @if (plan.Problems.Count > 100) { <p class="csv-sub">…and @(plan.Problems.Count - 100) more.</p> }
+                            </section>
+                        }
+                        @if (plan.New.Count > 0)
+                        {
+                            <section>
+                                <h3>New</h3>
+                                <table class="csv-table">
+                                    @foreach (var p in plan.New.Take(100))
+                                    {
+                                        <tr><td class="muted">@p.Plu</td><td>@p.Name</td><td class="muted">@p.Category</td><td class="num">@p.Price.ToString("C")</td></tr>
+                                    }
+                                </table>
+                                @if (plan.New.Count > 100) { <p class="csv-sub">…and @(plan.New.Count - 100) more.</p> }
+                            </section>
+                        }
+                        @if (plan.Updates.Count > 0)
+                        {
+                            <section>
+                                <h3>Changed</h3>
+                                <table class="csv-table">
+                                    @foreach (var u in plan.Updates.Take(100))
+                                    {
+                                        <tr><td class="muted">@u.Updated.Plu</td><td>@u.Updated.Name</td><td class="changes" colspan="2">@string.Join(" · ", u.Changes)</td></tr>
+                                    }
+                                </table>
+                                @if (plan.Updates.Count > 100) { <p class="csv-sub">…and @(plan.Updates.Count - 100) more.</p> }
+                            </section>
+                        }
+                    </div>
+
+                    <div class="editor-actions">
+                        <button @onclick="() => Import = null" disabled="@Importing">Cancel</button>
+                        <button class="primary" @onclick="ConfirmImportAsync" disabled="@(!plan.HasWork || Importing)">
+                            @(Importing ? "Importing…" : plan.HasWork ? $"Import {plan.New.Count + plan.Updates.Count} product(s)" : "Nothing to import")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (LegacyOpen)
+        {
+            <div class="plu-editor-overlay">
+                <div class="csv-preview">
+                    <h2>Import from the old POS</h2>
+                    @if (Legacy is null)
+                    {
+                        <p class="csv-sub">In SQL Server Management Studio, on the old POS database, run each query, click the grid's top-left corner, right-click → <strong>Copy with Headers</strong>, paste into Notepad and save as a .txt file.</p>
+
+                        <div class="legacy-files">
+                            <div class="legacy-file">
+                                <div><strong>Products</strong> <span class="csv-sub">required</span><code>SELECT * FROM dbo.plu</code></div>
+                                <label class="top-save file-btn">@(LegacyPluName ?? "Choose file") <InputFile OnChange="e => PickLegacyAsync(e, 0)" accept=".txt,.csv,.tsv" /></label>
+                            </div>
+                            <div class="legacy-file">
+                                <div><strong>Department names</strong> <span class="csv-sub">optional</span><code>SELECT Number, dpn FROM dbo.dept</code></div>
+                                <label class="top-save file-btn">@(LegacyDeptName ?? "Choose file") <InputFile OnChange="e => PickLegacyAsync(e, 1)" accept=".txt,.csv,.tsv" /></label>
+                            </div>
+                            <div class="legacy-file">
+                                <div><strong>Supplier names</strong> <span class="csv-sub">optional</span><code>SELECT Number, supplier FROM dbo.supplier</code></div>
+                                <label class="top-save file-btn">@(LegacySuppName ?? "Choose file") <InputFile OnChange="e => PickLegacyAsync(e, 2)" accept=".txt,.csv,.tsv" /></label>
+                            </div>
+                        </div>
+
+                        <div class="editor-actions">
+                            <button @onclick="CloseLegacy">Cancel</button>
+                            <button class="primary" disabled="@(LegacyPlu is null || Importing)" @onclick="PlanLegacyAsync">Check the files</button>
+                        </div>
+                    }
+                    else
+                    {
+                        var legacy = Legacy;
+                        <p class="csv-sub">Nothing is saved until you press Import. Products already in NepPOS (same PLU) are left as they are.</p>
+                        <div class="csv-counts">
+                            <div><strong>@legacy.New.Count</strong><span>new products</span></div>
+                            <div><strong>@legacy.New.Sum(p => p.Packs.Count)</strong><span>packs</span></div>
+                            <div><strong>@legacy.New.Sum(p => p.Barcodes.Count + p.Packs.Sum(k => k.Barcodes.Count))</strong><span>barcodes</span></div>
+                            <div><strong>@legacy.AlreadyHere</strong><span>already in NepPOS</span></div>
+                        </div>
+
+                        <div class="csv-lists">
+                            @if (legacy.Skipped.Count > 0)
+                            {
+                                <section>
+                                    <h3>Skipped</h3>
+                                    <ul class="csv-problems">
+                                        @foreach (var problem in legacy.Skipped.Take(100))
+                                        {
+                                            <li><span class="csv-line">@(problem.Line == 0 ? "File" : $"Line {problem.Line}")</span>@problem.Message</li>
+                                        }
+                                    </ul>
+                                </section>
+                            }
+                            @if (legacy.Notes.Count > 0)
+                            {
+                                <section>
+                                    <h3>Imported, with a note</h3>
+                                    <ul class="csv-problems notes">
+                                        @foreach (var note in legacy.Notes.Take(100))
+                                        {
+                                            <li><span class="csv-line">@(note.Line == 0 ? "File" : $"Line {note.Line}")</span>@note.Message</li>
+                                        }
+                                    </ul>
+                                    @if (legacy.Notes.Count > 100) { <p class="csv-sub">…and @(legacy.Notes.Count - 100) more.</p> }
+                                </section>
+                            }
+                            @if (legacy.New.Count > 0)
+                            {
+                                <section>
+                                    <h3>New</h3>
+                                    <table class="csv-table">
+                                        <tr class="head"><td>PLU</td><td>Product</td><td>Department</td><td class="num">Single</td><td>Packs</td><td class="num">Stock</td></tr>
+                                        @foreach (var p in legacy.New.Take(200))
+                                        {
+                                            <tr>
+                                                <td class="muted">@p.Plu</td>
+                                                <td>@p.Name @if (p.IsGstFree) { <span class="tag-free">GST-free</span> } @if (!p.IsActive) { <span class="tag-off">inactive</span> }</td>
+                                                <td class="muted">@p.Department</td>
+                                                <td class="num">@p.Price.ToString("C")</td>
+                                                <td class="changes">@PackText(p)</td>
+                                                <td class="num">@StockText(p)</td>
+                                            </tr>
+                                        }
+                                    </table>
+                                    @if (legacy.New.Count > 200) { <p class="csv-sub">…and @(legacy.New.Count - 200) more.</p> }
+                                </section>
+                            }
+                        </div>
+
+                        <div class="editor-actions">
+                            <button @onclick="() => Legacy = null" disabled="@Importing">Back</button>
+                            <button class="primary" @onclick="ImportLegacyAsync" disabled="@(!legacy.HasWork || Importing)">
+                                @(Importing ? "Importing…" : legacy.HasWork ? $"Import {legacy.New.Count} product(s)" : "Nothing to import")
+                            </button>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
 
         @if (Editing is not null)
         {
@@ -105,6 +293,10 @@ else
                             <label class="checkbox-label">
                                 <input type="checkbox" @bind="Editing.EnableOnWebsite" disabled="@(!CanEditFullDetails)" />
                                 Enable on website
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" @bind="Editing.IsGstFree" disabled="@(!CanEditFullDetails)" />
+                                GST-free (no GST in the price)
                             </label>
                         </div>
                     }
@@ -162,7 +354,10 @@ else
             StockOnHand = p.StockOnHand,
             ProductUrl = p.ProductUrl,
             PointsPerUnit = p.PointsPerUnit,
-            EnableOnWebsite = p.EnableOnWebsite
+            EnableOnWebsite = p.EnableOnWebsite,
+            IsGstFree = p.IsGstFree,
+            SupplierId = p.SupplierId,
+            SyncId = p.SyncId
         };
         ActiveTab = "details";
     }
@@ -181,6 +376,172 @@ else
         Editing = null;
         await LoadAsync();
     }
+
+    // ---- CSV import / export ----
+
+    private const long MaxCsvBytes = 5 * 1024 * 1024;
+
+    private ProductImportPlan? Import;
+    private string ImportFileName = "";
+    private bool Importing;
+    private string? CsvMessage;
+    private bool CsvMessageIsError;
+    private string? ExportedTo;
+
+    /// <summary>Reads the chosen file and shows what it would do. Saves nothing.</summary>
+    private async Task ReadCsvAsync(InputFileChangeEventArgs e)
+    {
+        (CsvMessage, ExportedTo, Import) = (null, null, null);
+        if (!CanCreate) return;
+
+        try
+        {
+            if (e.File.Size > MaxCsvBytes)
+            {
+                ShowCsv("That file is over 5 MB. Split it into smaller files.", error: true);
+                return;
+            }
+
+            using var memory = new MemoryStream();
+            await using (var stream = e.File.OpenReadStream(MaxCsvBytes))
+                await stream.CopyToAsync(memory);
+
+            ImportFileName = e.File.Name;
+            Import = ProductCsv.Plan(ProductCsv.Decode(memory.ToArray()), await ProductService.GetAllAsync());
+        }
+        catch (Exception)
+        {
+            ShowCsv("Couldn't read that file. Save it from Excel as \"CSV UTF-8 (Comma delimited)\" and try again.", error: true);
+        }
+    }
+
+    private async Task ConfirmImportAsync()
+    {
+        if (Import is null || Importing || !CanCreate) return;
+
+        Importing = true;
+        try
+        {
+            var (created, updated) = await ProductService.ImportAsync(Import);
+            var skipped = Import.Problems.Count;
+            Import = null;
+            await LoadAsync();
+            ShowCsv($"Imported: {created} new, {updated} changed{(skipped > 0 ? $", {skipped} line(s) skipped" : "")}. They go to Head Office and the website by themselves.");
+        }
+        catch (Exception)
+        {
+            Import = null;
+            ShowCsv("The import didn't save, so nothing changed. Details are in the log file.", error: true);
+        }
+        finally
+        {
+            Importing = false;
+        }
+    }
+
+    /// <summary>Every product to a CSV in the report folder. Edit it in Excel and import it back.</summary>
+    private async Task ExportCsvAsync()
+    {
+        (CsvMessage, ExportedTo) = (null, null);
+        try
+        {
+            var all = await ProductService.GetAllAsync();
+            ExportedTo = await Files.SaveAsync($"Products {DateTime.Now:yyyy-MM-dd HHmm}.csv", ProductCsv.Export(all));
+            ShowCsv($"Saved {all.Count} product(s) to {ExportedTo}. Edit it in Excel and use Import CSV to load it back.");
+        }
+        catch (Exception)
+        {
+            ExportedTo = null;
+            ShowCsv("Couldn't save the file. Check the report folder in Reports & End of Day.", error: true);
+        }
+    }
+
+    // ---- import from the old POS ----
+
+    private bool LegacyOpen;
+    private LegacyImportPlan? Legacy;
+    private string? LegacyPlu, LegacyDept, LegacySupp;
+    private string? LegacyPluName, LegacyDeptName, LegacySuppName;
+
+    private void OpenLegacy() => (LegacyOpen, Legacy, LegacyPlu, LegacyDept, LegacySupp, LegacyPluName, LegacyDeptName, LegacySuppName, CsvMessage) =
+        (true, null, null, null, null, null, null, null, null);
+
+    private void CloseLegacy() => (LegacyOpen, Legacy) = (false, null);
+
+    private async Task PickLegacyAsync(InputFileChangeEventArgs e, int which)
+    {
+        try
+        {
+            using var memory = new MemoryStream();
+            await using (var stream = e.File.OpenReadStream(50 * 1024 * 1024))
+                await stream.CopyToAsync(memory);
+            var text = ProductCsv.Decode(memory.ToArray());
+            switch (which)
+            {
+                case 0: (LegacyPlu, LegacyPluName) = (text, e.File.Name); break;
+                case 1: (LegacyDept, LegacyDeptName) = (text, e.File.Name); break;
+                default: (LegacySupp, LegacySuppName) = (text, e.File.Name); break;
+            }
+        }
+        catch (Exception)
+        {
+            ShowCsv("Couldn't read that file (over 50 MB, or not a text file).", error: true);
+        }
+    }
+
+    private async Task PlanLegacyAsync()
+    {
+        if (LegacyPlu is null) return;
+        try
+        {
+            var products = await ProductService.GetAllAsync();
+            var barcodes = await ProductService.GetAllBarcodesAsync();
+            Legacy = LegacyPluImport.Plan(LegacyPlu, LegacyDept, LegacySupp,
+                products.Select(p => p.Plu ?? "").ToList(), barcodes);
+        }
+        catch (Exception)
+        {
+            ShowCsv("Couldn't read the old POS files. Details are in the log file.", error: true);
+            LegacyOpen = false;
+        }
+    }
+
+    private async Task ImportLegacyAsync()
+    {
+        if (Legacy is null || Importing || !CanCreate) return;
+        Importing = true;
+        try
+        {
+            var count = await ProductService.ImportLegacyAsync(Legacy, Session.Employee?.FullName);
+            (LegacyOpen, Legacy) = (false, null);
+            await LoadAsync();
+            ShowCsv($"Imported {count} product(s) from the old POS, with their packs, barcodes and stock. They go to Head Office and the website by themselves.");
+        }
+        catch (Exception)
+        {
+            (LegacyOpen, Legacy) = (false, null);
+            ShowCsv("The import didn't save, so nothing changed. Details are in the log file.", error: true);
+        }
+        finally
+        {
+            Importing = false;
+        }
+    }
+
+    private static string PackText(LegacyProduct p) => p.Packs.Count == 0 ? "—"
+        : string.Join(" · ", p.Packs.Select(k => $"{(k.Type == PackType.FullCase ? $"Case of {k.Units}" : k.Type == PackType.Pack ? $"{k.Units}-pack" : $"Pack of {k.Units}")} {k.Price:C}"));
+
+    // Shown as cases + singles when the product has a case, like the old POS: 283 → "11 cs + 19".
+    private static string StockText(LegacyProduct p)
+    {
+        var caseSize = p.Packs.FirstOrDefault(k => k.Type == PackType.FullCase)?.Units ?? 0;
+        if (caseSize <= 1 || Math.Abs(p.Stock) < caseSize) return p.Stock.ToString("0.##");
+        var cases = (int)(p.Stock / caseSize);
+        var rest = p.Stock - cases * caseSize;
+        return rest == 0 ? $"{cases} cs" : $"{cases} cs + {rest:0.##}";
+    }
+
+    private void ShowCsv(string text, bool error = false) => (CsvMessage, CsvMessageIsError) = (text, error);
 
     private async Task Deactivate(Product p)
     {
