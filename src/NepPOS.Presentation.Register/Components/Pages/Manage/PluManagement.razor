@@ -2,12 +2,14 @@
 @layout ManageLayout
 @using NepPOS.Application.Catalog
 @using NepPOS.Application.Reports
+@using NepPOS.Application.Stock
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IProductManagementService ProductService
 @inject IReportFileStore Files
 @inject CurrentUserSession Session
+@inject IStockReceivingService Receiving
 @inject NavigationManager Nav
 
 @if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
@@ -275,11 +277,31 @@ else
                                 <img src="@Editing.ImageUrl" class="editor-image-preview" alt="preview" />
                             }
 
-                            <label>Price <input type="number" step="0.01" @bind="Editing.Price" disabled="@(!CanEditPrice)" /></label>
+                            <label>Price <input type="number" step="0.01" @bind="Editing.Price" @bind:event="oninput" disabled="@(!CanEditPrice)" /></label>
 
                             @if (CanSeeCostPrice)
                             {
-                                <label>Cost Price <input type="number" step="0.01" @bind="Editing.CostPrice" /></label>
+                                <label>Average cost (per single, ex GST) <input type="number" step="0.01" @bind="Editing.CostPrice" /></label>
+
+                                <div class="gp-row">
+                                    <span class="gp @StockMath.MarginLevel(EditingGp)">GP @(EditingGp is null ? "—" : $"{EditingGp:0.#}%")</span>
+                                    <span class="muted">@(Editing.IsGstFree ? "GST-free price" : "Price less GST") minus cost.</span>
+                                    @if (Editing.LastCost is { } last)
+                                    {
+                                        <span class="muted">Last invoice cost @last.ToString("C")</span>
+                                    }
+                                </div>
+
+                                @if (EditingPacks.Count > 0)
+                                {
+                                    <div class="pack-gp">
+                                        @foreach (var pack in EditingPacks)
+                                        {
+                                            var gp = StockMath.GrossProfitPercent(pack.Price, pack.UnitQuantity, Editing.CostPrice, Editing.IsGstFree);
+                                            <div><span>@pack.DisplayName</span><span>@pack.Price.ToString("C")</span><span class="gp @StockMath.MarginLevel(gp)">@(gp is null ? "—" : $"{gp:0.#}%")</span></div>
+                                        }
+                                    </div>
+                                }
                             }
 
                             <label>Stock on Hand <input type="number" step="1" @bind="Editing.StockOnHand" disabled="@(!CanEditFullDetails)" /></label>
@@ -315,6 +337,10 @@ else
     private List<Product> Products = new();
     private Product? Editing;
     private string ActiveTab = "details";
+    private IReadOnlyList<ProductVariant> EditingPacks = Array.Empty<ProductVariant>();
+
+    /// <summary>Live GP% for the price being edited, using the average cost.</summary>
+    private decimal? EditingGp => Editing is null ? null : StockMath.GrossProfitPercent(Editing.Price, 1, Editing.CostPrice, Editing.IsGstFree);
 
     private ManagerAccessLevel ManagerAccess = ManagerAccessLevel.SellPricesOnly;
 
@@ -335,11 +361,13 @@ else
     private void StartNew()
     {
         Editing = new Product { IsActive = true };
+        EditingPacks = Array.Empty<ProductVariant>();
         ActiveTab = "details";
     }
 
-    private void Edit(Product p)
+    private async Task Edit(Product p)
     {
+        EditingPacks = CanSeeCostPrice ? await Receiving.GetPacksAsync(p.Id) : Array.Empty<ProductVariant>();
         Editing = new Product
         {
             Id = p.Id,
@@ -349,6 +377,7 @@ else
             Category = p.Category,
             Price = p.Price,
             CostPrice = p.CostPrice,
+            LastCost = p.LastCost,
             ImageUrl = p.ImageUrl,
             IsActive = p.IsActive,
             StockOnHand = p.StockOnHand,

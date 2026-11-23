@@ -1,0 +1,414 @@
+@page "/manage/receiving"
+@layout ManageLayout
+@using NepPOS.Application.Catalog
+@using NepPOS.Application.Scanning
+@using NepPOS.Application.Stock
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IStockReceivingService Deliveries
+@inject IProductCatalogService Catalog
+@inject ScanResolutionService Scanner
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">@(Mode switch { View.New => "New delivery", View.Detail => $"Invoice {Detail?.InvoiceNumber}", View.Posted => "Delivery received", _ => "Receive stock" })</span>
+            @if (Mode == View.List)
+            {
+                <button class="add-btn" @onclick="StartNewAsync">+ New delivery</button>
+            }
+            else if (Mode is View.Detail or View.Posted)
+            {
+                <button class="top-save" @onclick="BackToListAsync">← All deliveries</button>
+            }
+        </div>
+
+        @if (Message is not null)
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        @switch (Mode)
+        {
+            case View.List:
+                <div class="rc-body">
+                    @if (Recent.Count == 0)
+                    {
+                        <div class="rc-empty">
+                            <h2>No deliveries yet</h2>
+                            <p>When stock arrives, tap <strong>New delivery</strong>: pick the supplier, enter the invoice number and scan each product. Stock goes up and costs and margins update.</p>
+                            <button class="big-btn primary" @onclick="StartNewAsync">+ New delivery</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <table class="rc-table">
+                            <thead><tr><th>Received</th><th>Supplier</th><th>Invoice</th><th class="num">Lines</th><th class="num">Cost ex GST</th><th>By</th></tr></thead>
+                            <tbody>
+                                @foreach (var r in Recent)
+                                {
+                                    <tr class="click" @onclick="() => OpenAsync(r.Id)">
+                                        <td>@r.PostedUtc.ToLocalTime().ToString("ddd d MMM, h:mm tt")</td>
+                                        <td>@r.SupplierName</td>
+                                        <td>@r.InvoiceNumber <span class="muted">@r.InvoiceDate.ToString("d MMM")</span></td>
+                                        <td class="num">@r.Lines</td>
+                                        <td class="num">@r.TotalCost.ToString("C")</td>
+                                        <td class="muted">@r.EmployeeName</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+                break;
+
+            case View.New:
+                <div class="rc-body">
+                    <section class="rc-card rc-head">
+                        <label>Supplier
+                            @if (AddingSupplier)
+                            {
+                                <span class="inline">
+                                    <input @bind="NewSupplierName" placeholder="Supplier name" />
+                                    <button class="chip primary" @onclick="AddSupplierAsync">Add</button>
+                                    <button class="chip" @onclick="() => AddingSupplier = false">Cancel</button>
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="inline">
+                                    <select @bind="SupplierId">
+                                        <option value="0">Choose…</option>
+                                        @foreach (var s in Suppliers)
+                                        {
+                                            <option value="@s.Id">@s.Name</option>
+                                        }
+                                    </select>
+                                    <button class="chip" @onclick="() => AddingSupplier = true">+ New supplier</button>
+                                </span>
+                            }
+                        </label>
+                        <label>Invoice number <input @bind="InvoiceNumber" placeholder="As on the invoice" /></label>
+                        <label>Invoice date <input type="date" @bind="InvoiceDate" /></label>
+                    </section>
+
+                    <section class="rc-card">
+                        <form class="rc-add" @onsubmit="AddByCodeAsync">
+                            <input @bind="Code" placeholder="Scan a barcode, type a PLU or search by name" autofocus />
+                            <button type="submit" class="chip primary">Add</button>
+                        </form>
+
+                        @if (Choices.Count > 0)
+                        {
+                            <div class="rc-choices">
+                                @foreach (var p in Choices)
+                                {
+                                    <button class="rc-choice" @onclick="() => AddProductAsync(p, null)">@p.Name <span class="muted">@p.Plu</span></button>
+                                }
+                            </div>
+                        }
+
+                        @if (Lines.Count == 0)
+                        {
+                            <p class="muted rc-hint">Scan each product on the invoice. A pack's barcode adds that pack (a case of 24 adds 24).</p>
+                        }
+                        else
+                        {
+                            <table class="rc-table lines">
+                                <thead><tr><th>Product</th><th>Pack</th><th class="num">Qty</th><th class="num">Cost per pack<br /><span class="muted">ex GST</span></th><th class="num">Line</th><th class="num">Stock after</th><th></th></tr></thead>
+                                <tbody>
+                                    @foreach (var line in Lines)
+                                    {
+                                        <tr>
+                                            <td><strong>@line.Product.Name</strong><div class="muted">@line.Product.Plu · on hand @line.Product.StockOnHand.ToString("0.##")</div></td>
+                                            <td>
+                                                <select value="@line.PackUnits" @onchange="e => ChangePack(line, e.Value)">
+                                                    <option value="1">Single</option>
+                                                    @foreach (var pack in line.Packs)
+                                                    {
+                                                        <option value="@pack.UnitQuantity">@pack.DisplayName</option>
+                                                    }
+                                                </select>
+                                            </td>
+                                            <td class="num"><input class="qty" type="number" min="0" step="1" @bind="line.Quantity" /></td>
+                                            <td class="num">
+                                                <input class="cost" type="number" min="0" step="0.01" @bind="line.CostPerPack" />
+                                                @if (line.WasPerPack is { } was && Math.Abs(was - line.CostPerPack) >= 0.01m)
+                                                {
+                                                    <div class="@(line.CostPerPack > was ? "up" : "down")">was @was.ToString("C")</div>
+                                                }
+                                            </td>
+                                            <td class="num">@((line.Quantity * line.CostPerPack).ToString("C"))</td>
+                                            <td class="num">@((line.Product.StockOnHand + line.Quantity * line.PackUnits).ToString("0.##"))</td>
+                                            <td><button class="chip danger" title="Remove" @onclick="() => Lines.Remove(line)">✕</button></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+
+                    <div class="rc-foot">
+                        <div class="rc-totals">
+                            <span><strong>@Lines.Count</strong> lines</span>
+                            <span><strong>@Lines.Sum(l => l.Quantity * l.PackUnits).ToString("0.##")</strong> singles</span>
+                            <span><strong>@Lines.Sum(l => l.Quantity * l.CostPerPack).ToString("C")</strong> ex GST</span>
+                        </div>
+                        <button class="big-btn" @onclick="BackToListAsync" disabled="@Busy">Cancel</button>
+                        @if (Confirming)
+                        {
+                            <button class="big-btn primary" @onclick="PostAsync" disabled="@Busy">@(Busy ? "Posting…" : "Yes, post it")</button>
+                        }
+                        else
+                        {
+                            <button class="big-btn primary" @onclick="AskToPost" disabled="@(Lines.Count == 0)">Post delivery</button>
+                        }
+                    </div>
+                    @if (Confirming)
+                    {
+                        <p class="rc-confirm">Stock and costs update straight away and a posted delivery can't be edited. Mistakes are fixed with a stock adjustment.</p>
+                    }
+                </div>
+                break;
+
+            case View.Posted when Posted is not null:
+                <div class="rc-body">
+                    <section class="rc-card rc-done">
+                        <h2>@Posted.Singles.ToString("0.##") singles received · @Posted.TotalCost.ToString("C") ex GST</h2>
+                        <p class="muted">Stock and costs are updated. Each line is in the stock ledger as "Invoice @LastInvoice".</p>
+                    </section>
+
+                    @if (Posted.CostChanges.Count > 0)
+                    {
+                        <section class="rc-card">
+                            <h2>Cost changed on @Posted.CostChanges.Count product(s)</h2>
+                            <p class="muted">Check the price still leaves enough margin. Change prices in Products &amp; PLUs.</p>
+                            <table class="rc-table">
+                                <thead><tr><th>Product</th><th class="num">Cost per single</th><th class="num">Price</th><th class="num">GP%</th></tr></thead>
+                                <tbody>
+                                    @foreach (var c in Posted.CostChanges)
+                                    {
+                                        <tr>
+                                            <td>@c.ProductName</td>
+                                            <td class="num">@c.OldCost?.ToString("C") → <strong class="@(c.NewCost > c.OldCost ? "up" : "down")">@c.NewCost.ToString("C")</strong></td>
+                                            <td class="num">@c.Price.ToString("C")</td>
+                                            <td class="num">@Gp(c.GpBefore) → <span class="gp @StockMath.MarginLevel(c.GpAfter)">@Gp(c.GpAfter)</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                            <button class="big-btn" @onclick='() => Nav.NavigateTo("/manage/plu")'>Go to Products &amp; PLUs</button>
+                        </section>
+                    }
+                </div>
+                break;
+
+            case View.Detail when Detail is not null:
+                <div class="rc-body">
+                    <section class="rc-card">
+                        <h2>@Detail.SupplierName · invoice @Detail.InvoiceNumber</h2>
+                        <p class="muted">Invoice date @Detail.InvoiceDate.ToString("d MMM yyyy") · received @Detail.PostedUtc.ToLocalTime().ToString("d MMM yyyy h:mm tt")@(Detail.EmployeeName is null ? "" : " by " + Detail.EmployeeName)</p>
+                        <table class="rc-table">
+                            <thead><tr><th>Product</th><th>Pack</th><th class="num">Qty</th><th class="num">Cost per pack</th><th class="num">Line</th><th class="num">Cost per single</th></tr></thead>
+                            <tbody>
+                                @foreach (var l in Detail.Lines)
+                                {
+                                    <tr>
+                                        <td>@l.ProductName</td>
+                                        <td>@l.PackName</td>
+                                        <td class="num">@l.Quantity.ToString("0.##")</td>
+                                        <td class="num">@l.CostPerPack.ToString("C")</td>
+                                        <td class="num">@l.LineCost.ToString("C")</td>
+                                        <td class="num">@if (l.PreviousUnitCost is { } prev && Math.Abs(prev - l.UnitCost) >= 0.005m) { <span class="muted">@prev.ToString("C") → </span> }@l.UnitCost.ToString("C")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                            <tfoot><tr><td colspan="4">Total ex GST</td><td class="num"><strong>@Detail.Lines.Sum(l => l.LineCost).ToString("C")</strong></td><td></td></tr></tfoot>
+                        </table>
+                    </section>
+                </div>
+                break;
+        }
+    </div>
+}
+
+@code {
+    private enum View { List, New, Posted, Detail }
+
+    private View Mode = View.List;
+    private string? Message;
+    private bool IsError;
+    private bool Busy;
+    private bool Confirming;
+
+    private IReadOnlyList<ReceiptSummary> Recent = Array.Empty<ReceiptSummary>();
+    private IReadOnlyList<Supplier> Suppliers = Array.Empty<Supplier>();
+    private StockReceipt? Detail;
+    private ReceiptPosted? Posted;
+    private string LastInvoice = "";
+
+    // The delivery being entered.
+    private int SupplierId;
+    private bool AddingSupplier;
+    private string NewSupplierName = "";
+    private string InvoiceNumber = "";
+    private DateTime InvoiceDate = DateTime.Today;
+    private string Code = "";
+    private List<Product> Choices = new();
+    private List<Line> Lines = new();
+
+    private sealed class Line
+    {
+        public required Product Product { get; init; }
+        public required IReadOnlyList<ProductVariant> Packs { get; init; }
+        public int PackUnits { get; set; } = 1;
+        public decimal Quantity { get; set; } = 1;
+        public decimal CostPerPack { get; set; }
+
+        /// <summary>What this pack cost last time (last cost × singles), to show when the invoice differs.</summary>
+        public decimal? WasPerPack => (Product.LastCost ?? Product.CostPrice) is { } single ? Math.Round(single * PackUnits, 2) : null;
+
+        public string PackName => PackUnits == 1 ? "Single" : Packs.FirstOrDefault(p => p.UnitQuantity == PackUnits)?.DisplayName ?? $"Pack of {PackUnits}";
+    }
+
+    protected override Task OnInitializedAsync() => BackToListAsync();
+
+    private async Task BackToListAsync()
+    {
+        (Mode, Message, Confirming, Detail, Posted) = (View.List, null, false, null, null);
+        Recent = await Deliveries.GetRecentAsync();
+    }
+
+    private async Task StartNewAsync()
+    {
+        (Mode, Message, Confirming) = (View.New, null, false);
+        Suppliers = await Deliveries.GetSuppliersAsync();
+        (SupplierId, InvoiceNumber, InvoiceDate, Code, AddingSupplier) = (0, "", DateTime.Today, "", false);
+        Lines = new();
+        Choices = new();
+    }
+
+    private async Task OpenAsync(int id)
+    {
+        Detail = await Deliveries.GetAsync(id);
+        Mode = Detail is null ? View.List : View.Detail;
+    }
+
+    private async Task AddSupplierAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NewSupplierName)) return;
+        var supplier = await Deliveries.AddSupplierAsync(NewSupplierName);
+        Suppliers = await Deliveries.GetSuppliersAsync();
+        (SupplierId, AddingSupplier, NewSupplierName) = (supplier.Id, false, "");
+    }
+
+    /// <summary>A barcode or PLU adds straight away (a pack's barcode adds that pack); a name shows matches to pick from.</summary>
+    private async Task AddByCodeAsync()
+    {
+        var code = Code.Trim();
+        (Message, Choices) = (null, new());
+        if (code.Length == 0) return;
+
+        var found = await Scanner.ResolveAsync(code);
+        switch (found.Payload)
+        {
+            case Product product:
+                await AddProductAsync(product, null);
+                return;
+            case ProductVariant pack:
+                await AddProductAsync(pack.Product, pack.UnitQuantity);
+                return;
+        }
+
+        var matches = await Catalog.SearchAsync(code, 20);
+        if (matches.Count == 1)
+            await AddProductAsync(matches[0], null);
+        else if (matches.Count == 0)
+            Show($"Nothing matches \"{code}\". Add the product in Products & PLUs first.", error: true);
+        else
+            Choices = matches.ToList();
+    }
+
+    private async Task AddProductAsync(Product product, int? packUnits)
+    {
+        Choices = new();
+        Code = "";
+
+        // Same product and pack again: one more of it, not a second line.
+        var packs = await Deliveries.GetPacksAsync(product.Id);
+        var units = packUnits ?? packs.LastOrDefault()?.UnitQuantity ?? 1;   // deliveries usually come by the case
+        var existing = Lines.FirstOrDefault(l => l.Product.Id == product.Id && l.PackUnits == units);
+        if (existing is not null)
+        {
+            existing.Quantity++;
+            return;
+        }
+
+        var line = new Line { Product = product, Packs = packs, PackUnits = units };
+        line.CostPerPack = line.WasPerPack ?? 0;
+        Lines.Insert(0, line);
+    }
+
+    private static void ChangePack(Line line, object? value)
+    {
+        if (!int.TryParse(value?.ToString(), out var units) || units < 1) return;
+        var single = line.PackUnits == 0 ? 0 : line.CostPerPack / line.PackUnits;
+        line.PackUnits = units;
+        line.CostPerPack = Math.Round(single * units, 2);
+    }
+
+    private void AskToPost()
+    {
+        var supplier = Suppliers.FirstOrDefault(s => s.Id == SupplierId);
+        if (supplier is null) { Show("Choose the supplier.", error: true); return; }
+        if (string.IsNullOrWhiteSpace(InvoiceNumber)) { Show("Enter the invoice number.", error: true); return; }
+        if (Lines.Any(l => l.Quantity <= 0)) { Show("Every line needs a quantity. Remove lines you didn't receive.", error: true); return; }
+        Message = null;
+        Confirming = true;
+    }
+
+    private async Task PostAsync()
+    {
+        var supplier = Suppliers.FirstOrDefault(s => s.Id == SupplierId);
+        if (supplier is null || Busy) return;
+
+        Busy = true;
+        try
+        {
+            var input = new ReceiptInput(supplier.Id, supplier.Name, InvoiceNumber, DateOnly.FromDateTime(InvoiceDate),
+                Lines.Select(l => new ReceiptLineInput(l.Product.Id, l.PackUnits, l.PackName, l.Quantity, l.CostPerPack)).ToList());
+            Posted = await Deliveries.PostAsync(input, Session.Employee?.FullName);
+            LastInvoice = InvoiceNumber.Trim();
+            (Mode, Confirming, Message) = (View.Posted, false, null);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Confirming = false;
+            Show(ex.Message, error: true);
+        }
+        catch (Exception)
+        {
+            Confirming = false;
+            Show("The delivery didn't save, so nothing changed. Details are in the log file.", error: true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private static string Gp(decimal? gp) => gp is null ? "—" : $"{gp:0.#}%";
+
+    private void Show(string text, bool error = false) => (Message, IsError) = (text, error);
+}

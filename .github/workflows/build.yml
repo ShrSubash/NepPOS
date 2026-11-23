@@ -1,0 +1,47 @@
+# Builds the whole solution (including the Windows register) and runs every test
+# on each pull request and on pushes to main. A red check means don't merge.
+name: Build and test
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      # The register is a .NET MAUI app, so the build needs the MAUI workload.
+      - name: Install MAUI workload
+        run: dotnet workload install maui-windows
+
+      - name: Restore
+        run: dotnet restore NepPOS.sln
+
+      - name: Build
+        run: dotnet build NepPOS.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test NepPOS.sln --configuration Release --no-build --logger "trx" --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults

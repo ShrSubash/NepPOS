@@ -19,7 +19,7 @@ public static class ManageNav
         new ManageSection("Products", new[]
         {
             new ManageItem("Products & PLUs", "Add products, prices, barcodes and pack sizes", "manage/plu", "tag"),
-            new ManageItem("Suppliers", "Who you buy from", null, "truck"),
+            new ManageItem("Receive stock", "Supplier deliveries: stock in, costs and margins", "manage/receiving", "truck"),
         }),
         new ManageSection("Sales", new[]
         {

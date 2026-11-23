@@ -98,6 +98,7 @@ public static class MauiProgram
         builder.Services.AddScoped<IScanResolver, CustomerScanResolver>();
         builder.Services.AddScoped<ScanResolutionService>();
         builder.Services.AddScoped<IProductManagementService, ProductManagementService>();
+        builder.Services.AddScoped<NepPOS.Application.Stock.IStockReceivingService, NepPOS.Infrastructure.Database.Stock.StockReceivingService>();
 
         // Checkout: this register's identity, saving paid sales, and the EFTPOS terminal.
         builder.Services.AddSingleton(new RegisterTerminal(StoreId: "STORE-001", RegisterId: "REG-001"));

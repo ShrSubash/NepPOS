@@ -440,3 +440,15 @@
 
 .tag-free { background: #e8f7ee; color: #15803d; }
 .tag-off { background: #f0f1f6; color: #6b6f8e; }
+
+/* Live gross profit next to the price. */
+.gp-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: -.25rem 0 .5rem; }
+.gp { display: inline-block; padding: .2rem .65rem; border-radius: 999px; font-weight: 700; font-size: .9rem; }
+.gp.good { background: #e3f6ec; color: #17734a; }
+.gp.fair { background: #fff4d6; color: #8a5a00; }
+.gp.thin { background: #fde5e5; color: #a32020; }
+.gp.none { background: #eceef4; color: #6b6f8a; }
+.muted { color: #7a7e98; font-size: .85rem; }
+.pack-gp { display: grid; gap: .35rem; margin-bottom: .75rem; }
+.pack-gp > div { display: grid; grid-template-columns: 1fr auto 5rem; gap: .75rem; align-items: center; padding: .45rem .7rem; background: #f6f7fb; border-radius: 8px; }
+.pack-gp > div > .gp { justify-self: end; }
