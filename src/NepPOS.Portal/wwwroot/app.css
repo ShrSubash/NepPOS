@@ -421,3 +421,24 @@ qr-code svg { display: block; width: 100%; height: 100%; }
     .cols, .row2, .row3 { grid-template-columns: 1fr; }
     .page-head { flex-direction: column; }
 }
+
+/* ---- Licence (business page) ---- */
+.licence-card .card-head h2 { display: flex; align-items: center; gap: 10px; }
+.licence-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.btn-danger-outline { color: var(--bad); border-color: #f0c2c8; }
+.licence-note { margin: 4px 0 14px; padding: 10px 12px; border-radius: var(--radius); font-size: 0.9rem; }
+.licence-warning { background: var(--warn-soft); color: var(--warn); }
+.licence-grace, .licence-locked { background: var(--bad-soft); color: var(--bad); }
+.licence-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.licence-facts > div { background: var(--bg); border-radius: var(--radius); padding: 10px 12px; }
+.licence-facts .wide { grid-column: 1 / -1; }
+.licence-facts dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.licence-facts dd { margin: 4px 0 0; font-weight: 600; }
+.licence-facts dd.full { color: var(--warn); }
+.licence-form { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 4px; }
+.row4 { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 0 14px; }
+.row4 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.feature-checks { display: flex; flex-wrap: wrap; gap: 4px 22px; margin-top: 8px; }
+@media (max-width: 900px) {
+    .row4, .licence-facts { grid-template-columns: 1fr; }
+}

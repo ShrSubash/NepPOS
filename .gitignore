@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # Local Head Office database (SQLite) on a developer PC
 src/NepPOS.HeadOffice.Api/headoffice.db*
+
+# Licence signing keys: settings / Key Vault only
+*.pem

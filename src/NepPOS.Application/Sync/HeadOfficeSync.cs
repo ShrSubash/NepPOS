@@ -1,3 +1,4 @@
+﻿using NepPOS.Application.Licensing;
 using NepPOS.Contracts.Sync;
 
 namespace NepPOS.Application.Sync;
@@ -98,12 +99,15 @@ public sealed class SyncService
     private readonly IHeadOfficeConnectionStore _connections;
     private readonly IHeadOfficeClient _client;
     private readonly IOutboxStore _outbox;
+    private readonly LicenceGuard? _licence;
 
-    public SyncService(IHeadOfficeConnectionStore connections, IHeadOfficeClient client, IOutboxStore outbox)
+    /// <param name="licence">Receives the licence each heartbeat brings (null in tests that don't need it).</param>
+    public SyncService(IHeadOfficeConnectionStore connections, IHeadOfficeClient client, IOutboxStore outbox, LicenceGuard? licence = null)
     {
         _connections = connections ?? throw new ArgumentNullException(nameof(connections));
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
+        _licence = licence;
     }
 
     public async Task<SyncRunResult> SendOutboxAsync(CancellationToken cancellationToken = default)
@@ -159,7 +163,8 @@ public sealed class SyncService
 
         try
         {
-            await _client.HeartbeatAsync(connection, cancellationToken);
+            var answer = await _client.HeartbeatAsync(connection, cancellationToken);
+            _licence?.Accept(answer.Licence, null, answer.ServerTimeUtc);
             return (SyncOutcome.UpToDate, null);
         }
         catch (HeadOfficeException ex)

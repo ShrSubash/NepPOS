@@ -1,4 +1,4 @@
-@page "/businesses"
+﻿@page "/businesses"
 @inject HeadOfficeAdmin HeadOffice
 @inject NavigationManager Nav
 
@@ -40,13 +40,24 @@
         <div class="card flush">
             <table class="table">
                 <thead>
-                    <tr><th>Business</th><th class="num">Stores</th><th class="num">Registers</th><th>Online</th><th>Last heard from</th></tr>
+                    <tr><th>Business</th><th>Licence</th><th class="num">Stores</th><th class="num">Registers</th><th>Online</th><th>Last heard from</th></tr>
                 </thead>
                 <tbody>
                     @foreach (var b in rows)
                     {
                         <tr class="clickable" @onclick="@(() => Nav.NavigateTo($"businesses/{b.Id}"))">
                             <td><a href="businesses/@b.Id">@b.Name</a><div class="sub">Since @b.CreatedUtc.ToString("d MMM yyyy")</div></td>
+                            <td>
+                                @if (b.Licence is { } lic)
+                                {
+                                    <LicencePill Status="lic.Status" Level="lic.Level" Title="@lic.Headline" />
+                                    <div class="sub">@LicencePlans.NameOf(lic.Plan) · until @lic.ValidUntilUtc.ToLocalTime().ToString("d MMM yyyy")</div>
+                                }
+                                else
+                                {
+                                    <span class="sub">Trial starts on first use</span>
+                                }
+                            </td>
                             <td class="num">@b.Stores</td>
                             <td class="num">@b.Registers</td>
                             <td>

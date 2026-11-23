@@ -1,4 +1,4 @@
-/* Manage: one settings screen. Sidebar (grouped) + the page. Touch-sized targets (44px+). */
+﻿/* Manage: one settings screen. Sidebar (grouped) + the page. Touch-sized targets (44px+). */
 
 .mg-shell {
     --mg-ink: #14162b;
@@ -196,13 +196,17 @@
     min-width: 0;
     min-height: 0;
     overflow: auto;
+    /* A column, so the licence notice (when shown) sits above the page and the page fills the rest. */
+    display: flex;
+    flex-direction: column;
 }
 
 /* Each page keeps its own markup (xxx-shell, xxx-topbar). Here they get one look: a light page header
    instead of the old dark bar, and the page fills the space beside the sidebar. */
 
 .mg-content ::deep [class$="-shell"] {
-    height: 100%;
+    flex: 1 1 auto;
+    height: auto;
     min-height: 0;
     background: var(--mg-bg);
 }

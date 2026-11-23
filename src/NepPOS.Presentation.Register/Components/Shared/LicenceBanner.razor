@@ -1,0 +1,46 @@
+@implements IDisposable
+@using NepPOS.Application.Licensing
+@using NepPOS.Contracts.Licensing
+@inject LicenceGuard Licence
+
+@*
+    The licence notice: amber when it ends soon or the register must reach Head Office soon, red in the grace
+    period and when new sales have stopped. Nothing when all is well.
+*@
+@if (_state.Level != LicenceLevel.Ok)
+{
+    <div class="lic-banner lic-@_state.Level.ToString().ToLowerInvariant() @(Dark ? "lic-dark" : "")" role="status">
+        <span class="lic-icon" aria-hidden="true">@(_state.Level == LicenceLevel.Warning ? "!" : "⛔")</span>
+        <span class="lic-text"><strong>@_state.Headline.</strong> @_state.Detail</span>
+    </div>
+}
+
+@code {
+    /// <summary>On the register's dark screen.</summary>
+    [Parameter] public bool Dark { get; set; }
+
+    private static readonly TimeSpan RefreshEvery = TimeSpan.FromSeconds(30);
+    private Timer? _timer;
+    private LicenceState _state = LicenceState.Fine;
+
+    protected override void OnInitialized()
+    {
+        _state = Licence.Current;
+        Licence.Changed += OnChanged;
+        _timer = new Timer(_ => OnChanged(), null, RefreshEvery, RefreshEvery);
+    }
+
+    private void OnChanged() => InvokeAsync(() =>
+    {
+        var next = Licence.Current;
+        if (next == _state) return;
+        _state = next;
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        Licence.Changed -= OnChanged;
+        _timer?.Dispose();
+    }
+}

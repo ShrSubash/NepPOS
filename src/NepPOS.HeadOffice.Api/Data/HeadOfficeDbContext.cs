@@ -1,4 +1,5 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
+using NepPOS.Contracts.Licensing;
 
 namespace NepPOS.HeadOffice.Api.Data;
 
@@ -22,6 +23,8 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
+    public DbSet<TenantLicence> TenantLicences => Set<TenantLicence>();
+    public DbSet<LicenceSigningKey> LicenceSigningKeys => Set<LicenceSigningKey>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -101,6 +104,22 @@ public sealed class HeadOfficeDbContext : DbContext
             // The event that last changed it: its database id is the catalog's change number.
             entity.HasOne(c => c.LastEvent).WithMany().HasForeignKey(c => c.LastEventId).OnDelete(DeleteBehavior.Restrict);
             entity.HasIndex(c => new { c.StoreId, c.LastEventId });
+        });
+
+        modelBuilder.Entity<TenantLicence>(entity =>
+        {
+            entity.HasKey(l => l.TenantId);
+            entity.Property(l => l.Plan).IsRequired().HasMaxLength(20);
+            entity.Property(l => l.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(l => l.Features).IsRequired().HasMaxLength(200);
+            entity.Property(l => l.Message).HasMaxLength(300);
+            entity.HasOne<Tenant>().WithOne().HasForeignKey<TenantLicence>(l => l.TenantId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LicenceSigningKey>(entity =>
+        {
+            entity.HasKey(k => k.Id);
+            entity.Property(k => k.PrivateKeyPem).IsRequired();
         });
 
         modelBuilder.Entity<PlatformUser>(entity =>
@@ -309,4 +328,62 @@ public sealed class AuditEntry
 
     /// <summary>In words, e.g. "Created store STORE-002 (Parramatta)". Never contains a secret.</summary>
     public string Summary { get; set; } = "";
+}
+
+/// <summary>
+/// A business's NepPOS licence: its plan, limits and how long it's paid for. Set in NepPOS Portal; registers get
+/// it signed with every heartbeat. A business without one gets a trial the first time it's needed.
+/// </summary>
+public sealed class TenantLicence
+{
+    public Guid TenantId { get; set; }
+
+    /// <summary>A <see cref="LicencePlans"/> code ("standard"); the limits below can differ from the plan's.</summary>
+    public string Plan { get; set; } = LicencePlans.TrialPlan.Code;
+
+    public LicenceStatus Status { get; set; } = LicenceStatus.Trial;
+
+    /// <summary>End of the trial or the paid period.</summary>
+    public DateTime ValidUntilUtc { get; set; }
+
+    public int MaxStores { get; set; } = 1;
+    public int MaxRegisters { get; set; } = 1;
+
+    /// <summary><see cref="LicenceFeatures"/> codes, comma separated.</summary>
+    public string Features { get; set; } = "";
+
+    /// <summary>Shown to the shop when suspended or cancelled.</summary>
+    public string? Message { get; set; }
+
+    public DateTime UpdatedUtc { get; set; } = DateTime.UtcNow;
+
+    public IReadOnlyList<string> FeatureList =>
+        Features.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    public static TenantLicence NewTrial(Guid tenantId, DateTime nowUtc)
+    {
+        var plan = LicencePlans.TrialPlan;
+        return new TenantLicence
+        {
+            TenantId = tenantId,
+            Plan = plan.Code,
+            Status = LicenceStatus.Trial,
+            ValidUntilUtc = nowUtc.AddDays(LicencePlans.TrialDays),
+            MaxStores = plan.MaxStores,
+            MaxRegisters = plan.MaxRegisters,
+            Features = string.Join(',', plan.Features),
+            UpdatedUtc = nowUtc
+        };
+    }
+}
+
+/// <summary>
+/// The licence signing key, kept in the database on developer PCs only, when HeadOffice:LicenceSigningKey isn't set.
+/// In production the key comes from settings (Key Vault / App Service), never from here.
+/// </summary>
+public sealed class LicenceSigningKey
+{
+    public int Id { get; set; }
+    public string PrivateKeyPem { get; set; } = "";
+    public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 }

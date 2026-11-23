@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Contracts.Catalog;
 using NepPOS.Contracts.Reports;
@@ -23,7 +23,8 @@ public static class WebsiteEndpoints
 
     public static void MapWebsiteEndpoints(this IEndpointRouteBuilder app)
     {
-        var website = app.MapGroup("/api/v1").RequireAuthorization(WebsiteApiKeyHandler.Policy).WithTags("Website");
+        var website = app.MapGroup("/api/v1").RequireAuthorization(WebsiteApiKeyHandler.Policy)
+            .AddEndpointFilter<WebsiteLicenceFilter>().WithTags("Website");
         website.MapGet("/stores", GetStoresAsync);
         website.MapGet("/reports/sales", GetSalesAsync);
         website.MapGet("/catalog/changes", GetCatalogChangesAsync);

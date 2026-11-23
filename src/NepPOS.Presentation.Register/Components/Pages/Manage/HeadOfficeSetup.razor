@@ -1,4 +1,4 @@
-@page "/manage/head-office"
+﻿@page "/manage/head-office"
 @layout ManageLayout
 @implements IDisposable
 @using NepPOS.Application.Abstractions
@@ -10,6 +10,7 @@
 @using NepPOS.Infrastructure.Integration.HeadOffice
 @using NepPOS.Presentation.Register.Services
 @inject IHeadOfficeConnectionStore Connections
+@inject NepPOS.Application.Licensing.LicenceGuard Licence
 @inject IHeadOfficeClient HeadOffice
 @inject IOutboxStore Outbox
 @inject IProductManagementService Products
@@ -208,6 +209,7 @@ else
             Connection = new HeadOfficeConnection(Address.Trim().TrimEnd('/'), answer.TenantId, answer.TenantName,
                 answer.StoreId, answer.StoreCode, answer.StoreName, answer.RegisterCode, answer.ApiKey, DateTime.UtcNow);
             Connections.Save(Connection);
+            Licence.Accept(answer.Licence, answer.LicencePublicKey, DateTime.UtcNow);
             Code = "";
 
             await Journal.WriteAsync(JournalEventType.SettingsChanged,

@@ -1,5 +1,6 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NepPOS.HeadOffice.Api.Data;
+using NepPOS.HeadOffice.Api.Licensing;
 using NepPOS.HeadOffice.Api.Security;
 
 namespace NepPOS.HeadOffice.Api.Endpoints;
@@ -32,15 +33,23 @@ public static class AdminEndpoints
 
             var tenant = new Tenant { Name = request.Name.Trim() };
             db.Tenants.Add(tenant);
-            Audit.Add(db, http, "business.created", tenant.Id, $"Created business {tenant.Name}");
+            var trial = TenantLicence.NewTrial(tenant.Id, DateTime.UtcNow);
+            db.TenantLicences.Add(trial);
+            Audit.Add(db, http, "business.created", tenant.Id, $"Created business {tenant.Name} with a {NepPOS.Contracts.Licensing.LicencePlans.TrialDays}-day trial");
             await db.SaveChangesAsync(ct);
             return Results.Created($"/api/v1/admin/tenants/{tenant.Id}", new TenantResponse(tenant.Id, tenant.Name));
         });
 
-        admin.MapPost("/tenants/{tenantId:guid}/stores", async (Guid tenantId, CreateStoreRequest request, HeadOfficeDbContext db, HttpContext http, CancellationToken ct) =>
+        admin.MapPost("/tenants/{tenantId:guid}/stores", async (Guid tenantId, CreateStoreRequest request, HeadOfficeDbContext db, LicenceService licences, HttpContext http, CancellationToken ct) =>
         {
             if (!await db.Tenants.AnyAsync(t => t.Id == tenantId, ct))
                 return Results.NotFound();
+
+            // The plan decides how many stores a business can have.
+            var licence = await licences.GetOrStartTrialAsync(tenantId, ct);
+            var stores = await db.Stores.CountAsync(s => s.TenantId == tenantId, ct);
+            if (stores >= licence.MaxStores)
+                return Results.Problem($"This business's plan allows {licence.MaxStores} {(licence.MaxStores == 1 ? "store" : "stores")}. Change the licence to add another.", statusCode: 409);
             if (string.IsNullOrWhiteSpace(request.StoreCode) || string.IsNullOrWhiteSpace(request.Name))
                 return Results.ValidationProblem(new Dictionary<string, string[]> { ["storeCode"] = new[] { "Enter a store code (e.g. STORE-001) and a name." } });
 

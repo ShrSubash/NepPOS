@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace NepPOS.Contracts.Sync;
@@ -131,7 +131,10 @@ public sealed record ActivateRequest(string Code, string RegisterCode, string? D
 /// The register keeps <paramref name="ApiKey"/> (encrypted) and sends it as "Authorization: Bearer …".
 /// It is shown only this once.
 /// </summary>
-public sealed record ActivateResponse(Guid TenantId, string TenantName, Guid StoreId, string StoreCode, string StoreName, string RegisterCode, string ApiKey);
+/// <remarks><paramref name="Licence"/> is the business's signed licence; <paramref name="LicencePublicKey"/> checks it
+/// (a register built with a fixed key ignores this one).</remarks>
+public sealed record ActivateResponse(Guid TenantId, string TenantName, Guid StoreId, string StoreCode, string StoreName, string RegisterCode, string ApiKey,
+    Licensing.SignedLicence? Licence = null, string? LicencePublicKey = null);
 
 /// <summary>POST /api/v1/sync/events: up to <see cref="MaxEvents"/> outbox events, oldest first.</summary>
 public sealed record SyncEventsRequest(IReadOnlyList<SyncEvent> Events)
@@ -152,5 +155,8 @@ public sealed record SyncEventsResponse(
 
 public sealed record RejectedEvent(Guid EventId, string Reason);
 
-/// <summary>POST /api/v1/heartbeat, every minute: tells Head Office (and later the website) the register is online.</summary>
-public sealed record HeartbeatResponse(DateTime ServerTimeUtc);
+/// <summary>
+/// POST /api/v1/heartbeat, every minute: tells Head Office (and later the website) the register is online.
+/// The answer carries a freshly signed licence, so a renewal or suspension reaches the register within a minute.
+/// </summary>
+public sealed record HeartbeatResponse(DateTime ServerTimeUtc, Licensing.SignedLicence? Licence = null);

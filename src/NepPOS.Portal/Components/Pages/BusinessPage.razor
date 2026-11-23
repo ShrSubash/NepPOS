@@ -1,4 +1,4 @@
-@page "/businesses/{Id:guid}"
+﻿@page "/businesses/{Id:guid}"
 @inject HeadOfficeAdmin HeadOffice
 
 <PageTitle>@(_business?.Name ?? "Business") · NepPOS Portal</PageTitle>
@@ -27,6 +27,98 @@
         </div>
         <button class="btn" @onclick="() => _addingStore = !_addingStore">Add store</button>
     </header>
+
+    @if (_licence is { } lic)
+    {
+        <section class="card licence-card">
+            <div class="card-head">
+                <div>
+                    <h2>Licence <LicencePill Status="lic.Status" Level="lic.State.Level" Title="@lic.State.Headline" /></h2>
+                    <div class="sub">@LicencePlans.NameOf(lic.Plan) plan · @(lic.Status == LicenceStatus.Trial ? "trial" : "paid") until @Day(lic.ValidUntilUtc) · changed @Format.Ago(lic.UpdatedUtc)</div>
+                </div>
+                @if (_isOwner && !_editingLicence)
+                {
+                    <div class="licence-actions">
+                        <button class="btn btn-small" @onclick="() => RenewAsync(1)" disabled="@_busy">Renew 1 month</button>
+                        <button class="btn btn-small" @onclick="() => RenewAsync(12)" disabled="@_busy">Renew 1 year</button>
+                        @if (lic.Status == LicenceStatus.Suspended)
+                        {
+                            <button class="btn btn-small" @onclick="ResumeAsync" disabled="@_busy">Resume</button>
+                        }
+                        else if (lic.Status != LicenceStatus.Cancelled)
+                        {
+                            <button class="btn btn-small btn-danger-outline" @onclick="StartSuspend">Suspend…</button>
+                        }
+                        <button class="btn btn-small" @onclick="() => StartEdit(null)">Change…</button>
+                    </div>
+                }
+            </div>
+
+            @if (lic.State.Level != LicenceLevel.Ok)
+            {
+                <p class="licence-note licence-@lic.State.Level.ToString().ToLowerInvariant()"><strong>@lic.State.Headline.</strong> @lic.State.Detail</p>
+            }
+
+            <dl class="licence-facts">
+                <div><dt>Stores</dt><dd class="@(lic.StoresUsed >= lic.MaxStores ? "full" : "")">@lic.StoresUsed of @lic.MaxStores</dd></div>
+                <div><dt>Registers</dt><dd class="@(lic.RegistersUsed >= lic.MaxRegisters ? "full" : "")">@lic.RegistersUsed of @lic.MaxRegisters</dd></div>
+                <div><dt>Includes</dt><dd>@(lic.Features.Count == 0 ? "Register only" : string.Join(", ", lic.Features.Select(LicenceFeatures.Label)))</dd></div>
+                @if (!string.IsNullOrEmpty(lic.Message))
+                {
+                    <div class="wide"><dt>Message on their registers</dt><dd>@lic.Message</dd></div>
+                }
+            </dl>
+
+            @if (_editingLicence)
+            {
+                <form class="form licence-form" @onsubmit="SaveLicenceAsync">
+                    <div class="row4">
+                        <div>
+                            <label for="lp">Plan</label>
+                            <select id="lp" value="@_edit.Plan" @onchange="e => ChoosePlan(e.Value?.ToString())">
+                                @foreach (var plan in LicencePlans.All)
+                                {
+                                    <option value="@plan.Code">@plan.Name (@plan.MaxStores @(plan.MaxStores == 1 ? "store" : "stores"), @plan.MaxRegisters @(plan.MaxRegisters == 1 ? "register" : "registers"))</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label for="ls">Status</label>
+                            <select id="ls" @bind="_edit.Status">
+                                @foreach (var status in Enum.GetValues<LicenceStatus>())
+                                {
+                                    <option value="@status">@status</option>
+                                }
+                            </select>
+                        </div>
+                        <div>
+                            <label for="lu">Paid until</label>
+                            <input id="lu" type="date" @bind="_edit.ValidUntil" />
+                        </div>
+                        <div class="pair">
+                            <div><label for="lst">Stores</label><input id="lst" type="number" min="1" max="100" @bind="_edit.MaxStores" /></div>
+                            <div><label for="lr">Registers</label><input id="lr" type="number" min="1" max="500" @bind="_edit.MaxRegisters" /></div>
+                        </div>
+                    </div>
+                    <div class="feature-checks">
+                        @foreach (var feature in LicenceFeatures.All)
+                        {
+                            <label class="check"><input type="checkbox" checked="@_edit.Features.Contains(feature)" @onchange="e => ToggleFeature(feature, e.Value is true)" /> @LicenceFeatures.Label(feature)</label>
+                        }
+                    </div>
+                    <label for="lm">Message on their registers @(_edit.Status is LicenceStatus.Suspended or LicenceStatus.Cancelled ? "(required)" : "(optional)")</label>
+                    <input id="lm" @bind="_edit.Message" maxlength="300" placeholder="e.g. Payment overdue since 1 Nov. Call NepPOS on 02 9000 0000." />
+                    <label for="ln">Note for the activity log</label>
+                    <input id="ln" @bind="_edit.Note" maxlength="200" placeholder="e.g. Paid by bank transfer, invoice 1042" />
+                    <div class="actions">
+                        <button type="submit" class="btn btn-primary" disabled="@_busy">Save licence</button>
+                        <button type="button" class="btn" @onclick="() => _editingLicence = false">Cancel</button>
+                    </div>
+                    <p class="sub">Registers pick up the change within a minute of their next contact with Head Office.</p>
+                </form>
+            }
+        </section>
+    }
 
     @if (_addingStore)
     {
@@ -178,6 +270,16 @@ else if (_problem is null)
     private NewStoreInput _store = new();
     private string _keyName = "";
 
+    // ---- Licence ----
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    private LicenceDetail? _licence;
+    private bool _isOwner;
+    private bool _editingLicence;
+    private bool _busy;
+    private LicenceInput _edit = new();
+
+    private static string Day(DateTime utc) => utc.ToLocalTime().ToString("d MMM yyyy");
+
     private IEnumerable<RegisterRow> Registers => _business?.Stores.SelectMany(s => s.Registers).Where(r => !r.IsRevoked) ?? [];
 
     protected override Task OnParametersSetAsync() => LoadAsync();
@@ -186,8 +288,13 @@ else if (_problem is null)
     {
         var business = await HeadOffice.BusinessAsync(Id);
         (_business, _problem) = (business.Value, business.Problem);
+        if (AuthState is not null)
+            _isOwner = (await AuthState).User.IsInRole(StaffRoles.Owner);
         if (business.Ok)
         {
+            var licence = await HeadOffice.LicenceAsync(Id);
+            _licence = licence.Value;
+            _problem ??= licence.Problem;
             var activity = await HeadOffice.AuditAsync(Id, 20);
             _activity = activity.Value ?? [];
         }
@@ -239,6 +346,89 @@ else if (_problem is null)
         if (result.Ok)
             (_newKey, _keyName) = (result.Value, "");
         await ChangeAsync(() => Task.FromResult(result.Problem));
+    }
+
+    private void StartEdit(LicenceStatus? status)
+    {
+        if (_licence is not { } l) return;
+        _edit = new LicenceInput
+        {
+            Plan = l.Plan,
+            Status = status ?? l.Status,
+            ValidUntil = l.ValidUntilUtc.ToLocalTime().Date,
+            MaxStores = l.MaxStores,
+            MaxRegisters = l.MaxRegisters,
+            Features = l.Features.ToHashSet(),
+            Message = l.Message ?? ""
+        };
+        _editingLicence = true;
+    }
+
+    private void StartSuspend() => StartEdit(LicenceStatus.Suspended);
+
+    /// <summary>Picking a plan fills in its limits and features; they can still be changed for this business.</summary>
+    private void ChoosePlan(string? code)
+    {
+        if (LicencePlans.Find(code) is not { } plan) return;
+        _edit.Plan = plan.Code;
+        _edit.MaxStores = plan.MaxStores;
+        _edit.MaxRegisters = plan.MaxRegisters;
+        _edit.Features = plan.Features.ToHashSet();
+    }
+
+    private void ToggleFeature(string feature, bool on)
+    {
+        if (on) _edit.Features.Add(feature); else _edit.Features.Remove(feature);
+    }
+
+    private Task SaveLicenceAsync() => SendLicenceAsync(_edit.ToRequest(), closeForm: true);
+
+    /// <summary>Paid for N more months: from the current end date, or from today if it has already passed. Active again.</summary>
+    private Task RenewAsync(int months)
+    {
+        if (_licence is not { } l) return Task.CompletedTask;
+        var from = l.ValidUntilUtc > DateTime.UtcNow ? l.ValidUntilUtc : DateTime.UtcNow;
+        var request = new UpdateLicenceRequest(l.Plan, LicenceStatus.Active, from.AddMonths(months), l.MaxStores, l.MaxRegisters, l.Features,
+            l.Status == LicenceStatus.Suspended ? null : l.Message, $"Renewed {months} {(months == 1 ? "month" : "months")}");
+        return SendLicenceAsync(request, closeForm: false);
+    }
+
+    private Task ResumeAsync()
+    {
+        if (_licence is not { } l) return Task.CompletedTask;
+        // Back in force; if the paid period has also run out, the page then shows it as ended until renewed.
+        return SendLicenceAsync(new UpdateLicenceRequest(l.Plan, LicenceStatus.Active, l.ValidUntilUtc, l.MaxStores, l.MaxRegisters, l.Features, null, "Resumed"), closeForm: false);
+    }
+
+    private async Task SendLicenceAsync(UpdateLicenceRequest request, bool closeForm)
+    {
+        _busy = true;
+        try
+        {
+            if (await ChangeAsync(async () => (await HeadOffice.UpdateLicenceAsync(Id, request)).Problem) && closeForm)
+                _editingLicence = false;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private sealed class LicenceInput
+    {
+        public string Plan { get; set; } = LicencePlans.TrialPlan.Code;
+        public LicenceStatus Status { get; set; }
+        public DateTime ValidUntil { get; set; } = DateTime.UtcNow.Date;
+        public int MaxStores { get; set; } = 1;
+        public int MaxRegisters { get; set; } = 1;
+        public HashSet<string> Features { get; set; } = new();
+        public string Message { get; set; } = "";
+        public string Note { get; set; } = "";
+
+        // Paid until the end of the chosen day.
+        public UpdateLicenceRequest ToRequest() =>
+            new(Plan, Status, DateTime.SpecifyKind(ValidUntil.Date.AddDays(1).AddSeconds(-1), DateTimeKind.Local).ToUniversalTime(), MaxStores, MaxRegisters,
+                Features.ToList(), Message, Note);
     }
 
     private sealed class NewStoreInput

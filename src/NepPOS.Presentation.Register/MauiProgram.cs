@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
@@ -127,6 +127,10 @@ public static class MauiProgram
         builder.Services.AddSingleton<IHeadOfficeClient>(_ => new HeadOfficeClient(HeadOfficeClient.CreateDefaultHttpClient()));
         builder.Services.AddScoped<SyncService>();
         builder.Services.AddSingleton<SyncWorker>();
+
+        // Licence: the signed copy from Head Office, checked offline. Stops new sales when it lapses.
+        builder.Services.AddSingleton<NepPOS.Application.Licensing.ILicenceStore, NepPOS.Infrastructure.Adapters.Licensing.JsonLicenceStore>();
+        builder.Services.AddSingleton<NepPOS.Application.Licensing.LicenceGuard>();
 
         var app = builder.Build();
 

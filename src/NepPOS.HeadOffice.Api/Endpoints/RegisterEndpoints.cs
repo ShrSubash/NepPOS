@@ -1,7 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NepPOS.Contracts.Sync;
 using NepPOS.HeadOffice.Api.Catalog;
 using NepPOS.HeadOffice.Api.Data;
+using NepPOS.HeadOffice.Api.Licensing;
 using NepPOS.HeadOffice.Api.Security;
 
 namespace NepPOS.HeadOffice.Api.Endpoints;
@@ -23,7 +24,7 @@ public static class RegisterEndpoints
     /// before it expires; re-activating a register code that is already in use is refused until
     /// the old one is revoked, so a second PC can't take over a register by accident.
     /// </summary>
-    internal static async Task<IResult> ActivateAsync(ActivateRequest request, HeadOfficeDbContext db, CancellationToken ct)
+    internal static async Task<IResult> ActivateAsync(ActivateRequest request, HeadOfficeDbContext db, LicenceService licences, CancellationToken ct)
     {
         var registerCode = (request.RegisterCode ?? "").Trim().ToUpperInvariant();
         if (registerCode.Length is 0 or > 50)
@@ -46,6 +47,15 @@ public static class RegisterEndpoints
 
         var tenant = await db.Tenants.AsNoTracking().FirstAsync(t => t.Id == activation.TenantId, ct);
 
+        // The licence must be in force and have a register to spare. Checked before the code is used.
+        var licence = await licences.GetOrStartTrialAsync(tenant.Id, ct);
+        var state = LicenceService.StateOf(licence, tenant.Name, DateTime.UtcNow);
+        if (state.IsLocked)
+            return Results.Problem($"{state.Headline}. Registers can't be activated until it's renewed in NepPOS Portal.", statusCode: 403);
+        var inUse = await db.Registers.CountAsync(r => r.TenantId == tenant.Id && !r.IsRevoked, ct);
+        if (inUse >= licence.MaxRegisters)
+            return Results.Problem($"{tenant.Name}'s plan allows {licence.MaxRegisters} {(licence.MaxRegisters == 1 ? "register" : "registers")} and all are in use. Revoke one that's no longer used, or change the plan.", statusCode: 409);
+
         var apiKey = Secrets.NewApiKey();
         db.Registers.Add(new Register
         {
@@ -59,7 +69,8 @@ public static class RegisterEndpoints
         activation.UsedUtc = DateTime.UtcNow;
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(new ActivateResponse(tenant.Id, tenant.Name, store.Id, store.StoreCode, store.Name, registerCode, apiKey));
+        var (signed, publicKey) = await licences.SignAsync(licence, tenant.Name, ct);
+        return Results.Ok(new ActivateResponse(tenant.Id, tenant.Name, store.Id, store.StoreCode, store.Name, registerCode, apiKey, signed, publicKey));
     }
 
     /// <summary>
@@ -156,7 +167,8 @@ public static class RegisterEndpoints
         return Results.Ok(new SyncEventsResponse(accepted, duplicates, rejected, lastSequence));
     }
 
-    internal static async Task<IResult> HeartbeatAsync(HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    /// <summary>Marks the register online and hands it a freshly signed licence (so renewals and suspensions arrive within a minute).</summary>
+    internal static async Task<IResult> HeartbeatAsync(HttpContext http, HeadOfficeDbContext db, LicenceService licences, CancellationToken ct)
     {
         var caller = RegisterIdentity.From(http.User);
         var now = DateTime.UtcNow;
@@ -164,6 +176,10 @@ public static class RegisterEndpoints
         await db.Registers.Where(r => r.Id == caller.RegisterId)
             .ExecuteUpdateAsync(set => set.SetProperty(r => r.LastSeenUtc, now), ct);
 
-        return Results.Ok(new HeartbeatResponse(now));
+        var tenantName = await db.Tenants.AsNoTracking().Where(t => t.Id == caller.TenantId).Select(t => t.Name).FirstAsync(ct);
+        var licence = await licences.GetOrStartTrialAsync(caller.TenantId, ct);
+        var (signed, _) = await licences.SignAsync(licence, tenantName, ct);
+
+        return Results.Ok(new HeartbeatResponse(now, signed));
     }
 }

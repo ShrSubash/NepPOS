@@ -1,4 +1,4 @@
-@page "/"
+﻿@page "/"
 @inject HeadOfficeAdmin HeadOffice
 
 <PageTitle>Overview · NepPOS Portal</PageTitle>
@@ -37,6 +37,27 @@
             <span class="tile-note">Issued, not used yet</span>
         </div>
     </section>
+
+    @if (o.LicencesNeedingAttention is { Count: > 0 } licences)
+    {
+        <section class="card">
+            <div class="card-head">
+                <h2>Licences to follow up</h2>
+                <a href="businesses">All businesses</a>
+            </div>
+            <table class="table">
+                <tbody>
+                    @foreach (var b in licences)
+                    {
+                        <tr>
+                            <td><a href="businesses/@b.Id">@b.Name</a><div class="sub">@b.Licence!.Headline</div></td>
+                            <td class="right"><LicencePill Status="b.Licence.Status" Level="b.Licence.Level" /><div class="sub">until @b.Licence.ValidUntilUtc.ToLocalTime().ToString("d MMM yyyy")</div></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </section>
+    }
 
     <div class="cols">
         <section class="card">
