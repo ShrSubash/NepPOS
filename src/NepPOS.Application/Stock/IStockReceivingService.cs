@@ -56,7 +56,14 @@ public sealed record CostChange(int ProductId, string ProductName, decimal? OldC
 public sealed record ReceiptPosted(int ReceiptId, decimal Singles, decimal TotalCost, IReadOnlyList<CostChange> CostChanges);
 
 /// <summary>A delivery in the list.</summary>
-public sealed record ReceiptSummary(int Id, DateTime PostedUtc, string SupplierName, string InvoiceNumber, DateOnly InvoiceDate, int Lines, decimal TotalCost, string? EmployeeName);
+public sealed record ReceiptSummary(int Id, DateTime PostedUtc, string SupplierName, string InvoiceNumber, DateOnly InvoiceDate, int Lines, decimal TotalCost, string? EmployeeName)
+{
+    public bool Reversed { get; init; }
+}
+
+/// <param name="Singles">Singles taken back out of stock.</param>
+/// <param name="NegativeStock">Products whose stock went below zero: part of the delivery was already sold.</param>
+public sealed record ReceiptReversed(decimal Singles, decimal TotalCost, IReadOnlyList<string> NegativeStock);
 
 /// <summary>Receiving supplier deliveries into stock.</summary>
 public interface IStockReceivingService
@@ -79,6 +86,12 @@ public interface IStockReceivingService
     Task<ReceiptPosted> PostAsync(ReceiptInput receipt, string? employeeName);
 
     Task<IReadOnlyList<ReceiptSummary>> GetRecentAsync(int take = 50);
+
+    /// <summary>
+    /// Takes a posted delivery back out: stock down by what it added, last and average cost put back,
+    /// receipt marked reversed (kept for the record). Its invoice number can then be received again.
+    /// </summary>
+    Task<ReceiptReversed> ReverseAsync(int receiptId, string reason, string? employeeName);
 
     /// <summary>
     /// Finds the supplier (account number, then name) and each line's product: the supplier's item code

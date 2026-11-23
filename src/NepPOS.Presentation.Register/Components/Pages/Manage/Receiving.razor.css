@@ -91,3 +91,18 @@ input:focus, select:focus { outline: 2px solid #6a5cff; border-color: transparen
     .rc-pending-head { flex-direction: column; align-items: stretch; }
     .rc-create { grid-template-columns: 1fr; }
 }
+
+/* Reversing a delivery. */
+.settings-topbar ::deep .top-save.danger, .top-save.danger { color: #a32020; border-color: #f0c4c4; }
+.big-btn.danger { border: 0; color: #fff; background: #c0392b; }
+.rc-reverse { border-left: 6px solid #c0392b; display: flex; flex-direction: column; gap: .75rem; }
+.rc-reverse p, .rc-reversed p { margin: 0; line-height: 1.5; }
+.rc-reasons { display: flex; flex-wrap: wrap; gap: .5rem; }
+.rc-reason-text { display: flex; flex-direction: column; gap: .35rem; font-weight: 600; font-size: .9rem; color: #3b3f5c; max-width: 520px; }
+.rc-reverse-actions { display: flex; gap: .75rem; justify-content: flex-end; }
+.rc-reversed { background: #fdf1f0; border-left: 6px solid #c0392b; }
+.rc-reversed h2 { color: #a32020; }
+.tag-reversed { margin-left: .5rem; padding: .1rem .5rem; border-radius: 999px; background: #fde5e5; color: #a32020; font-size: .75rem; font-weight: 700; }
+.rc-table tr.reversed td { color: #8a8ea6; }
+.rc-table tr.reversed td.cost { text-decoration: line-through; }
+.link-btn { margin-top: .35rem; min-height: 36px; padding: 0; border: 0; background: none; color: #4b3fd6; font-weight: 600; cursor: pointer; text-decoration: underline; }

@@ -192,7 +192,13 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(r => r.EmployeeName).HasMaxLength(200);
             entity.Property(r => r.PostedUtc)
                   .HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
-            entity.HasIndex(r => new { r.SupplierId, r.InvoiceNumber });
+            entity.Property(r => r.ReversedBy).HasMaxLength(200);
+            entity.Property(r => r.ReversalReason).HasMaxLength(200);
+            entity.Property(r => r.ReversedUtc)
+                  .HasConversion(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+            entity.Ignore(r => r.IsReversed);
+            // The database itself refuses the same invoice twice from one supplier, unless the first was reversed.
+            entity.HasIndex(r => new { r.SupplierId, r.InvoiceNumber }).IsUnique().HasFilter("[ReversedUtc] IS NULL");
             entity.HasOne<Supplier>().WithMany().HasForeignKey(r => r.SupplierId).OnDelete(DeleteBehavior.SetNull);
             entity.HasMany(r => r.Lines).WithOne().HasForeignKey(l => l.StockReceiptId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -204,6 +210,8 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(l => l.Quantity).HasPrecision(18, 3);
             entity.Property(l => l.CostPerPack).HasPrecision(18, 4);
             entity.Property(l => l.PreviousUnitCost).HasPrecision(18, 4);
+            entity.Property(l => l.PreviousLastCost).HasPrecision(18, 4);
+            entity.Property(l => l.PreviousAverageCost).HasPrecision(18, 4);
             entity.Ignore(l => l.Singles);
             entity.Ignore(l => l.UnitCost);
             entity.Ignore(l => l.LineCost);
