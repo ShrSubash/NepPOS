@@ -11,6 +11,8 @@
 @using NepPOS.Presentation.Register.Services
 @inject IHeadOfficeConnectionStore Connections
 @inject NepPOS.Application.Licensing.LicenceGuard Licence
+@inject SyncService Sync
+@using NepPOS.Contracts.Licensing
 @inject IHeadOfficeClient HeadOffice
 @inject IOutboxStore Outbox
 @inject IProductManagementService Products
@@ -104,6 +106,39 @@ else
                             <button class="link-btn danger-text" @onclick="() => Confirming = true">Disconnect</button>
                         </div>
                     }
+                </section>
+
+                <section class="card">
+                    <h2>Licence <span class="hint">checked with Head Office every minute</span></h2>
+                    @{
+                        var claims = Licence.Claims;
+                        var licenceState = Licence.Current;
+                    }
+                    @if (claims is null)
+                    {
+                        <span class="field-note">@licenceState.Headline. @licenceState.Detail</span>
+                    }
+                    else
+                    {
+                        <div class="lic-status lic-@licenceState.Level.ToString().ToLowerInvariant()">
+                            <strong>@StatusText(claims, licenceState)</strong>
+                            @if (licenceState.Level != LicenceLevel.Ok)
+                            {
+                                <span>@licenceState.Headline. @licenceState.Detail</span>
+                            }
+                        </div>
+                        <dl class="facts">
+                            <dt>Plan</dt><dd>@LicencePlans.NameOf(claims.Plan)</dd>
+                            <dt>@(claims.Status == LicenceStatus.Trial ? "Trial until" : "Paid until")</dt><dd>@claims.ValidUntilUtc.ToLocalTime().ToString("d MMM yyyy")</dd>
+                            <dt>Allows</dt><dd>@claims.MaxRegisters @(claims.MaxRegisters == 1 ? "register" : "registers"), @claims.MaxStores @(claims.MaxStores == 1 ? "store" : "stores")</dd>
+                            <dt>Includes</dt><dd>@(claims.Features.Count == 0 ? "Register only" : string.Join(", ", claims.Features.Select(LicenceFeatures.Label)))</dd>
+                            <dt>Last checked</dt><dd>@claims.IssuedUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</dd>
+                        </dl>
+                    }
+                    <div class="test-row">
+                        <button class="chip" disabled="@CheckingLicence" @onclick="CheckLicenceAsync">@(CheckingLicence ? "Checking…" : "Check now")</button>
+                        <span class="field-note">Renewals and changes made in NepPOS Portal arrive by themselves within a minute.</span>
+                    </div>
                 </section>
 
                 <section class="card">
@@ -270,6 +305,37 @@ else
             Busy = false;
         }
     }
+
+    private bool CheckingLicence;
+
+    /// <summary>Asks Head Office now instead of waiting for the next heartbeat.</summary>
+    private async Task CheckLicenceAsync()
+    {
+        CheckingLicence = true;
+        try
+        {
+            var (outcome, problem) = await Sync.HeartbeatAsync();
+            if (outcome == SyncOutcome.UpToDate)
+                ShowInfo($"Licence checked with Head Office: {StatusText(Licence.Claims, Licence.Current)}.");
+            else
+                ShowError(problem ?? "Couldn't reach Head Office. The licence on this register still applies.");
+        }
+        finally
+        {
+            CheckingLicence = false;
+        }
+    }
+
+    private static string StatusText(LicenceClaims? claims, LicenceState state) => (claims?.Status, state.Level) switch
+    {
+        (null, _) => state.Headline,
+        (LicenceStatus.Suspended, _) => "Suspended",
+        (LicenceStatus.Cancelled, _) => "Cancelled",
+        (_, LicenceLevel.Locked) => "Ended: new sales are paused",
+        (_, LicenceLevel.Grace) => "Overdue",
+        (LicenceStatus.Trial, _) => "Trial",
+        _ => "Active"
+    };
 
     private void ShowInfo(string text) { Message = text; IsError = false; }
 

@@ -435,6 +435,7 @@ qr-code svg { display: block; width: 100%; height: 100%; }
 .licence-facts dt { font-size: 0.75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .licence-facts dd { margin: 4px 0 0; font-weight: 600; }
 .licence-facts dd.full { color: var(--warn); }
+.licence-facts dd.over { color: var(--bad); }
 .licence-form { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 4px; }
 .row4 { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 0 14px; }
 .row4 .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
