@@ -37,11 +37,9 @@ jobs:
       - name: Install MAUI workload
         run: dotnet workload install maui-windows
 
-      - name: Restore
-        run: dotnet restore NepPOS.sln
-
+      # Build restores too, with the same Release settings, so the register gets its Windows runtime (win-x64).
       - name: Build
-        run: dotnet build NepPOS.sln --configuration Release --no-restore
+        run: dotnet build NepPOS.sln --configuration Release
 
       - name: Test
         run: dotnet test NepPOS.sln --configuration Release --no-build --logger "trx" --results-directory TestResults
