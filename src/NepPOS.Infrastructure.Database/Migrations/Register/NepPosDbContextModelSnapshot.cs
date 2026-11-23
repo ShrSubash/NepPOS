@@ -190,6 +190,11 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<int?>("SupplierId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("SupplierUnitsPerSingle")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER")
+                        .HasDefaultValue(1);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code");
@@ -521,6 +526,10 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("AccountNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
@@ -538,6 +547,33 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.HasIndex("Name");
 
                     b.ToTable("Suppliers");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.SupplierSkippedItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SupplierId", "Code")
+                        .IsUnique();
+
+                    b.ToTable("SupplierSkippedItems");
                 });
 
             modelBuilder.Entity("NepPOS.Infrastructure.Database.Outbox.OutboxMessage", b =>
@@ -688,6 +724,15 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.HasOne("NepPOS.Domain.Entities.StockReceipt", null)
                         .WithMany("Lines")
                         .HasForeignKey("StockReceiptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.SupplierSkippedItem", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
