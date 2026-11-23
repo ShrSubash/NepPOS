@@ -17,4 +17,18 @@ public interface IProductCatalogService
     /// Case-insensitive. Names that start with the term are listed first.
     /// </summary>
     Task<IReadOnlyList<Product>> SearchAsync(string term, int maxResults = 60);
+
+    /// <summary>Departments with active products, A–Z, with how many each has. "" = products with no department.</summary>
+    Task<IReadOnlyList<DepartmentSummary>> GetDepartmentsAsync();
+
+    /// <summary>
+    /// The products sold most (in singles) over the register's most recent sales, best first: the
+    /// automatic Favourites page. Empty for a new shop.
+    /// </summary>
+    Task<IReadOnlyList<Product>> GetBestSellersAsync(int take = 24);
+
+    /// <summary>Every active product, A–Z: for shops without departments.</summary>
+    Task<IReadOnlyList<Product>> GetAllActiveAsync();
 }
+
+public sealed record DepartmentSummary(string Name, int ProductCount);

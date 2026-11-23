@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Catalog;
 using NepPOS.Domain.Entities;
+using NepPOS.Domain.Enums;
 
 namespace NepPOS.Infrastructure.Database.Catalog;
 
@@ -69,4 +70,63 @@ public sealed class ProductCatalogService : IProductCatalogService
             .Take(maxResults)
             .ToListAsync();
     }
+
+    /// <summary>Favourites look at this many recent sales: recent enough to follow the season, cheap to add up.</summary>
+    private const int RecentSales = 2000;
+
+    public async Task<IReadOnlyList<DepartmentSummary>> GetDepartmentsAsync()
+    {
+        var counts = await _dbContext.Products
+            .AsNoTracking()
+            .Where(p => p.IsActive)
+            .GroupBy(p => p.Category)
+            .Select(g => new { Name = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        return counts
+            .OrderBy(d => d.Name.Length == 0 ? 1 : 0)   // "no department" last
+            .ThenBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(d => new DepartmentSummary(d.Name, d.Count))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<Product>> GetBestSellersAsync(int take = 24)
+    {
+        if (take <= 0)
+            return Array.Empty<Product>();
+
+        // Invoice numbers only go up, so the highest ones are the latest sales (SQLite can't compare dates
+        // stored as DateTimeOffset in a query).
+        var top = await _dbContext.SaleTransactions
+            .AsNoTracking()
+            .Where(s => s.Status == SaleTransactionStatus.Completed && s.InvoiceNumber != null)
+            .OrderByDescending(s => s.InvoiceNumber)
+            .Take(RecentSales)
+            .SelectMany(s => s.LineItems)
+            .Where(li => li.ProductId != null)
+            .GroupBy(li => li.ProductId!.Value)
+            .Select(g => new { ProductId = g.Key, Units = g.Sum(li => li.Quantity * li.PackUnits) })
+            .Where(x => x.Units > 0)
+            .OrderByDescending(x => x.Units)
+            .Take(take * 2)                                // room for products made inactive since
+            .ToListAsync();
+
+        if (top.Count == 0)
+            return Array.Empty<Product>();
+
+        var ids = top.Select(x => x.ProductId).ToList();
+        var products = await _dbContext.Products
+            .AsNoTracking()
+            .Where(p => p.IsActive && ids.Contains(p.Id))
+            .ToDictionaryAsync(p => p.Id);
+
+        return top.Where(x => products.ContainsKey(x.ProductId)).Select(x => products[x.ProductId]).Take(take).ToList();
+    }
+
+    public async Task<IReadOnlyList<Product>> GetAllActiveAsync() =>
+        await _dbContext.Products
+            .AsNoTracking()
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.Name)
+            .ToListAsync();
 }
