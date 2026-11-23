@@ -1,7 +1,8 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Stock;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
+using NepPOS.Infrastructure.Database.Scanning;
 
 namespace NepPOS.Infrastructure.Database.Stock;
 
@@ -60,7 +61,28 @@ public sealed class StockReceivingService : IStockReceivingService
             throw new InvalidOperationException("Enter the invoice number.");
         if (lines.Any(l => l.PackUnits < 1 || l.CostPerPack < 0))
             throw new InvalidOperationException("Every line needs a pack size and a cost of $0 or more.");
-        if (await InvoiceExistsAsync(input.SupplierId, input.SupplierName, input.InvoiceNumber))
+        if (input.SupplierId is null && input.AddSupplier && string.IsNullOrWhiteSpace(input.SupplierName))
+            throw new InvalidOperationException("Choose the supplier.");
+
+        // One transaction: a new supplier, the receipt, stock, costs and remembered codes all save or none do.
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+
+        var supplierId = input.SupplierId;
+        if (supplierId is null && input.AddSupplier)
+        {
+            var supplier = await FindSupplierAsync(input.SupplierAccountNumber, input.SupplierName)
+                ?? _dbContext.Suppliers.Add(new Supplier { Name = input.SupplierName.Trim(), AccountNumber = input.SupplierAccountNumber?.Trim() }).Entity;
+            await _dbContext.SaveChangesAsync();
+            supplierId = supplier.Id;
+        }
+        if (supplierId is { } knownSupplier && !string.IsNullOrWhiteSpace(input.SupplierAccountNumber))
+        {
+            var supplier = await _dbContext.Suppliers.FindAsync(knownSupplier);
+            if (supplier is not null && string.IsNullOrWhiteSpace(supplier.AccountNumber))
+                supplier.AccountNumber = input.SupplierAccountNumber.Trim();
+        }
+
+        if (await InvoiceExistsAsync(supplierId, input.SupplierName, input.InvoiceNumber))
             throw new InvalidOperationException($"Invoice {input.InvoiceNumber.Trim()} from {input.SupplierName} has already been received.");
 
         var ids = lines.Select(l => l.ProductId).Distinct().ToList();
@@ -72,7 +94,7 @@ public sealed class StockReceivingService : IStockReceivingService
         var now = DateTime.UtcNow;
         var receipt = new StockReceipt
         {
-            SupplierId = input.SupplierId,
+            SupplierId = supplierId,
             SupplierName = input.SupplierName.Trim(),
             InvoiceNumber = input.InvoiceNumber.Trim(),
             InvoiceDate = input.InvoiceDate,
@@ -102,14 +124,18 @@ public sealed class StockReceivingService : IStockReceivingService
             // Average first (it needs the stock before this line), then the stock itself.
             product.CostPrice = StockMath.AverageCost(product.StockOnHand, product.CostPrice, singles, unitCost);
             product.LastCost = unitCost;
-            if (product.SupplierId is null && input.SupplierId is not null)
-                product.SupplierId = input.SupplierId;
+            if (product.SupplierId is null && supplierId is not null)
+                product.SupplierId = supplierId;
 
             _dbContext.StockMovements.Add(product.MoveStock(StockMovementType.Receipt, singles, reference, now, unitCost, employeeName));
         }
 
+        if (supplierId is { } id)
+            await RememberSupplierCodesAsync(id, lines, input.SkipAlways);
+
         _dbContext.StockReceipts.Add(receipt);
         await _dbContext.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         // Cost per single moved (by half a cent or more) since the last delivery. A product's first cost isn't a change.
         var changes = new List<CostChange>();
@@ -143,6 +169,122 @@ public sealed class StockReceivingService : IStockReceivingService
         // Totals added up here: SQLite can't sum decimals in a query.
         return receipts.Select(r => new ReceiptSummary(r.Id, r.PostedUtc, r.SupplierName, r.InvoiceNumber, r.InvoiceDate, r.Lines,
             r.Costs.Sum(c => c.Quantity * c.CostPerPack), r.EmployeeName)).ToList();
+    }
+
+    public async Task<InvoiceMatchResult> MatchInvoiceAsync(SupplierInvoice invoice)
+    {
+        ArgumentNullException.ThrowIfNull(invoice);
+
+        var supplier = await FindSupplierAsync(invoice.AccountNumber, invoice.SupplierName);
+        var codes = invoice.Lines.Select(l => l.ItemCode).Where(c => c.Length > 0).Distinct().ToList();
+
+        // Codes linked for this supplier win; codes from the old POS (supplier unknown) are the fallback.
+        var supplierId = supplier?.Id;
+        var links = await _dbContext.ProductSupplierCodes.AsNoTracking()
+            .Where(c => codes.Contains(c.Code) && (c.SupplierId == null || (supplierId != null && c.SupplierId == supplierId)))
+            .ToListAsync();
+        var skipped = supplier is null
+            ? new HashSet<string>()
+            : (await _dbContext.SupplierSkippedItems.AsNoTracking()
+                .Where(i => i.SupplierId == supplier.Id && codes.Contains(i.Code)).Select(i => i.Code).ToListAsync()).ToHashSet();
+        var linkedIds = links.Select(l => l.ProductId).Distinct().ToList();
+        var linkedProducts = await _dbContext.Products.AsNoTracking()
+            .Where(p => linkedIds.Contains(p.Id) && p.IsActive).ToDictionaryAsync(p => p.Id);
+
+        var results = new List<InvoiceLineMatchResult>();
+        foreach (var line in invoice.Lines)
+        {
+            if (line.Units <= 0)
+            {
+                results.Add(new(line, InvoiceLineMatch.NotSupplied, null, 1));
+                continue;
+            }
+            if (skipped.Contains(line.ItemCode))
+            {
+                results.Add(new(line, InvoiceLineMatch.Skipped, null, 1));
+                continue;
+            }
+
+            var link = links.Where(l => l.Code == line.ItemCode && linkedProducts.ContainsKey(l.ProductId))
+                .OrderBy(l => l.SupplierId == null ? 1 : 0).FirstOrDefault();
+            if (link is not null)
+            {
+                results.Add(new(line, InvoiceLineMatch.SupplierCode, linkedProducts[link.ProductId], Math.Max(1, link.SupplierUnitsPerSingle)));
+                continue;
+            }
+
+            var byBarcode = string.IsNullOrEmpty(line.Barcode) ? null : await ProductScanResolver.FindByBarcodeAsync(_dbContext, line.Barcode);
+            switch (byBarcode)
+            {
+                // The product's own barcode covering 10 invoiced units: the product is the 10-pack.
+                case Product product:
+                    results.Add(new(line, InvoiceLineMatch.Barcode, product, line.BarcodeMultiple));
+                    break;
+                // A pack's barcode: the product's single is the invoiced unit when the pack and the barcode agree.
+                case ProductVariant pack:
+                    results.Add(new(line, InvoiceLineMatch.Barcode, pack.Product,
+                        pack.UnitQuantity > 0 && line.BarcodeMultiple % pack.UnitQuantity == 0 ? line.BarcodeMultiple / pack.UnitQuantity : 1));
+                    break;
+                default:
+                    results.Add(new(line, InvoiceLineMatch.None, null, 1));
+                    break;
+            }
+        }
+
+        var already = await InvoiceExistsAsync(supplier?.Id, supplier?.Name ?? invoice.SupplierName, invoice.InvoiceNumber);
+        return new InvoiceMatchResult(invoice, supplier?.Id, supplier?.Name ?? invoice.SupplierName, already, results);
+    }
+
+    private async Task<Supplier?> FindSupplierAsync(string? accountNumber, string name)
+    {
+        var account = accountNumber?.Trim();
+        if (!string.IsNullOrEmpty(account))
+        {
+            var byAccount = await _dbContext.Suppliers.FirstOrDefaultAsync(s => s.IsActive && s.AccountNumber == account);
+            if (byAccount is not null)
+                return byAccount;
+        }
+
+        var lowered = name.Trim().ToLower();
+        return await _dbContext.Suppliers.FirstOrDefaultAsync(s => s.IsActive && s.Name.ToLower() == lowered);
+    }
+
+    /// <summary>Links each line's supplier item code to its product, and records items to always skip.</summary>
+    private async Task RememberSupplierCodesAsync(int supplierId, IReadOnlyList<ReceiptLineInput> lines, IReadOnlyList<SkipItem> skipAlways)
+    {
+        var coded = lines.Where(l => !string.IsNullOrWhiteSpace(l.SupplierItemCode)).ToList();
+        var codes = coded.Select(l => l.SupplierItemCode!.Trim()).Concat(skipAlways.Select(s => s.Code.Trim())).Distinct().ToList();
+        if (codes.Count == 0)
+            return;
+
+        var existing = await _dbContext.ProductSupplierCodes.Where(c => c.SupplierId == supplierId && codes.Contains(c.Code)).ToListAsync();
+        foreach (var line in coded)
+        {
+            var code = line.SupplierItemCode!.Trim();
+            var link = existing.FirstOrDefault(c => c.Code == code);
+            if (link is null)
+            {
+                link = new ProductSupplierCode { SupplierId = supplierId, Code = code };
+                _dbContext.ProductSupplierCodes.Add(link);
+                existing.Add(link);
+            }
+            link.ProductId = line.ProductId;
+            link.SupplierUnitsPerSingle = Math.Max(1, line.SupplierUnitsPerSingle);
+        }
+
+        // A code once skipped but now received is no longer skipped.
+        var skipRows = await _dbContext.SupplierSkippedItems.Where(i => i.SupplierId == supplierId && codes.Contains(i.Code)).ToListAsync();
+        var receivedCodes = coded.Select(l => l.SupplierItemCode!.Trim()).ToHashSet();
+        _dbContext.SupplierSkippedItems.RemoveRange(skipRows.Where(i => receivedCodes.Contains(i.Code)));
+        var skippedAlready = skipRows.Where(i => !receivedCodes.Contains(i.Code)).Select(i => i.Code).ToHashSet();
+        foreach (var skip in skipAlways.Where(s => !string.IsNullOrWhiteSpace(s.Code)))
+            if (skippedAlready.Add(skip.Code.Trim()))
+                _dbContext.SupplierSkippedItems.Add(new SupplierSkippedItem
+                {
+                    SupplierId = supplierId,
+                    Code = skip.Code.Trim(),
+                    Description = skip.Description.Length > 200 ? skip.Description[..200] : skip.Description
+                });
     }
 
     public async Task<StockReceipt?> GetAsync(int id) =>

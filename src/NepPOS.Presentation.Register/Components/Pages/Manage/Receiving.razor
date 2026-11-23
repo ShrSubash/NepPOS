@@ -6,8 +6,10 @@
 @using NepPOS.Domain.Entities
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
+@using Microsoft.AspNetCore.Components.Forms
 @inject IStockReceivingService Deliveries
 @inject IProductCatalogService Catalog
+@inject IProductManagementService ProductService
 @inject ScanResolutionService Scanner
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
@@ -24,6 +26,13 @@ else
     <div class="settings-shell">
         <div class="settings-topbar">
             <span class="brand-text">@(Mode switch { View.New => "New delivery", View.Detail => $"Invoice {Detail?.InvoiceNumber}", View.Posted => "Delivery received", _ => "Receive stock" })</span>
+            @if (Mode is View.List or View.New)
+            {
+                <label class="top-save file-btn" title="The XML invoice file from the supplier (ALM / Metcash)">
+                    ⬆ Import e-invoice
+                    <InputFile OnChange="ImportAsync" accept=".xml,text/xml,application/xml" />
+                </label>
+            }
             @if (Mode == View.List)
             {
                 <button class="add-btn" @onclick="StartNewAsync">+ New delivery</button>
@@ -37,6 +46,21 @@ else
         @if (Message is not null)
         {
             <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        @if (FileInvoices.Count > 1)
+        {
+            <div class="rc-body rc-pick">
+                <section class="rc-card">
+                    <h2>This file has @FileInvoices.Count invoices. Which one arrived?</h2>
+                    <div class="rc-choices">
+                        @foreach (var inv in FileInvoices)
+                        {
+                            <button class="rc-choice" @onclick="() => LoadInvoiceAsync(inv)">@inv.InvoiceNumber <span class="muted">@inv.InvoiceDate.ToString("d MMM") · @inv.Lines.Count lines · @inv.CostExGst.ToString("C")</span></button>
+                        }
+                    </div>
+                </section>
+            </div>
         }
 
         @switch (Mode)
@@ -89,7 +113,7 @@ else
                             {
                                 <span class="inline">
                                     <select @bind="SupplierId">
-                                        <option value="0">Choose…</option>
+                                        <option value="0">@(AddingImportedSupplier || (Imported is not null && Imported.SupplierId is null) ? $"New: {Imported!.SupplierName}" : "Choose…")</option>
                                         @foreach (var s in Suppliers)
                                         {
                                             <option value="@s.Id">@s.Name</option>
@@ -101,7 +125,82 @@ else
                         </label>
                         <label>Invoice number <input @bind="InvoiceNumber" placeholder="As on the invoice" /></label>
                         <label>Invoice date <input type="date" @bind="InvoiceDate" /></label>
+                        @if (AddingImportedSupplier)
+                        {
+                            <p class="rc-note">@Imported!.SupplierName is new to NepPOS. It's added as a supplier when you post@(string.IsNullOrEmpty(Imported.Invoice.AccountNumber) ? "" : $", with your account number {Imported.Invoice.AccountNumber}"). Already set up under another name? Choose it above.</p>
+                        }
                     </section>
+
+                    @if (Unmatched.Count > 0)
+                    {
+                        <section class="rc-card rc-attention">
+                            <h2>@Unmatched.Count invoice line@(Unmatched.Count == 1 ? "" : "s") not in your products</h2>
+                            <p class="muted">Link each one to a product (NepPOS remembers it for next time), create it, or skip it. You can post once they're all done.</p>
+                            @foreach (var pending in Unmatched)
+                            {
+                                var l = pending.Line;
+                                <div class="rc-pending">
+                                    <div class="rc-pending-head">
+                                        <div>
+                                            <strong>@l.Description</strong>
+                                            <div class="muted">@Imported!.SupplierName @l.ItemCode@(l.Barcode is null ? "" : $" · barcode {l.Barcode}") · @UnitsText(l) · @l.CostExGst.ToString("C") ex GST</div>
+                                        </div>
+                                        <div class="rc-pending-actions">
+                                            <button class="chip @(pending.Mode == PendingMode.Link ? "primary" : "")" @onclick="() => pending.Mode = PendingMode.Link">Link to product</button>
+                                            <button class="chip @(pending.Mode == PendingMode.Create ? "primary" : "")" @onclick="() => StartCreate(pending)">New product</button>
+                                            <button class="chip" @onclick="() => Skip(pending)">Skip</button>
+                                        </div>
+                                    </div>
+
+                                    @if (pending.Mode == PendingMode.Link)
+                                    {
+                                        <form class="rc-add" @onsubmit="() => SearchForAsync(pending)">
+                                            <input @bind="pending.Search" placeholder="Scan the product, type its PLU or search by name" />
+                                            <button type="submit" class="chip primary">Find</button>
+                                        </form>
+                                        @if (l.BarcodeMultiple > 1)
+                                        {
+                                            <label class="rc-check"><input type="checkbox" @bind="pending.IsMultiPack" /> The product I pick is the @l.BarcodeMultiple-pack (sold as one item)</label>
+                                        }
+                                        @if (pending.Choices.Count > 0)
+                                        {
+                                            <div class="rc-choices">
+                                                @foreach (var p in pending.Choices)
+                                                {
+                                                    <button class="rc-choice" @onclick="() => LinkAsync(pending, p)">@p.Name <span class="muted">@p.Plu</span></button>
+                                                }
+                                            </div>
+                                        }
+                                        else if (pending.Searched)
+                                        {
+                                            <p class="muted">Nothing found. Try another word, or create it as a new product.</p>
+                                        }
+                                    }
+                                    else if (pending.Mode == PendingMode.Create)
+                                    {
+                                        var cost = l.UnitCostExGst * pending.NewUnitsPerSingle;
+                                        var gp = StockMath.GrossProfitPercent(pending.NewPrice, 1, cost, false);
+                                        <div class="rc-create">
+                                            <label>Name <input @bind="pending.NewName" /></label>
+                                            <label>Department <input @bind="pending.NewCategory" list="rc-departments" /></label>
+                                            <label>Sell price <input type="number" min="0" step="0.01" @bind="pending.NewPrice" @bind:event="oninput" /></label>
+                                            <div class="rc-create-gp">
+                                                <span class="muted">Cost @cost.ToString("C") ex GST</span>
+                                                <span class="gp @StockMath.MarginLevel(gp)">GP @(gp is null ? "—" : $"{gp:0.#}%")</span>
+                                            </div>
+                                            <button class="chip primary" @onclick="() => CreateAsync(pending)" disabled="@Busy">Create and add</button>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                            <datalist id="rc-departments">
+                                @foreach (var d in Departments)
+                                {
+                                    <option value="@d"></option>
+                                }
+                            </datalist>
+                        </section>
+                    }
 
                     <section class="rc-card">
                         <form class="rc-add" @onsubmit="AddByCodeAsync">
@@ -131,7 +230,14 @@ else
                                     @foreach (var line in Lines)
                                     {
                                         <tr>
-                                            <td><strong>@line.Product.Name</strong><div class="muted">@line.Product.Plu · on hand @line.Product.StockOnHand.ToString("0.##")</div></td>
+                                            <td>
+                                                <strong>@line.Product.Name</strong>
+                                                <div class="muted">@line.Product.Plu · on hand @line.Product.StockOnHand.ToString("0.##")@(line.SupplierItemCode is null ? "" : $" · {Imported?.SupplierName} {line.SupplierItemCode}")</div>
+                                                @if (line.Note is not null)
+                                                {
+                                                    <div class="rc-sub">@line.Note</div>
+                                                }
+                                            </td>
                                             <td>
                                                 <select value="@line.PackUnits" @onchange="e => ChangePack(line, e.Value)">
                                                     <option value="1">Single</option>
@@ -159,11 +265,40 @@ else
                         }
                     </section>
 
+                    @if (Skipped.Count > 0 || NotSupplied.Count > 0)
+                    {
+                        <section class="rc-card rc-skipped">
+                            @foreach (var pending in Skipped)
+                            {
+                                <div class="rc-skip-row">
+                                    <span><strong>Skipped:</strong> @pending.Line.Description <span class="muted">@UnitsText(pending.Line) · @pending.Line.CostExGst.ToString("C")</span></span>
+                                    @if (pending.AutoSkipped)
+                                    {
+                                        <span class="muted">always skipped</span>
+                                    }
+                                    else
+                                    {
+                                        <label class="rc-check"><input type="checkbox" @bind="pending.AlwaysSkip" /> Always skip</label>
+                                    }
+                                    <button class="chip" @onclick="() => Unskip(pending)">Undo</button>
+                                </div>
+                            }
+                            @foreach (var line in NotSupplied)
+                            {
+                                <div class="rc-skip-row"><span><strong>Not supplied:</strong> @line.Description <span class="muted">@line.ItemCode</span></span></div>
+                            }
+                        </section>
+                    }
+
                     <div class="rc-foot">
                         <div class="rc-totals">
                             <span><strong>@Lines.Count</strong> lines</span>
                             <span><strong>@Lines.Sum(l => l.Quantity * l.PackUnits).ToString("0.##")</strong> singles</span>
                             <span><strong>@Lines.Sum(l => l.Quantity * l.CostPerPack).ToString("C")</strong> ex GST</span>
+                            @if (Imported is not null)
+                            {
+                                <span class="muted">invoice @Imported.Invoice.CostExGst.ToString("C")@(Skipped.Count > 0 ? $", skipped {Skipped.Sum(p => p.Line.CostExGst):C}" : "")</span>
+                            }
                         </div>
                         <button class="big-btn" @onclick="BackToListAsync" disabled="@Busy">Cancel</button>
                         @if (Confirming)
@@ -172,7 +307,7 @@ else
                         }
                         else
                         {
-                            <button class="big-btn primary" @onclick="AskToPost" disabled="@(Lines.Count == 0)">Post delivery</button>
+                            <button class="big-btn primary" @onclick="AskToPost" disabled="@(Lines.Count == 0 || Unmatched.Count > 0)">Post delivery</button>
                         }
                     </div>
                     @if (Confirming)
@@ -268,6 +403,36 @@ else
     private List<Product> Choices = new();
     private List<Line> Lines = new();
 
+    // E-invoice import.
+    private IReadOnlyList<SupplierInvoice> FileInvoices = Array.Empty<SupplierInvoice>();
+    private InvoiceMatchResult? Imported;
+    private List<Pending> Unmatched = new();
+    private List<Pending> Skipped = new();
+    private List<SupplierInvoiceLine> NotSupplied = new();
+    private IReadOnlyList<string> Departments = Array.Empty<string>();
+
+    /// <summary>The imported invoice's supplier is new and no existing supplier has been chosen instead.</summary>
+    private bool AddingImportedSupplier => Imported is { SupplierId: null } && SupplierId == 0;
+
+    private enum PendingMode { None, Link, Create }
+
+    /// <summary>An invoice line with no product yet.</summary>
+    private sealed class Pending
+    {
+        public required SupplierInvoiceLine Line { get; init; }
+        public PendingMode Mode { get; set; }
+        public string Search { get; set; } = "";
+        public bool Searched { get; set; }
+        public List<Product> Choices { get; set; } = new();
+        public bool IsMultiPack { get; set; }
+        public string NewName { get; set; } = "";
+        public string NewCategory { get; set; } = "";
+        public decimal NewPrice { get; set; }
+        public int NewUnitsPerSingle => Math.Max(1, Line.BarcodeMultiple);
+        public bool AlwaysSkip { get; set; }
+        public bool AutoSkipped { get; init; }
+    }
+
     private sealed class Line
     {
         public required Product Product { get; init; }
@@ -278,6 +443,10 @@ else
 
         /// <summary>What this pack cost last time (last cost × singles), to show when the invoice differs.</summary>
         public decimal? WasPerPack => (Product.LastCost ?? Product.CostPrice) is { } single ? Math.Round(single * PackUnits, 2) : null;
+
+        public string? SupplierItemCode { get; init; }
+        public int UnitsPerSingle { get; init; } = 1;
+        public string? Note { get; init; }
 
         public string PackName => PackUnits == 1 ? "Single" : Packs.FirstOrDefault(p => p.UnitQuantity == PackUnits)?.DisplayName ?? $"Pack of {PackUnits}";
     }
@@ -297,6 +466,8 @@ else
         (SupplierId, InvoiceNumber, InvoiceDate, Code, AddingSupplier) = (0, "", DateTime.Today, "", false);
         Lines = new();
         Choices = new();
+        (Imported, FileInvoices) = (null, Array.Empty<SupplierInvoice>());
+        (Unmatched, Skipped, NotSupplied) = (new(), new(), new());
     }
 
     private async Task OpenAsync(int id)
@@ -370,10 +541,10 @@ else
 
     private void AskToPost()
     {
-        var supplier = Suppliers.FirstOrDefault(s => s.Id == SupplierId);
-        if (supplier is null) { Show("Choose the supplier.", error: true); return; }
+        if (!AddingImportedSupplier && Suppliers.All(s => s.Id != SupplierId)) { Show("Choose the supplier.", error: true); return; }
         if (string.IsNullOrWhiteSpace(InvoiceNumber)) { Show("Enter the invoice number.", error: true); return; }
         if (Lines.Any(l => l.Quantity <= 0)) { Show("Every line needs a quantity. Remove lines you didn't receive.", error: true); return; }
+        if (Unmatched.Count > 0) { Show("Some invoice lines aren't in your products yet: link, create or skip them.", error: true); return; }
         Message = null;
         Confirming = true;
     }
@@ -381,13 +552,22 @@ else
     private async Task PostAsync()
     {
         var supplier = Suppliers.FirstOrDefault(s => s.Id == SupplierId);
-        if (supplier is null || Busy) return;
+        if ((supplier is null && !AddingImportedSupplier) || Busy) return;
 
         Busy = true;
         try
         {
-            var input = new ReceiptInput(supplier.Id, supplier.Name, InvoiceNumber, DateOnly.FromDateTime(InvoiceDate),
-                Lines.Select(l => new ReceiptLineInput(l.Product.Id, l.PackUnits, l.PackName, l.Quantity, l.CostPerPack)).ToList());
+            var input = new ReceiptInput(supplier?.Id, supplier?.Name ?? Imported!.SupplierName, InvoiceNumber, DateOnly.FromDateTime(InvoiceDate),
+                Lines.Select(l => new ReceiptLineInput(l.Product.Id, l.PackUnits, l.PackName, l.Quantity, l.CostPerPack)
+                {
+                    SupplierItemCode = l.SupplierItemCode,
+                    SupplierUnitsPerSingle = l.UnitsPerSingle
+                }).ToList())
+            {
+                AddSupplier = AddingImportedSupplier,
+                SupplierAccountNumber = Imported?.Invoice.AccountNumber,
+                SkipAlways = Skipped.Where(p => p.AlwaysSkip && !p.AutoSkipped).Select(p => new SkipItem(p.Line.ItemCode, p.Line.Description)).ToList()
+            };
             Posted = await Deliveries.PostAsync(input, Session.Employee?.FullName);
             LastInvoice = InvoiceNumber.Trim();
             (Mode, Confirming, Message) = (View.Posted, false, null);
@@ -407,6 +587,184 @@ else
             Busy = false;
         }
     }
+
+    /// <summary>Reads the supplier's XML file. One invoice loads straight away; several ask which one.</summary>
+    private async Task ImportAsync(InputFileChangeEventArgs e)
+    {
+        Message = null;
+        try
+        {
+            // The browser's file stream is async-only: copy it before the XML reader reads it.
+            using var copy = new MemoryStream();
+            await using (var upload = e.File.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024))
+                await upload.CopyToAsync(copy);
+            copy.Position = 0;
+
+            var invoices = SupplierInvoiceReader.Read(copy);
+            if (invoices.Count == 1)
+                await LoadInvoiceAsync(invoices[0]);
+            else
+                FileInvoices = invoices;
+        }
+        catch (InvalidDataException ex)
+        {
+            Show(ex.Message, error: true);
+        }
+        catch (IOException)
+        {
+            Show("That file is too big for an invoice (over 10 MB).", error: true);
+        }
+    }
+
+    private async Task LoadInvoiceAsync(SupplierInvoice invoice)
+    {
+        FileInvoices = Array.Empty<SupplierInvoice>();
+        var match = await Deliveries.MatchInvoiceAsync(invoice);
+        if (match.AlreadyReceived)
+        {
+            Show($"Invoice {invoice.InvoiceNumber} from {match.SupplierName} has already been received.", error: true);
+            return;
+        }
+
+        await StartNewAsync();
+        Imported = match;
+        Departments = await Catalog.GetCategoriesAsync();
+        (SupplierId, InvoiceNumber, InvoiceDate) = (match.SupplierId ?? 0, invoice.InvoiceNumber, invoice.InvoiceDate.ToDateTime(TimeOnly.MinValue));
+
+        foreach (var result in match.Lines)
+        {
+            switch (result.MatchedBy)
+            {
+                case InvoiceLineMatch.SupplierCode or InvoiceLineMatch.Barcode:
+                    await AddInvoiceLineAsync(result.Product!, result.Line, result.UnitsPerSingle);
+                    break;
+                case InvoiceLineMatch.Skipped:
+                    Skipped.Add(new Pending { Line = result.Line, AlwaysSkip = true, AutoSkipped = true });
+                    break;
+                case InvoiceLineMatch.NotSupplied:
+                    NotSupplied.Add(result.Line);
+                    break;
+                default:
+                    Unmatched.Add(new Pending { Line = result.Line });
+                    break;
+            }
+        }
+
+        var known = Lines.Count;
+        Show(Unmatched.Count == 0
+            ? $"Invoice {invoice.InvoiceNumber} loaded: {known} line{(known == 1 ? "" : "s")}. Check the quantities against the delivery, then post."
+            : $"Invoice {invoice.InvoiceNumber} loaded: {known} line{(known == 1 ? "" : "s")} matched, {Unmatched.Count} to sort out below.");
+    }
+
+    /// <summary>
+    /// Adds an invoice line as a delivery line: in whole cases when the product has that case as a pack,
+    /// otherwise in singles. The line's cost before GST is kept exactly.
+    /// </summary>
+    private async Task AddInvoiceLineAsync(Product product, SupplierInvoiceLine line, int unitsPerSingle)
+    {
+        unitsPerSingle = Math.Max(1, unitsPerSingle);
+        var packs = await Deliveries.GetPacksAsync(product.Id);
+        var singles = line.Units / unitsPerSingle;
+        var caseSingles = line.CasePack % unitsPerSingle == 0 ? line.CasePack / unitsPerSingle : 0;
+        var useCase = caseSingles > 1 && singles % caseSingles == 0 && packs.Any(v => v.UnitQuantity == caseSingles);
+
+        var packUnits = useCase ? caseSingles : 1;
+        var quantity = singles / packUnits;
+        Lines.Add(new Line
+        {
+            Product = product,
+            Packs = packs,
+            PackUnits = packUnits,
+            Quantity = quantity,
+            CostPerPack = quantity == 0 ? 0 : Math.Round(line.CostExGst / quantity, 4),
+            SupplierItemCode = line.ItemCode,
+            UnitsPerSingle = unitsPerSingle,
+            Note = line.IsSubstitute ? $"Substitute: you ordered {line.OrderedItemCode}. Check the shelf price." : null
+        });
+    }
+
+    private async Task SearchForAsync(Pending pending)
+    {
+        var code = pending.Search.Trim();
+        if (code.Length == 0) return;
+
+        var found = await Scanner.ResolveAsync(code);
+        switch (found.Payload)
+        {
+            case Product product:
+                await LinkAsync(pending, product);
+                return;
+            case ProductVariant pack:
+                await LinkAsync(pending, pack.Product);
+                return;
+        }
+
+        pending.Choices = (await Catalog.SearchAsync(code, 20)).ToList();
+        pending.Searched = true;
+    }
+
+    private async Task LinkAsync(Pending pending, Product product)
+    {
+        Unmatched.Remove(pending);
+        await AddInvoiceLineAsync(product, pending.Line, pending.IsMultiPack ? pending.Line.BarcodeMultiple : 1);
+    }
+
+    private void StartCreate(Pending pending)
+    {
+        pending.Mode = PendingMode.Create;
+        if (pending.NewName.Length == 0)
+            pending.NewName = pending.Line.Description;
+    }
+
+    /// <summary>Creates the product now (with the invoice's barcode), then adds its line to the delivery.</summary>
+    private async Task CreateAsync(Pending pending)
+    {
+        if (string.IsNullOrWhiteSpace(pending.NewName)) { Show("Give the new product a name.", error: true); return; }
+        if (pending.NewPrice <= 0) { Show($"Enter a sell price for {pending.NewName}.", error: true); return; }
+
+        Busy = true;
+        try
+        {
+            var product = await ProductService.CreateAsync(new Product
+            {
+                Name = pending.NewName.Trim(),
+                Category = pending.NewCategory.Trim(),
+                Price = pending.NewPrice,
+                Barcode = pending.Line.Barcode,
+                IsActive = true
+            });
+            Unmatched.Remove(pending);
+            await AddInvoiceLineAsync(product, pending.Line, pending.NewUnitsPerSingle);
+            Message = null;
+        }
+        catch (Exception)
+        {
+            Show($"{pending.NewName} couldn't be created. Details are in the log file.", error: true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private void Skip(Pending pending)
+    {
+        Unmatched.Remove(pending);
+        pending.Mode = PendingMode.None;
+        Skipped.Add(pending);
+    }
+
+    private void Unskip(Pending pending)
+    {
+        Skipped.Remove(pending);
+        Unmatched.Add(new Pending { Line = pending.Line });
+    }
+
+    /// <summary>"120 units (4 × 30)": how the invoice counts it.</summary>
+    private static string UnitsText(SupplierInvoiceLine line) =>
+        line.CasePack > 1 && line.Units % line.CasePack == 0
+            ? $"{line.Units:0.##} units ({line.Units / line.CasePack:0.##} × {line.CasePack})"
+            : $"{line.Units:0.##} units";
 
     private static string Gp(decimal? gp) => gp is null ? "—" : $"{gp:0.#}%";
 
