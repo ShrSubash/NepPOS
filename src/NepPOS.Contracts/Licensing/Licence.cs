@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -60,9 +60,10 @@ public static class LicencePlans
 /// What Head Office signs and the register keeps. The register checks the signature itself, so it
 /// can't be edited and works offline; Head Office sends a fresh one with every heartbeat.
 /// </summary>
-/// <param name="ValidUntilUtc">End of the trial or of the paid period.</param>
-/// <param name="Message">Shown on the register when suspended (why, who to call).</param>
-/// <param name="IssuedUtc">When Head Office signed it: the register's "last heard from Head Office".</param>
+/// <remarks>
+/// ValidUntilUtc is the end of the trial or of the paid period. Message is shown on the register when suspended
+/// (why, who to call). IssuedUtc is when Head Office signed it: the register's "last heard from Head Office".
+/// </remarks>
 public sealed record LicenceClaims(
     int Version,
     Guid TenantId,
@@ -97,9 +98,11 @@ public enum LicenceLevel
     Locked
 }
 
-/// <param name="Headline">One line for the banner.</param>
-/// <param name="Detail">What happens next and what to do.</param>
-/// <param name="LocksAtUtc">When new sales will stop, if nothing changes.</param>
+/// <summary>How the register should look and behave right now.</summary>
+/// <remarks>
+/// Headline is one line for the banner; Detail says what happens next and what to do;
+/// LocksAtUtc is when new sales will stop, if nothing changes.
+/// </remarks>
 public sealed record LicenceState(LicenceLevel Level, string Headline, string? Detail, DateTime? LocksAtUtc)
 {
     public static readonly LicenceState Fine = new(LicenceLevel.Ok, "Licensed", null, null);
@@ -122,6 +125,8 @@ public static class LicencePolicy
     /// <summary>A clock this far behind the latest time the register has seen has been put back.</summary>
     public static readonly TimeSpan ClockTolerance = TimeSpan.FromDays(1);
 
+    /// <param name="claims">The verified licence.</param>
+    /// <param name="nowUtc">The time to judge it at.</param>
     /// <param name="checkOffline">False on Head Office and in the Portal (they are online by definition).</param>
     /// <param name="clockWentBack">The register's clock is behind a time it has already seen.</param>
     public static LicenceState Evaluate(LicenceClaims claims, DateTime nowUtc, bool checkOffline = true, bool clockWentBack = false)

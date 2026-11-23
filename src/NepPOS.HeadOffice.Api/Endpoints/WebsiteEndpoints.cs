@@ -5,6 +5,7 @@ using NepPOS.Contracts.Reports;
 using NepPOS.Contracts.Sync;
 using NepPOS.HeadOffice.Api.Catalog;
 using NepPOS.HeadOffice.Api.Data;
+using NepPOS.HeadOffice.Api.Licensing;
 using NepPOS.HeadOffice.Api.Reports;
 using NepPOS.HeadOffice.Api.Security;
 
