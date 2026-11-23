@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NepPOS.Domain.Entities;
 using NepPOS.Infrastructure.Database.Outbox;
 
@@ -20,6 +20,7 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<StockMovement> StockMovements => Set<StockMovement>();
     public DbSet<Supplier> Suppliers => Set<Supplier>();
     public DbSet<ProductSupplierCode> ProductSupplierCodes => Set<ProductSupplierCode>();
+    public DbSet<SupplierSkippedItem> SupplierSkippedItems => Set<SupplierSkippedItem>();
     public DbSet<StockReceipt> StockReceipts => Set<StockReceipt>();
     public DbSet<StockReceiptLine> StockReceiptLines => Set<StockReceiptLine>();
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
@@ -180,6 +181,7 @@ public sealed class NepPosDbContext : DbContext
         {
             entity.Property(s => s.Name).IsRequired().HasMaxLength(200);
             entity.Property(s => s.LegacyNumber).HasMaxLength(50);
+            entity.Property(s => s.AccountNumber).HasMaxLength(50);
             entity.HasIndex(s => s.Name);
         });
 
@@ -213,8 +215,17 @@ public sealed class NepPosDbContext : DbContext
         {
             entity.Property(c => c.Code).IsRequired().HasMaxLength(50);
             entity.HasIndex(c => c.Code);
+            entity.Property(c => c.SupplierUnitsPerSingle).HasDefaultValue(1);
             entity.HasOne<Product>().WithMany().HasForeignKey(c => c.ProductId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Supplier>().WithMany().HasForeignKey(c => c.SupplierId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<SupplierSkippedItem>(entity =>
+        {
+            entity.Property(i => i.Code).IsRequired().HasMaxLength(50);
+            entity.Property(i => i.Description).IsRequired().HasMaxLength(200);
+            entity.HasIndex(i => new { i.SupplierId, i.Code }).IsUnique();
+            entity.HasOne<Supplier>().WithMany().HasForeignKey(i => i.SupplierId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

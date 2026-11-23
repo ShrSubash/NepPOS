@@ -1,12 +1,54 @@
-using NepPOS.Domain.Entities;
+﻿using NepPOS.Domain.Entities;
 
 namespace NepPOS.Application.Stock;
 
 /// <summary>One line of a delivery being entered.</summary>
-public sealed record ReceiptLineInput(int ProductId, int PackUnits, string PackName, decimal Quantity, decimal CostPerPack);
+public sealed record ReceiptLineInput(int ProductId, int PackUnits, string PackName, decimal Quantity, decimal CostPerPack)
+{
+    /// <summary>The supplier's item code (from an e-invoice). Saved against the product so the next invoice matches it.</summary>
+    public string? SupplierItemCode { get; init; }
+
+    /// <summary>Supplier units per product single for that code (see <see cref="Domain.Entities.ProductSupplierCode.SupplierUnitsPerSingle"/>).</summary>
+    public int SupplierUnitsPerSingle { get; init; } = 1;
+}
 
 /// <summary>A delivery ready to post.</summary>
-public sealed record ReceiptInput(int? SupplierId, string SupplierName, string InvoiceNumber, DateOnly InvoiceDate, IReadOnlyList<ReceiptLineInput> Lines);
+public sealed record ReceiptInput(int? SupplierId, string SupplierName, string InvoiceNumber, DateOnly InvoiceDate, IReadOnlyList<ReceiptLineInput> Lines)
+{
+    /// <summary>True when <see cref="SupplierId"/> is null and the supplier should be added (found by account number or name first).</summary>
+    public bool AddSupplier { get; init; }
+
+    /// <summary>The shop's customer number with the supplier, from an e-invoice.</summary>
+    public string? SupplierAccountNumber { get; init; }
+
+    /// <summary>Supplier items to skip on every future e-invoice.</summary>
+    public IReadOnlyList<SkipItem> SkipAlways { get; init; } = Array.Empty<SkipItem>();
+}
+
+/// <summary>A supplier item code that e-invoice import should always skip.</summary>
+public sealed record SkipItem(string Code, string Description);
+
+/// <summary>How an e-invoice line was matched to a product.</summary>
+public enum InvoiceLineMatch
+{
+    /// <summary>No product found: the user links, creates or skips it.</summary>
+    None,
+    /// <summary>The supplier's item code was linked to a product before.</summary>
+    SupplierCode,
+    /// <summary>The line's barcode belongs to a product or one of its packs.</summary>
+    Barcode,
+    /// <summary>Marked "always skip" for this supplier.</summary>
+    Skipped,
+    /// <summary>Nothing was supplied (0 units): there's nothing to receive.</summary>
+    NotSupplied
+}
+
+/// <param name="UnitsPerSingle">Supplier units in one of the product's singles (1 normally; 10 when the product is the 10-pack).</param>
+public sealed record InvoiceLineMatchResult(SupplierInvoiceLine Line, InvoiceLineMatch MatchedBy, Product? Product, int UnitsPerSingle);
+
+/// <param name="SupplierId">The existing supplier, or null when it's new (added on posting).</param>
+/// <param name="AlreadyReceived">This invoice number from this supplier is already in.</param>
+public sealed record InvoiceMatchResult(SupplierInvoice Invoice, int? SupplierId, string SupplierName, bool AlreadyReceived, IReadOnlyList<InvoiceLineMatchResult> Lines);
 
 /// <summary>A product whose cost per single changed on this delivery, with what it does to the margin.</summary>
 public sealed record CostChange(int ProductId, string ProductName, decimal? OldCost, decimal NewCost, decimal Price, decimal? GpBefore, decimal? GpAfter);
@@ -37,6 +79,12 @@ public interface IStockReceivingService
     Task<ReceiptPosted> PostAsync(ReceiptInput receipt, string? employeeName);
 
     Task<IReadOnlyList<ReceiptSummary>> GetRecentAsync(int take = 50);
+
+    /// <summary>
+    /// Finds the supplier (account number, then name) and each line's product: the supplier's item code
+    /// linked before, then the barcode. Changes nothing; links are saved when the delivery is posted.
+    /// </summary>
+    Task<InvoiceMatchResult> MatchInvoiceAsync(SupplierInvoice invoice);
 
     Task<StockReceipt?> GetAsync(int id);
 }

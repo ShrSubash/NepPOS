@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Scanning;
 using NepPOS.Domain.Entities;
@@ -35,20 +35,31 @@ public sealed class ProductScanResolver : IScanResolver
         if (packByPlu is not null)
             return new ScanResolution(ScanResultType.Product, packByPlu, null);
 
-        // 2. Main barcodes, in the forms the same code can arrive in.
-        var forms = BarcodeForms(rawCode);
-        var product = await _dbContext.Products.FirstOrDefaultAsync(p => p.IsActive && p.Barcode != null && forms.Contains(p.Barcode), cancellationToken);
-        if (product is not null)
-            return ScanResolution.Product(product);
+        // 2 and 3. Barcodes.
+        var match = await FindByBarcodeAsync(_dbContext, rawCode, cancellationToken);
+        return match is null ? ScanResolution.NotFound(rawCode) : new ScanResolution(ScanResultType.Product, match, null);
+    }
 
-        var pack = await _dbContext.ProductVariants.Include(v => v.Product)
+    /// <summary>
+    /// Barcodes only (no PLUs): the product's or a pack's main barcode, then any extra barcode.
+    /// Returns the <see cref="Product"/> or the <see cref="ProductVariant"/> (with its product loaded), or null.
+    /// </summary>
+    public static async Task<object?> FindByBarcodeAsync(NepPosDbContext dbContext, string rawCode, CancellationToken cancellationToken = default)
+    {
+        // Main barcodes, in the forms the same code can arrive in.
+        var forms = BarcodeForms(rawCode);
+        var product = await dbContext.Products.FirstOrDefaultAsync(p => p.IsActive && p.Barcode != null && forms.Contains(p.Barcode), cancellationToken);
+        if (product is not null)
+            return product;
+
+        var pack = await dbContext.ProductVariants.Include(v => v.Product)
             .FirstOrDefaultAsync(v => v.IsActive && v.Product.IsActive && v.Barcode != null && forms.Contains(v.Barcode), cancellationToken);
         if (pack is not null)
-            return new ScanResolution(ScanResultType.Product, pack, null);
+            return pack;
 
-        // 3. Extra barcodes.
+        // Extra barcodes.
         var key = ProductBarcode.KeyFor(rawCode);
-        var extra = await _dbContext.ProductBarcodes
+        var extra = await dbContext.ProductBarcodes
             .Include(b => b.Product)
             .Include(b => b.Variant)
             .FirstOrDefaultAsync(b => b.LookupKey == key && b.Product.IsActive, cancellationToken);
@@ -57,13 +68,13 @@ public sealed class ProductScanResolver : IScanResolver
             if (extra.Variant is { IsActive: true } variant)
             {
                 variant.Product = extra.Product;
-                return new ScanResolution(ScanResultType.Product, variant, null);
+                return variant;
             }
             if (extra.VariantId is null)
-                return ScanResolution.Product(extra.Product);
+                return extra.Product;
         }
 
-        return ScanResolution.NotFound(rawCode);
+        return null;
     }
 
     /// <summary>The code as scanned, without leading zeros, and zero-padded to UPC-A, EAN-13 and GTIN-14 lengths.</summary>
