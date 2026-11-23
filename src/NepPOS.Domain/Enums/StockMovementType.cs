@@ -1,4 +1,4 @@
-namespace NepPOS.Domain.Enums;
+﻿namespace NepPOS.Domain.Enums;
 
 /// <summary>Why stock moved. Stored as text, so new kinds can be added without renumbering.</summary>
 public enum StockMovementType
@@ -20,6 +20,9 @@ public enum StockMovementType
 
     /// <summary>Changed by hand on the product screen.</summary>
     Adjustment,
+
+    /// <summary>A posted delivery taken back out because it was entered wrong (negative).</summary>
+    ReceiptReversal,
 
     TransferOut,
     TransferIn

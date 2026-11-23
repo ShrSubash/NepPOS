@@ -1,4 +1,4 @@
-using NepPOS.Application.Stock;
+﻿using NepPOS.Application.Stock;
 using Xunit;
 
 namespace NepPOS.Application.Tests.Stock;
@@ -43,4 +43,23 @@ public class StockMathTests
         Assert.Equal("thin", StockMath.MarginLevel(12.5m));
         Assert.Equal("good", StockMath.MarginLevel(51.6m));
     }
+
+    [Fact]
+    public void Reversing_a_delivery_works_the_average_back()
+    {
+        // 283 at $2.42, then 24 at $2.50, then 30 sold: taking the 24 back out leaves about $2.42 again.
+        var after = StockMath.AverageCost(283, 2.42m, 24, 2.50m);
+        Assert.Equal(2.4193m, StockMath.ReverseAverageCost(307 - 30, after, 24, 2.50m));   // (277 × 2.4263 − 24 × 2.50) ÷ 253
+    }
+
+    [Theory]
+    [InlineData(20, 24)]    // most of the delivery already sold: too little stock left to say
+    [InlineData(0, 24)]
+    [InlineData(-5, 24)]
+    public void With_too_little_stock_left_the_average_stays(int stockNow, int removed) =>
+        Assert.Equal(2.45m, StockMath.ReverseAverageCost(stockNow, 2.45m, removed, 2.50m));
+
+    [Fact]
+    public void A_result_of_zero_or_less_keeps_the_average() =>
+        Assert.Equal(1.00m, StockMath.ReverseAverageCost(30, 1.00m, 24, 5.00m));
 }

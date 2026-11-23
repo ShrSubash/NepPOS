@@ -46,8 +46,8 @@ public sealed class StockReceivingService : IStockReceivingService
     {
         var invoice = invoiceNumber.Trim();
         return supplierId is { } id
-            ? await _dbContext.StockReceipts.AnyAsync(r => r.SupplierId == id && r.InvoiceNumber == invoice)
-            : await _dbContext.StockReceipts.AnyAsync(r => r.SupplierId == null && r.SupplierName == supplierName.Trim() && r.InvoiceNumber == invoice);
+            ? await _dbContext.StockReceipts.AnyAsync(r => r.SupplierId == id && r.InvoiceNumber == invoice && r.ReversedUtc == null)
+            : await _dbContext.StockReceipts.AnyAsync(r => r.SupplierId == null && r.SupplierName == supplierName.Trim() && r.InvoiceNumber == invoice && r.ReversedUtc == null);
     }
 
     public async Task<ReceiptPosted> PostAsync(ReceiptInput input, string? employeeName)
@@ -118,7 +118,9 @@ public sealed class StockReceivingService : IStockReceivingService
                 PackUnits = line.PackUnits,
                 Quantity = line.Quantity,
                 CostPerPack = line.CostPerPack,
-                PreviousUnitCost = product.LastCost ?? product.CostPrice
+                PreviousUnitCost = product.LastCost ?? product.CostPrice,
+                PreviousLastCost = product.LastCost,
+                PreviousAverageCost = product.CostPrice
             });
 
             // Average first (it needs the stock before this line), then the stock itself.
@@ -134,7 +136,15 @@ public sealed class StockReceivingService : IStockReceivingService
             await RememberSupplierCodesAsync(id, lines, input.SkipAlways);
 
         _dbContext.StockReceipts.Add(receipt);
-        await _dbContext.SaveChangesAsync();
+        try
+        {
+            await _dbContext.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (ex.InnerException?.Message.Contains("UNIQUE constraint failed: StockReceipts") == true)
+        {
+            // Another post of the same invoice got in first (the database rule caught it).
+            throw new InvalidOperationException($"Invoice {receipt.InvoiceNumber} from {receipt.SupplierName} has already been received.");
+        }
         await transaction.CommitAsync();
 
         // Cost per single moved (by half a cent or more) since the last delivery. A product's first cost isn't a change.
@@ -160,7 +170,7 @@ public sealed class StockReceivingService : IStockReceivingService
             .Take(take)
             .Select(r => new
             {
-                r.Id, r.PostedUtc, r.SupplierName, r.InvoiceNumber, r.InvoiceDate, r.EmployeeName,
+                r.Id, r.PostedUtc, r.SupplierName, r.InvoiceNumber, r.InvoiceDate, r.EmployeeName, r.ReversedUtc,
                 Lines = r.Lines.Count,
                 Costs = r.Lines.Select(l => new { l.Quantity, l.CostPerPack }).ToList()
             })
@@ -168,7 +178,72 @@ public sealed class StockReceivingService : IStockReceivingService
 
         // Totals added up here: SQLite can't sum decimals in a query.
         return receipts.Select(r => new ReceiptSummary(r.Id, r.PostedUtc, r.SupplierName, r.InvoiceNumber, r.InvoiceDate, r.Lines,
-            r.Costs.Sum(c => c.Quantity * c.CostPerPack), r.EmployeeName)).ToList();
+            r.Costs.Sum(c => c.Quantity * c.CostPerPack), r.EmployeeName) { Reversed = r.ReversedUtc != null }).ToList();
+    }
+
+    public async Task<ReceiptReversed> ReverseAsync(int receiptId, string reason, string? employeeName)
+    {
+        reason = reason?.Trim() ?? "";
+        if (reason.Length == 0)
+            throw new InvalidOperationException("Say why the delivery is being reversed.");
+
+        await using var transaction = await _dbContext.Database.BeginTransactionAsync();
+
+        var receipt = await _dbContext.StockReceipts.Include(r => r.Lines).FirstOrDefaultAsync(r => r.Id == receiptId)
+            ?? throw new InvalidOperationException("That delivery no longer exists.");
+        if (receipt.ReversedUtc is { } reversedAt)
+            throw new InvalidOperationException($"Invoice {receipt.InvoiceNumber} from {receipt.SupplierName} was already reversed on {reversedAt.ToLocalTime():d MMM yyyy}.");
+
+        var ids = receipt.Lines.Select(l => l.ProductId).Distinct().ToList();
+        var products = await _dbContext.Products.Where(p => ids.Contains(p.Id)).ToDictionaryAsync(p => p.Id);
+
+        // Anything that happened to a product after this delivery (a sale, a count, another delivery) means
+        // its costs can't simply be put back as they were; they're worked back instead.
+        var postedUtc = receipt.PostedUtc;
+        var movedSince = (await _dbContext.StockMovements
+            .Where(m => ids.Contains(m.ProductId) && m.AtUtc > postedUtc)
+            .Select(m => m.ProductId).Distinct().ToListAsync()).ToHashSet();
+        var receivedSince = (await _dbContext.StockReceipts
+            .Where(r => r.Id > receiptId && r.ReversedUtc == null)
+            .SelectMany(r => r.Lines).Where(l => ids.Contains(l.ProductId))
+            .Select(l => l.ProductId).Distinct().ToListAsync()).ToHashSet();
+
+        var now = DateTime.UtcNow;
+        var reference = $"Reversed invoice {receipt.InvoiceNumber} ({receipt.SupplierName})";
+        if (reference.Length > 100)
+            reference = reference[..100];
+
+        var negative = new List<string>();
+        foreach (var lines in receipt.Lines.GroupBy(l => l.ProductId))
+        {
+            if (!products.TryGetValue(lines.Key, out var product))
+                continue;   // deleted since: nothing to take out
+
+            var first = lines.OrderBy(l => l.Id).First();
+            var singles = lines.Sum(l => l.Singles);
+            var unitCost = singles == 0 ? 0 : Math.Round(lines.Sum(l => l.LineCost) / singles, 4);
+
+            if (movedSince.Contains(product.Id))
+                product.CostPrice = StockMath.ReverseAverageCost(product.StockOnHand, product.CostPrice, singles, unitCost);
+            else
+                product.CostPrice = first.PreviousAverageCost;
+
+            if (!receivedSince.Contains(product.Id))
+                product.LastCost = first.PreviousLastCost;
+
+            _dbContext.StockMovements.Add(product.MoveStock(StockMovementType.ReceiptReversal, -singles, reference, now, unitCost, employeeName));
+            if (product.StockOnHand < 0)
+                negative.Add(product.Name);
+        }
+
+        receipt.ReversedUtc = now;
+        receipt.ReversedBy = employeeName;
+        receipt.ReversalReason = reason.Length > 200 ? reason[..200] : reason;
+
+        await _dbContext.SaveChangesAsync();
+        await transaction.CommitAsync();
+
+        return new ReceiptReversed(receipt.Lines.Sum(l => l.Singles), receipt.Lines.Sum(l => l.LineCost), negative);
     }
 
     public async Task<InvoiceMatchResult> MatchInvoiceAsync(SupplierInvoice invoice)
