@@ -29,6 +29,7 @@ public static class WebsiteEndpoints
         website.MapGet("/stores", GetStoresAsync);
         website.MapGet("/reports/sales", GetSalesAsync);
         website.MapGet("/catalog/changes", GetCatalogChangesAsync);
+        website.MapWebsiteAccountEndpoints();
     }
 
     internal static async Task<IResult> GetStoresAsync(HttpContext http, HeadOfficeDbContext db, CancellationToken ct)

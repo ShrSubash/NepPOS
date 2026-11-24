@@ -1,4 +1,4 @@
-namespace NepPOS.Application.Accounts;
+namespace NepPOS.Contracts.Accounts;
 
 /// <summary>One line of an account as the ageing sees it: positive = owed (with when it's due), negative = paid or credited.</summary>
 public readonly record struct AccountLine(decimal Amount, DateTime At, DateTime? Due);

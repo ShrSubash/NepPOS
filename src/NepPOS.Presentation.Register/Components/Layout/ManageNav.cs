@@ -21,6 +21,7 @@ public static class ManageNav
             new ManageItem("Products & PLUs", "Add products, prices, barcodes and pack sizes", "manage/plu", "tag"),
             new ManageItem("Receive stock", "Supplier deliveries: stock in, costs and margins", "manage/receiving", "truck"),
             new ManageItem("Suppliers", "Contacts, payment terms and what you owe them", "manage/suppliers", "building"),
+            new ManageItem("Wastage", "Ullages: broken, expired or used stock written off", "manage/wastage", "trash"),
         }),
         new ManageSection("Sales", new[]
         {
@@ -65,6 +66,7 @@ public static class ManageNav
             "cloud" => "<path d=\"M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z\"/>",
             "building" => "<rect x=\"4\" y=\"2\" width=\"16\" height=\"20\" rx=\"2\"/><path d=\"M9 22v-4h6v4\"/><path d=\"M8 6h.01\"/><path d=\"M12 6h.01\"/><path d=\"M16 6h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M16 10h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 14h.01\"/><path d=\"M16 14h.01\"/>",
             "receipt" => "<path d=\"M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z\"/><path d=\"M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8\"/><path d=\"M12 17.5v-11\"/>",
+            "trash" => "<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
             "back" => "<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
             _ => "<circle cx=\"12\" cy=\"12\" r=\"9\"/>"
         }

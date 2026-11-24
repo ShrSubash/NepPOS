@@ -240,14 +240,24 @@ public sealed record AccountEntryV1(
     public const int Version = 1;
 }
 
-/// <summary>One event from another register, with Head Office's running number for it.</summary>
-public sealed record SharedEvent(long Id, SyncEvent Event);
+/// <summary>
+/// One event from another register (or from the business's website, <c>FromWebsite</c>), with Head Office's
+/// running number for it. Register and website events are numbered separately.
+/// </summary>
+public sealed record SharedEvent(long Id, SyncEvent Event, bool FromWebsite = false);
+
+/// <summary>How far a register has read the shared events: from registers, and from the website.</summary>
+public readonly record struct SharedCursor(long Registers, long Website);
 
 /// <summary>
-/// Answer to GET /api/v1/sync/shared?after=N: the owner's shared events from other registers after number N,
-/// oldest first. <c>LastId</c> is where to continue; <c>More</c> = ask again straight away.
+/// Answer to GET /api/v1/sync/shared?after=N&amp;afterWeb=W: the owner's shared events from other registers after
+/// number N and from the website after number W, oldest first. <c>LastId</c> / <c>LastWebId</c> are where to
+/// continue; <c>More</c> = ask again straight away.
 /// </summary>
-public sealed record SharedEventsResponse(IReadOnlyList<SharedEvent> Events, long LastId, bool More)
+public sealed record SharedEventsResponse(IReadOnlyList<SharedEvent> Events, long LastId, bool More, long LastWebId = 0)
 {
     public const int MaxEvents = 500;
+
+    public SharedCursor Next(SharedCursor previous) =>
+        new(Math.Max(previous.Registers, LastId), Math.Max(previous.Website, LastWebId));
 }

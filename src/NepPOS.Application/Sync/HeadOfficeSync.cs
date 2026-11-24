@@ -57,11 +57,11 @@ public interface IHeadOfficeClient
     Task<HeartbeatResponse> HeartbeatAsync(HeadOfficeConnection connection, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// The owner's customers, accounts and gift card changes from other registers after Head Office's number
-    /// <paramref name="afterId"/> (GET /api/v1/sync/shared).
+    /// The owner's customers, accounts and gift card changes from other registers and the website after
+    /// <paramref name="after"/> (GET /api/v1/sync/shared).
     /// </summary>
-    Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, long afterId, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new SharedEventsResponse(Array.Empty<SharedEvent>(), afterId, false));
+    Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, SharedCursor after, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new SharedEventsResponse(Array.Empty<SharedEvent>(), after.Registers, false, after.Website));
 }
 
 /// <summary>
@@ -70,14 +70,14 @@ public interface IHeadOfficeClient
 /// </summary>
 public interface ISharedDataStore
 {
-    /// <summary>Head Office's number of the last shared event applied here (0 = none yet).</summary>
-    Task<long> GetCursorAsync(CancellationToken cancellationToken = default);
+    /// <summary>Head Office's numbers of the last shared events applied here (0 = none yet).</summary>
+    Task<SharedCursor> GetCursorAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Applies the events (skipping any already here) and moves the cursor to <paramref name="lastId"/>,
+    /// Applies the events (skipping any already here) and moves the cursor to <paramref name="next"/>,
     /// in one save. Returns how many changed something.
     /// </summary>
-    Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, long lastId, CancellationToken cancellationToken = default);
+    Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, SharedCursor next, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The register's outbox (integration step 1) as the sync sees it.</summary>
@@ -154,11 +154,12 @@ public sealed class SyncService
             for (var page = 0; page < MaxBatchesPerRun; page++)
             {
                 var answer = await _client.GetSharedAsync(connection, cursor, cancellationToken);
-                if (answer.Events.Count == 0 && answer.LastId <= cursor)
+                var next = answer.Next(cursor);
+                if (answer.Events.Count == 0 && next == cursor)
                     break;
 
-                received += await _shared.ApplyAsync(answer.Events, Math.Max(cursor, answer.LastId), cancellationToken);
-                cursor = Math.Max(cursor, answer.LastId);
+                received += await _shared.ApplyAsync(answer.Events, next, cancellationToken);
+                cursor = next;
                 if (!answer.More)
                     break;
             }

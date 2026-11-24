@@ -1,4 +1,4 @@
-using System.Security.Claims;
+﻿using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
@@ -144,6 +144,10 @@ public sealed class WebsiteApiKeyHandler : AuthenticationHandler<AuthenticationS
 
         return AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), Scheme));
     }
+
+    /// <summary>Which website key is calling (recorded on the website's changes).</summary>
+    public static Guid KeyOf(ClaimsPrincipal user) =>
+        Guid.Parse(user.FindFirst(WebsiteKeyIdClaim)?.Value ?? throw new InvalidOperationException("Not a website."));
 
     /// <summary>The business the signed-in website belongs to.</summary>
     public static Guid TenantOf(ClaimsPrincipal user) =>

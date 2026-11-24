@@ -25,6 +25,9 @@ public enum JournalEventType
     /// <summary>The Sunday / public holiday surcharge was taken off a sale.</summary>
     SurchargeRemoved,
 
+    /// <summary>Stock written off (ullages): Amount = its value at cost.</summary>
+    WastageRecorded,
+
     /// <summary>X reading printed: running totals since the last Z, nothing reset.</summary>
     XReport,
 

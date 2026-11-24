@@ -1,5 +1,5 @@
 using System.Text.RegularExpressions;
-using NepPOS.Application.Accounts;
+using NepPOS.Contracts.Accounts;
 using NepPOS.Domain.Entities;
 
 namespace NepPOS.Application.Customers;

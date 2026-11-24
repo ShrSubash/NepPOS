@@ -63,6 +63,9 @@ using (var scope = app.Services.CreateScope())
     else
         db.Database.Migrate();
 
+    // Head Office's copy of customers, accounts and gift cards, built once from events stored before it existed.
+    NepPOS.HeadOffice.Api.Accounts.SharedAccounts.RebuildIfEmptyAsync(db).GetAwaiter().GetResult();
+
     // The first NepPOS Portal owner, from settings, when there are no staff yet.
     PortalEndpoints.CreateFirstOwner(db, app.Configuration, app.Logger);
 }

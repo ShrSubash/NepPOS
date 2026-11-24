@@ -14,23 +14,29 @@ namespace NepPOS.Infrastructure.Database.Sync;
 public sealed class SharedDataStore : ISharedDataStore
 {
     public const string CursorName = "shared";
+    public const string WebsiteCursorName = "shared-web";
 
     private readonly NepPosDbContext _db;
 
     public SharedDataStore(NepPosDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
 
-    public async Task<long> GetCursorAsync(CancellationToken cancellationToken = default) =>
-        (await _db.SyncCursors.AsNoTracking().FirstOrDefaultAsync(c => c.Name == CursorName, cancellationToken))?.Value ?? 0;
+    public async Task<SharedCursor> GetCursorAsync(CancellationToken cancellationToken = default)
+    {
+        var cursors = await _db.SyncCursors.AsNoTracking()
+            .Where(c => c.Name == CursorName || c.Name == WebsiteCursorName)
+            .ToDictionaryAsync(c => c.Name, c => c.Value, cancellationToken);
+        return new SharedCursor(cursors.GetValueOrDefault(CursorName), cursors.GetValueOrDefault(WebsiteCursorName));
+    }
 
-    public async Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, long lastId, CancellationToken cancellationToken = default)
+    public async Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, SharedCursor next, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(events);
         var changed = 0;
 
-        foreach (var shared in events.OrderBy(e => e.Id))
+        foreach (var shared in events)
         {
             var e = shared.Event;
-            var where = $"{e.StoreId} / {e.RegisterId}";
+            var where = shared.FromWebsite ? "Website" : $"{e.StoreId} / {e.RegisterId}";
             try
             {
                 changed += e.Type switch
@@ -47,14 +53,20 @@ public sealed class SharedDataStore : ISharedDataStore
             }
         }
 
-        var cursor = await _db.SyncCursors.FirstOrDefaultAsync(c => c.Name == CursorName, cancellationToken);
-        if (cursor is null)
-            _db.SyncCursors.Add(new SyncCursor { Name = CursorName, Value = lastId });
-        else if (lastId > cursor.Value)
-            cursor.Value = lastId;
+        await MoveCursorAsync(CursorName, next.Registers, cancellationToken);
+        await MoveCursorAsync(WebsiteCursorName, next.Website, cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
         return changed;
+    }
+
+    private async Task MoveCursorAsync(string name, long value, CancellationToken cancellationToken)
+    {
+        var cursor = await _db.SyncCursors.FirstOrDefaultAsync(c => c.Name == name, cancellationToken);
+        if (cursor is null)
+            _db.SyncCursors.Add(new SyncCursor { Name = name, Value = value });
+        else if (value > cursor.Value)
+            cursor.Value = value;
     }
 
     private async Task<bool> ApplyCustomerAsync(CustomerChangedV1 c, CancellationToken cancellationToken)

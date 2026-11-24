@@ -59,6 +59,10 @@ public sealed record EndOfDayReport
     public int SaveFailures { get; init; }
     public int Reprints { get; init; }
 
+    /// <summary>Wastage dockets (ullages) and their value at cost.</summary>
+    public int WastageCount { get; init; }
+    public decimal WastageValue { get; init; }
+
     public IReadOnlyList<EmployeeTotal> ByEmployee { get; init; } = Array.Empty<EmployeeTotal>();
 
     // ---- what was sold ----
@@ -264,6 +268,8 @@ public static class EndOfDayCalculator
             CardOutcomeUnknown = Count(JournalEventType.CardOutcomeUnknown),
             SaveFailures = Count(JournalEventType.SaleSaveFailed),
             Reprints = Count(JournalEventType.ReceiptReprinted),
+            WastageCount = Count(JournalEventType.WastageRecorded),
+            WastageValue = entries.Where(e => e.EventType == JournalEventType.WastageRecorded).Sum(e => e.Amount ?? 0),
             ByEmployee = byEmployee,
             Departments = departments,
             Products = products,

@@ -52,11 +52,12 @@ public sealed class HeadOfficeClient : IHeadOfficeClient
         return await SendAsync<HeartbeatResponse>(Authorised(connection, HttpMethod.Post, "api/v1/heartbeat"), cancellationToken);
     }
 
-    public async Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, long afterId, CancellationToken cancellationToken = default)
+    public async Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, SharedCursor after, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(connection);
         return await SendAsync<SharedEventsResponse>(
-            Authorised(connection, HttpMethod.Get, $"api/v1/sync/shared?after={Math.Max(0, afterId)}"), cancellationToken);
+            Authorised(connection, HttpMethod.Get,
+                $"api/v1/sync/shared?after={Math.Max(0, after.Registers)}&afterWeb={Math.Max(0, after.Website)}"), cancellationToken);
     }
 
     private static HttpRequestMessage Authorised(HeadOfficeConnection connection, HttpMethod method, string path)

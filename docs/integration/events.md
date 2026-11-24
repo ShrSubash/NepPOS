@@ -175,6 +175,23 @@ A register reads them with `GET /api/v1/sync/shared?after=N` (register key), rig
 - keep `lastId` and send it as `after` next time; while `more` is true, ask again straight away;
 - a register never gets its own events back, nor sales or journal lines, nor anything from another business.
 
+Changes made on the business's **website** (a customer signing up, a gift card spent or refunded online) are stored by Head Office as website events and come to every register in the same answer, numbered separately: send `afterWeb=W` too, and keep `lastWebId`. They arrive with `fromWebsite: true` and store/register `WEB` / `WEBSITE`.
+
+### What the website can do (website key)
+
+Head Office keeps its own copy of customers, account lines and gift cards from these events. The website reads it, and its changes become website events:
+
+| Call | What it does |
+| --- | --- |
+| `GET /api/v1/customers/find?email=…` (or `phone=`) | The customer with that email: `CustomerAccount` (code, account settings, `balance`, `overdue`), or 404 |
+| `POST /api/v1/customers` (`CustomerSignUp`) | A website sign-up: returns the customer with the same email if there is one, otherwise creates one for every register |
+| `GET /api/v1/customers/{id}/account` | `CustomerStatementView`: the customer, their ageing and every account line, newest first |
+| `GET /api/v1/giftcards/{code}` | `GiftCardView`: balance and whether it's active, or 404 |
+| `POST /api/v1/giftcards/{code}/redeem` (`GiftCardChangeRequest`) | Spends from the card for an online order; 409 if it's cancelled or doesn't have enough. A retry with the same `requestId` changes nothing |
+| `POST /api/v1/giftcards/{code}/refund` | Puts an amount back (an online order cancelled) |
+
+Types: `NepPOS.Contracts.Accounts`.
+
 A register that is offline keeps selling with what it has: a card spent at two stores while both are offline can end up below zero, which shows on the card in Manage → Gift cards & credit.
 
 ## How Head Office answers
