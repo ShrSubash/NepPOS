@@ -311,3 +311,9 @@ button:disabled {
 .rf-row { display: flex; gap: 12px; justify-content: flex-end; }
 .rf-row button { min-height: 56px; padding: 0 1.4rem; }
 .tender.account { background: linear-gradient(135deg, #f08a24, #f5c04a); }
+.rf-check { background: #fff4e0; color: #6b4600; padding: 0.6rem 0.8rem; border-radius: 10px; }
+.rf-manual { margin-top: 0.75rem; color: #6b6f8a; }
+.rf-manual summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; }
+.rf-manual label { display: flex; flex-direction: column; gap: 0.3rem; margin: 0.5rem 0; }
+.spinner-inline { display: inline-block; width: 16px; height: 16px; border: 2px solid #c9c4ff; border-top-color: #6a5cff; border-radius: 50%; animation: rfspin 0.8s linear infinite; vertical-align: -3px; margin-right: 6px; }
+@keyframes rfspin { to { transform: rotate(360deg); } }

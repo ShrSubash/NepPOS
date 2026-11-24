@@ -129,6 +129,15 @@ public sealed class OutboxMessage
         static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    /// <summary>The <c>stock.changed</c> event: a product's stock on hand at this store now (for the website).</summary>
+    public static OutboxMessage StockChanged(Product product, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(product);
+        var payload = new StockChangedV1(product.SyncId, product.StockOnHand);
+        return new OutboxMessage(SyncEventTypes.StockChanged, StockChangedV1.Version,
+            storeId, registerId, DateTime.UtcNow, JsonSerializer.Serialize(payload, SyncJson.Options));
+    }
+
     /// <summary>The <c>customer.changed</c> event: the whole customer as it is now (shared with every register).</summary>
     public static OutboxMessage CustomerChanged(Customer customer, string storeId, string registerId)
     {

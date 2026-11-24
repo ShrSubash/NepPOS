@@ -12,6 +12,8 @@
 @using NepPOS.Presentation.Register.Components.Shared
 @using NepPOS.Application.Sales
 @using NepPOS.Application.Customers
+@using NepPOS.Application.Promotions
+@using System.Text.Json
 @inject NavigationManager Nav
 @inject IProductCatalogService Catalog
 @inject CurrentUserSession Session
@@ -189,6 +191,7 @@
             </div>
 
             <div class="order-lines">
+                @{ var discounts = LineDiscounts(); }
                 @if (CartLines.Count == 0)
                 {
                     <div class="empty-cart">
@@ -201,7 +204,7 @@
                     @foreach (var line in CartLines)
                     {
                         <div class="order-line @(line.IsReturn ? "is-return" : "")">
-                            <div class="line-info">
+                            <div class="line-info @(IsGoods(line) ? "can-discount" : "")" @onclick="() => OpenLineDiscount(line)">
                                 <div class="line-name">
                                     @if (line.IsReturn)
                                     {
@@ -210,13 +213,17 @@
                                     @line.Name
                                 </div>
                                 <div class="line-unit-price">@line.UnitPrice.ToString("C") each@(line.IsReturn ? $" · {line.ReturnReason}" : "")</div>
+                                @if (discounts.TryGetValue(line.Key, out var off))
+                                {
+                                    <div class="line-discount">−@off.Amount.ToString("C") · @off.Reason</div>
+                                }
                             </div>
                             <div class="line-qty-controls">
                                 <button @onclick="() => DecrementLineAsync(line)">−</button>
                                 <span>@line.Quantity</span>
                                 <button @onclick="() => IncrementLine(line)" disabled="@(line.Quantity >= line.MaxQuantity)">+</button>
                             </div>
-                            <div class="line-total">@line.Total.ToString("C")</div>
+                            <div class="line-total">@((line.Total - (discounts.TryGetValue(line.Key, out var d) ? d.Amount : 0)).ToString("C"))</div>
                         </div>
                     }
                     @if (SurchargeRule is { } rule && GoodsTotal > 0)
@@ -241,6 +248,10 @@
             </div>
 
             <div class="order-footer">
+                @if (DiscountTotal > 0)
+                {
+                    <div class="summary-row saving"><span>You save</span><span>@DiscountTotal.ToString("C")</span></div>
+                }
                 <div class="summary-row">
                     <span>@(GrandTotal < 0 ? "Refund" : "Total")</span>
                     <span>@Math.Abs(GrandTotal).ToString("C")</span>
@@ -248,7 +259,12 @@
 
                 <div class="function-buttons">
                     <button class="fn-btn fn-secondary" @onclick="VoidCartAsync" disabled="@(CartLines.Count == 0)">Void</button>
-                    <button class="fn-btn fn-secondary" disabled="@(CartLines.Count == 0)">Hold</button>
+                    <button class="fn-btn fn-secondary" disabled="@(Paying || (CartLines.Count == 0 && HeldCount == 0))" @onclick="HoldOrRecallAsync">
+                        @(CartLines.Count == 0 && HeldCount > 0 ? $"Recall ({HeldCount})" : "Hold")
+                    </button>
+                    <button class="fn-btn fn-secondary" disabled="@(Paying || GoodsFull <= 0)" @onclick="OpenSaleDiscount">
+                        @(SaleDiscount > 0 ? $"Discount −{SaleDiscount:C}" : "Discount")
+                    </button>
                 </div>
                 <button class="fn-btn fn-primary @(GrandTotal < 0 ? "refund" : "")" disabled="@(CartLines.Count == 0)" @onclick="OpenCharge">
                     @(CartLines.Count == 0 ? "Charge" : GrandTotal > 0 ? $"Charge {GrandTotal:C}" : GrandTotal < 0 ? $"Refund {-GrandTotal:C}" : "Complete exchange")
@@ -285,6 +301,20 @@
     @if (ShowGiftCard)
     {
         <GiftCardDialog OnAdd="AddGiftCard" OnClose="() => ShowGiftCard = false" />
+    }
+
+    @if (DiscountFor is { } target)
+    {
+        <DiscountDialog Title="@target.Title" Full="target.Full" Current="target.Current"
+                        CashierMaxPercent="Settings.Discounts.CashierMaxPercent"
+                        IsManager="@(Session.Employee?.Role >= EmployeeRole.Manager)"
+                        Reasons="Settings.Discounts.Reasons"
+                        OnApply="ApplyDiscountAsync" OnClose="() => DiscountFor = null" />
+    }
+
+    @if (ShowRecall)
+    {
+        <HeldSalesDialog Held="Held" OnRecall="RecallAsync" OnClose="() => ShowRecall = false" />
     }
 
     @if (ShowCustomer)
@@ -425,13 +455,143 @@
 
     private List<CartLine> CartLines = new();
 
-    /// <summary>Goods bought (not returns, gift cards or account payments): what a surcharge is worked out on.</summary>
-    private decimal GoodsTotal => CartLines.Where(IsGoods).Sum(l => l.Total);
+    /// <summary>Goods bought (not returns, gift cards or account payments), less discounts: what a surcharge is worked out on.</summary>
+    private decimal GoodsTotal => GoodsFull - DiscountTotal;
+
+    /// <summary>Goods at full price (what discounts are taken from).</summary>
+    private decimal GoodsFull => CartLines.Where(IsGoods).Sum(l => l.Total);
+
+    private decimal DiscountTotal => LineDiscounts().Values.Sum(d => d.Amount);
+
+    // ---- promotions, discounts, hold / recall ----
+    private IReadOnlyList<Promotion> ActivePromotions = Array.Empty<Promotion>();
+    private decimal SaleDiscount;
+    private string? SaleDiscountReason;
+    private (string Title, decimal Full, decimal Current, CartLine? Line)? DiscountFor;
+    private bool ShowRecall;
+    private IReadOnlyList<HeldSale> Held = Array.Empty<HeldSale>();
+    private int HeldCount;
+
+    [Inject] private IPromotionService PromotionService { get; set; } = default!;
+    [Inject] private IHeldSaleService HeldSales { get; set; } = default!;
+
+    /// <summary>
+    /// What comes off each line: a cashier's discount on the line, else a promotion; plus its share of a discount on the
+    /// whole sale. Worked out fresh each time, so it always matches what's on the order.
+    /// </summary>
+    private Dictionary<string, (decimal Amount, string Reason)> LineDiscounts()
+    {
+        var result = new Dictionary<string, (decimal Amount, string Reason)>();
+        foreach (var line in CartLines.Where(l => IsGoods(l) && l.ManualDiscount > 0))
+            result[line.Key] = (Math.Min(line.ManualDiscount, line.Total), line.ManualReason ?? "Discount");
+
+        var promoLines = CartLines.Where(l => IsGoods(l) && l.ManualDiscount == 0)
+            .Select(l => new PromoLine(l.Key, l.ProductId, l.Category, l.UnitPrice, l.Quantity));
+        foreach (var promo in PromotionEngine.Apply(promoLines, ActivePromotions, DateTime.Now))
+            result[promo.Key] = (promo.Amount, promo.Reason);
+
+        if (SaleDiscount > 0)
+        {
+            var values = CartLines.Where(IsGoods)
+                .Select(l => (l.Key, l.Total - (result.TryGetValue(l.Key, out var x) ? x.Amount : 0)))
+                .ToList();
+            foreach (var (key, share) in PromotionEngine.Spread(SaleDiscount, values))
+            {
+                if (share <= 0) continue;
+                result[key] = result.TryGetValue(key, out var existing)
+                    ? (existing.Amount + share, $"{existing.Reason} + {SaleDiscountReason}")
+                    : (share, SaleDiscountReason ?? "Discount");
+            }
+        }
+        return result;
+    }
+
+    private void OpenLineDiscount(CartLine line)
+    {
+        if (!IsGoods(line) || Paying) return;
+        DiscountFor = ($"Discount: {line.Name}", line.Total, line.ManualDiscount, line);
+    }
+
+    private void OpenSaleDiscount() =>
+        DiscountFor = ("Discount on the whole sale", GoodsFull, SaleDiscount, null);
+
+    private async Task ApplyDiscountAsync((decimal Amount, string? Reason) discount)
+    {
+        if (DiscountFor is not { } target) return;
+        if (target.Line is { } line)
+            (line.ManualDiscount, line.ManualReason) = (discount.Amount, discount.Reason);
+        else
+            (SaleDiscount, SaleDiscountReason) = (discount.Amount, discount.Reason);
+        DiscountFor = null;
+
+        if (discount.Amount > 0)
+            await Journal.WriteAsync(JournalEventType.DiscountGiven,
+                $"{discount.Amount:C} off {(target.Line is null ? "the sale" : target.Line.Name)} ({discount.Reason}) by {Session.Employee?.FullName}",
+                amount: discount.Amount);
+    }
+
+    /// <summary>What a held sale keeps: the order, the customer, a whole-sale discount and the surcharge choice.</summary>
+    private sealed record HeldCart(List<CartLine> Lines, Guid? CustomerId, decimal SaleDiscount, string? SaleDiscountReason, bool SurchargeOff, bool SurchargeOn);
+
+    private async Task HoldOrRecallAsync()
+    {
+        if (CartLines.Count == 0)
+        {
+            Held = await HeldSales.ListAsync();
+            HeldCount = Held.Count;
+            ShowRecall = true;
+            return;
+        }
+        if (CartLines.Any(l => l.IsReturn))
+        {
+            ScanError = "Returns can't be put on hold. Finish or void this order first.";
+            return;
+        }
+
+        var total = GrandTotal;
+        var json = JsonSerializer.Serialize(new HeldCart(CartLines.ToList(), SaleCustomer?.Id, SaleDiscount, SaleDiscountReason, SurchargeOff, SurchargeOn));
+        var label = SaleCustomer?.Name ?? $"Sale at {DateTime.Now:h:mm tt}";
+        await HeldSales.HoldAsync(label, total, CartLines.Sum(l => l.Quantity), json, Session.Employee?.FullName);
+        await Journal.WriteAsync(JournalEventType.SaleHeld, $"{label} put on hold ({total:C})", amount: total);
+
+        CartLines.Clear();
+        (SaleCustomer, SaleDiscount, SaleDiscountReason, SurchargeOff, SurchargeOn) = (null, 0, null, false, false);
+        HeldCount++;
+        ScanError = null;
+        ScanNote = $"{label} is on hold. Tap Recall when they're back.";
+    }
+
+    private async Task RecallAsync(HeldSale held)
+    {
+        if (CartLines.Count > 0)
+        {
+            ScanError = "Finish, hold or void the current order first.";
+            ShowRecall = false;
+            return;
+        }
+        var recalled = await HeldSales.RecallAsync(held.Id);
+        ShowRecall = false;
+        if (recalled is null)
+        {
+            ScanError = "That sale was already recalled.";
+            HeldCount = (await HeldSales.ListAsync()).Count;
+            return;
+        }
+
+        var cart = JsonSerializer.Deserialize<HeldCart>(recalled.CartJson)!;
+        CartLines = cart.Lines;
+        (SaleDiscount, SaleDiscountReason, SurchargeOff, SurchargeOn) = (cart.SaleDiscount, cart.SaleDiscountReason, cart.SurchargeOff, cart.SurchargeOn);
+        SaleCustomer = cart.CustomerId is { } customerId ? await Customers.GetAsync(customerId) : null;
+        HeldCount = Math.Max(0, HeldCount - 1);
+        await Journal.WriteAsync(JournalEventType.SaleRecalled, $"{recalled.Label} recalled ({recalled.Total:C})", amount: recalled.Total);
+        ScanError = null;
+        ScanNote = $"{recalled.Label} is back on the screen.";
+    }
 
     private static bool IsGoods(CartLine l) => !l.IsReturn && l.GiftCardCode is null && l.Sku != AccountPayment.Sku;
 
     /// <summary>Negative when more comes back than is bought: a refund.</summary>
-    private decimal GrandTotal => CartLines.Sum(l => l.Total) + SurchargeAmount;
+    private decimal GrandTotal => CartLines.Sum(l => l.Total) - DiscountTotal + SurchargeAmount;
 
     // ---- settings, returns, gift cards, surcharge ----
     private RegisterSettings Settings = new();
@@ -485,6 +645,8 @@
         DrawerEnabled = Settings.Printer.DrawerMode != CashDrawerMode.None;
 
         await LoadHomeAsync();
+        ActivePromotions = await PromotionService.ActiveAsync();
+        HeldCount = (await HeldSales.ListAsync()).Count;
     }
 
     private async Task ClearSearchAsync()
@@ -548,11 +710,13 @@
         // Build the sale from the cart. Its GUID goes to the EFTPOS terminal as the reference.
         var sale = new SaleTransaction(Terminal.StoreId, Terminal.RegisterId,
                                        Session.Employee?.Id, Session.Employee?.FullName);
+        var discounts = LineDiscounts();
         foreach (var line in CartLines)
         {
+            var off = discounts.TryGetValue(line.Key, out var d) ? d : (Amount: 0m, Reason: (string?)null);
             sale.AddLineItem(new SaleLineItem(line.Sku, line.Name, line.IsReturn ? -line.Quantity : line.Quantity, line.UnitPrice,
                 line.GstRate, line.Category, line.ProductId, line.PackUnits,
-                line.ReturnOfLineId, line.ReturnReason, line.Restock, line.GiftCardCode));
+                line.ReturnOfLineId, line.ReturnReason, line.Restock, line.GiftCardCode, off.Amount, off.Reason));
         }
 
         if (SurchargeAmount > 0 && SurchargeRule is { } rule)
@@ -590,7 +754,15 @@
         ClearReturn();
         (SurchargeOff, SurchargeOn) = (false, false);
         SaleCustomer = null;
+        (SaleDiscount, SaleDiscountReason) = (0, null);
         Settings = SettingsStore.Load();
+        _ = ReloadPromotionsAsync();
+    }
+
+    private async Task ReloadPromotionsAsync()
+    {
+        ActivePromotions = await PromotionService.ActiveAsync();
+        await InvokeAsync(StateHasChanged);
     }
 
     // ---- customers ----
@@ -685,7 +857,10 @@
             CartLines.RemoveAll(l => l.Key == key);
             CartLines.Add(new CartLine
             {
-                Key = key, Sku = line.Sku, Name = line.ProductName, UnitPrice = line.UnitPriceIncGst, PackUnits = line.PackUnits,
+                // What they actually paid each (after any discount), so a refund never gives back more.
+                Key = key, Sku = line.Sku, Name = line.ProductName,
+                UnitPrice = line.Discount > 0 ? decimal.Round(line.LineTotalIncGst / line.Quantity, 2, MidpointRounding.AwayFromZero) : line.UnitPriceIncGst,
+                PackUnits = line.PackUnits,
                 Quantity = item.Quantity, GstRate = line.GstRate, Category = line.Category, ProductId = line.ProductId,
                 IsReturn = true, ReturnOfLineId = line.Id, ReturnReason = item.Reason, Restock = item.Restock,
                 MaxQuantity = item.Quantity
@@ -791,6 +966,7 @@
         CartLines.Clear();
         ClearReturn();
         SaleCustomer = null;
+        (SaleDiscount, SaleDiscountReason) = (0, null);
         (SurchargeOff, SurchargeOn) = (false, false);
 
         await Journal.WriteAsync(JournalEventType.SaleVoided, $"Cart voided: {items}", amount: total);
@@ -910,6 +1086,10 @@
         public bool Restock { get; init; } = true;
 
         public string? GiftCardCode { get; init; }
+
+        /// <summary>A cashier's discount on this line (replaces any promotion on it).</summary>
+        public decimal ManualDiscount { get; set; }
+        public string? ManualReason { get; set; }
 
         /// <summary>No more than this (what can still be returned; one per gift card).</summary>
         public int MaxQuantity { get; init; } = int.MaxValue;

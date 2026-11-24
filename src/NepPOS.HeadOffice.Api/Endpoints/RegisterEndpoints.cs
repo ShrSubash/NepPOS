@@ -144,6 +144,7 @@ public static class RegisterEndpoints
         var rejected = new List<RejectedEvent>();
         var productChanges = new List<(ReceivedEvent Row, ProductChangedV1 Product)>();
         var sharedChanges = new List<SyncEvent>();
+        var stockChanges = new List<(ReceivedEvent Row, StockChangedV1 Stock)>();
 
         var eventIds = events.Select(e => e.EventId).Distinct().ToList();
         var sequences = events.Select(e => e.Sequence).Distinct().ToList();
@@ -172,6 +173,15 @@ public static class RegisterEndpoints
             ProductChangedV1? product = null;
             var productProblem = e.Type == SyncEventTypes.ProductChanged ? CatalogProjection.Read(e, out product) : null;
             var sharedProblem = SharedAccounts.Check(e);
+            StockChangedV1? stock = null;
+            string? stockProblem = null;
+            if (e.Type == SyncEventTypes.StockChanged)
+            {
+                try { stock = e.Payload.Deserialize<StockChangedV1>(SyncJson.Options); }
+                catch (System.Text.Json.JsonException ex) { stockProblem = $"Stock payload can't be read: {ex.Message}"; }
+                if (stockProblem is null && (stock is null || stock.ProductId == Guid.Empty))
+                    stockProblem = "A stock change needs a productId.";
+            }
 
             var problem = e switch
             {
@@ -185,6 +195,7 @@ public static class RegisterEndpoints
                 _ when usedSequences.Contains(e.Sequence) => $"Sequence {e.Sequence} is already used by a different event from this register.",
                 _ when productProblem is not null => productProblem,
                 _ when sharedProblem is not null => sharedProblem,
+                _ when stockProblem is not null => stockProblem,
                 _ => null
             };
             if (problem is not null)
@@ -210,6 +221,8 @@ public static class RegisterEndpoints
                 productChanges.Add((row, product));
             if (SharedAccounts.IsShared(e.Type))
                 sharedChanges.Add(e);
+            if (stock is not null)
+                stockChanges.Add((row, stock));
             usedSequences.Add(e.Sequence);
             known.Add(new { e.EventId, caller.RegisterId });
             accepted.Add(e.EventId);
@@ -217,6 +230,28 @@ public static class RegisterEndpoints
 
         // The store's catalog changes in the same save as the events, so it can't fall behind them.
         await CatalogProjection.ApplyAsync(db, caller, productChanges, ct);
+        // Ids first, so each stock level can remember the event that set it.
+        if (stockChanges.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            foreach (var (row, stock) in stockChanges)
+            {
+                var level = db.StockLevels.Local.FirstOrDefault(s => s.StoreId == caller.StoreId && s.ProductId == stock.ProductId)
+                            ?? await db.StockLevels.FirstOrDefaultAsync(s => s.StoreId == caller.StoreId && s.ProductId == stock.ProductId, ct);
+                if (level is null)
+                {
+                    level = new StockLevelRow { TenantId = caller.TenantId, StoreId = caller.StoreId, ProductId = stock.ProductId };
+                    db.StockLevels.Add(level);
+                }
+                else if (level.UpdatedUtc > row.OccurredAtUtc)
+                {
+                    continue;   // an older count arriving late
+                }
+                level.StockOnHand = stock.StockOnHand;
+                level.UpdatedUtc = row.OccurredAtUtc;
+                level.LastEventId = row.Id;
+            }
+        }
         foreach (var shared in sharedChanges)
             await SharedAccounts.ApplyAsync(db, caller.TenantId, shared.EventId, shared.Type, shared.Payload,
                 $"{caller.StoreCode} / {caller.RegisterCode}", ct);

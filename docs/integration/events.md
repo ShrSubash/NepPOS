@@ -157,6 +157,20 @@ The website reads the catalog with `GET /api/v1/catalog/changes?storeId=…&afte
 
 Types: `NepPOS.Contracts.Catalog` (`CatalogChanges`, `CatalogProduct`).
 
+## `stock.changed` (version 1)
+
+About once a minute the register queues one event for each product whose stock on hand moved since it was last sent (sales, deliveries, wastage, stocktakes, returns). The product remembers what was sent (`Product.StockSent`) in the same save, so each change goes once and a restart misses nothing.
+
+```json
+{ "productId": "6f1c…", "stockOnHand": 47 }
+```
+
+`stockOnHand` is in singles and can be negative (sold before a delivery was received). Head Office keeps the latest level per store and product (`StockLevels`); an older level that arrives late doesn't overwrite a newer one.
+
+The website reads it with `GET /api/v1/stock/changes?storeId=…&after=N` (website key), paged exactly like the catalog: `levels` (`productId`, `stockOnHand`, `updatedAtUtc`, `changeNumber`), `next`, `more`. `after=0` returns every product's stock.
+
+Types: `NepPOS.Contracts.Sync.StockChangedV1`, `NepPOS.Contracts.Catalog` (`StockChanges`, `StockLevel`).
+
 ## Shared between registers: customers, accounts and gift cards
 
 Three event types are passed on to the owner's **other** registers (every store and register of the same business), so a customer, their account and a gift card are the same everywhere:
@@ -206,4 +220,4 @@ A register that is offline keeps selling with what it has: a card spent at two s
 
 ## Coming in later build steps
 
-`stock.changed`, `points.changed`, online order status, and the webhooks Head Office sends to the website are added here as they are built.
+`points.changed`, online order status, and the webhooks Head Office sends to the website are added here as they are built.

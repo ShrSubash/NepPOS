@@ -1,0 +1,254 @@
+@page "/manage/stocktake"
+@layout ManageLayout
+@using NepPOS.Application.Stock
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IStocktakeService Stocktakes
+@inject IWastageService ProductFinder
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Stocktake</span>
+            <span class="hint-light">Count a shelf, a department or the whole shop</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            @if (Current is null)
+            {
+                <section class="card">
+                    <h2>Start a count</h2>
+                    <label>Name<input @bind="NewName" placeholder="e.g. Beer fridge, or Full count November" /></label>
+                    <p class="field-note">Only the products you count change when it's posted, so you can count one area at a time. Selling can carry on.</p>
+                    <div class="test-row"><button class="save-btn" @onclick="StartAsync">Start counting</button></div>
+                </section>
+                <section class="card">
+                    <h2>Earlier counts</h2>
+                    @if (History.Count == 0)
+                    {
+                        <p class="field-note">None yet.</p>
+                    }
+                    else
+                    {
+                        <table class="gc-table">
+                            <thead><tr><th>Count</th><th>When</th><th class="num">Products</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var t in History)
+                                {
+                                    <tr>
+                                        <td><strong>@t.Name</strong><div class="sub">@t.EmployeeName</div></td>
+                                        <td>@((t.FinishedUtc ?? t.StartedUtc).ToLocalTime().ToString("d MMM yyyy h:mm tt"))</td>
+                                        <td class="num">@t.Lines.Count</td>
+                                        <td>@(t.Status == StocktakeStatus.Posted ? "Posted" : "Cancelled")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </section>
+            }
+            else
+            {
+                <section class="card">
+                    <h2>@Current.Name <span class="hint">started @Current.StartedUtc.ToLocalTime().ToString("d MMM h:mm tt")</span></h2>
+                    <div class="pt-row">
+                        <button class="chip @(!Replace ? "on" : "")" @onclick="() => Replace = false">Each scan adds</button>
+                        <button class="chip @(Replace ? "on" : "")" @onclick="() => Replace = true">Type the total</button>
+                    </div>
+                    <form class="pt-row" @onsubmit="ScanAsync">
+                        <input @bind="Term" placeholder="Scan a barcode, or type a PLU or name" autocomplete="off" />
+                        <input class="st-qty" type="number" min="0" step="1" @bind="Quantity" title="How many" />
+                        <button class="chip" type="submit">@(Replace ? "Set" : "Add")</button>
+                    </form>
+                    @if (Picked is { } p)
+                    {
+                        <div class="pt-row">
+                            <strong>@p.Name</strong>
+                            @foreach (var pack in p.Packs)
+                            {
+                                <button class="chip small @(Pack == pack ? "on" : "")" @onclick="() => Pack = pack">@(pack.Units == 1 ? "Singles" : $"{pack.Name} ({pack.Units})")</button>
+                            }
+                            <button class="save-btn" @onclick="CountPickedAsync">@(Replace ? "Set" : "Add") @Quantity @(Pack?.Units > 1 ? Pack!.Name : "")</button>
+                        </div>
+                    }
+                    @foreach (var f in Found)
+                    {
+                        <button class="chip" @onclick="() => Pick(f)">@f.Name</button>
+                    }
+                    <p class="field-note">Scanning a pack barcode counts the whole pack. Pick "Type the total" to set a product's count outright.</p>
+                </section>
+
+                <section class="card wide">
+                    <h2>Counted <span class="hint">@Rows.Count products</span></h2>
+                    <div class="gc-totals">
+                        <span>Up: <strong>+@Rows.Where(r => r.Difference > 0).Sum(r => r.Difference).ToString("0.##")</strong></span>
+                        <span>Down: <strong>@Rows.Where(r => r.Difference < 0).Sum(r => r.Difference).ToString("0.##")</strong></span>
+                        <span>Net at cost: <strong class="@(Rows.Sum(r => r.Value) < 0 ? "neg" : "")">@Rows.Sum(r => r.Value).ToString("C")</strong></span>
+                    </div>
+                    @if (Rows.Count > 0)
+                    {
+                        <table class="gc-table">
+                            <thead><tr><th>Product</th><th class="num">Counted</th><th class="num">System</th><th class="num">Difference</th><th class="num">Value</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var r in Rows)
+                                {
+                                    <tr>
+                                        <td><strong>@r.ProductName</strong></td>
+                                        <td class="num">@r.Counted.ToString("0.##")</td>
+                                        <td class="num">@r.Expected.ToString("0.##")</td>
+                                        <td class="num @(r.Difference < 0 ? "neg" : "")">@r.Difference.ToString("+0.##;-0.##;0")</td>
+                                        <td class="num @(r.Value < 0 ? "neg" : "")">@r.Value.ToString("C")</td>
+                                        <td><button class="chip small danger" @onclick="() => RemoveAsync(r.ProductId)">✕</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    <div class="test-row">
+                        @if (ConfirmPost)
+                        {
+                            <span>Set @Rows.Count products to what was counted?</span>
+                            <button class="save-btn" @onclick="PostAsync">Yes, post it</button>
+                            <button class="chip" @onclick="() => ConfirmPost = false">Not yet</button>
+                        }
+                        else
+                        {
+                            <button class="save-btn" disabled="@(Rows.Count == 0)" @onclick="() => ConfirmPost = true">Post the count</button>
+                            <button class="chip danger" @onclick="CancelAsync">Cancel the count</button>
+                        }
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private Stocktake? Current;
+    private IReadOnlyList<StocktakeRow> Rows = Array.Empty<StocktakeRow>();
+    private IReadOnlyList<Stocktake> History = Array.Empty<Stocktake>();
+    private string NewName = "";
+    private string Term = "";
+    private int Quantity = 1;
+    private bool Replace;
+    private bool ConfirmPost;
+    private IReadOnlyList<WastageProduct> Found = Array.Empty<WastageProduct>();
+    private WastageProduct? Picked;
+    private WastagePack? Pack;
+    private string? Message;
+    private bool IsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Current = await Stocktakes.CurrentAsync();
+        Rows = Current is null ? Array.Empty<StocktakeRow>() : await Stocktakes.RowsAsync(Current.Id);
+        if (Current is null)
+            History = await Stocktakes.HistoryAsync();
+    }
+
+    private async Task StartAsync()
+    {
+        try
+        {
+            Current = await Stocktakes.StartAsync(NewName, Session.Employee?.FullName);
+            (Message, IsError) = ("Counting. Scan each item, or a pack's barcode.", false);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex) { (Message, IsError) = (ex.Message, true); }
+    }
+
+    private async Task ScanAsync()
+    {
+        var term = Term.Trim();
+        if (term.Length == 0) return;
+        Found = await ProductFinder.FindProductsAsync(term);
+        if (Found.Count == 1)
+        {
+            // A scanned pack barcode counts the pack; otherwise singles.
+            var product = Found[0];
+            var pack = product.Packs.Count > 1 && term.All(char.IsDigit) && term.Length >= 8 && product.Plu != term
+                ? null : product.Packs[0];
+            if (pack is not null)
+                await CountAsync(product, pack);
+            else
+                Pick(product);
+            Found = Array.Empty<WastageProduct>();
+        }
+        else if (Found.Count == 0)
+        {
+            (Message, IsError) = ($"Nothing matches \"{term}\".", true);
+        }
+        Term = "";
+    }
+
+    private void Pick(WastageProduct product)
+    {
+        (Picked, Pack, Found) = (product, product.Packs[0], Array.Empty<WastageProduct>());
+    }
+
+    private async Task CountPickedAsync()
+    {
+        if (Picked is null || Pack is null) return;
+        await CountAsync(Picked, Pack);
+        Picked = null;
+    }
+
+    private async Task CountAsync(WastageProduct product, WastagePack pack)
+    {
+        if (Current is null) return;
+        try
+        {
+            var row = await Stocktakes.CountAsync(Current.Id, product.ProductId, Quantity * pack.Units, Replace);
+            (Message, IsError) = ($"{row.ProductName}: counted {row.Counted:0.##} (system {row.Expected:0.##}).", false);
+            Rows = await Stocktakes.RowsAsync(Current.Id);
+            Quantity = 1;
+        }
+        catch (InvalidOperationException ex) { (Message, IsError) = (ex.Message, true); }
+    }
+
+    private async Task RemoveAsync(int productId)
+    {
+        if (Current is null) return;
+        await Stocktakes.RemoveAsync(Current.Id, productId);
+        Rows = await Stocktakes.RowsAsync(Current.Id);
+    }
+
+    private async Task PostAsync()
+    {
+        if (Current is null) return;
+        try
+        {
+            var posted = await Stocktakes.PostAsync(Current.Id, Session.Employee?.FullName);
+            (Message, IsError) = ($"Posted: {posted.Products} products changed (+{posted.UnitsUp:0.##} / -{posted.UnitsDown:0.##}), {posted.Value:C} at cost.", false);
+            ConfirmPost = false;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex) { (Message, IsError) = (ex.Message, true); }
+    }
+
+    private async Task CancelAsync()
+    {
+        if (Current is null) return;
+        await Stocktakes.CancelAsync(Current.Id);
+        (Message, IsError) = ("Count cancelled. Nothing changed.", false);
+        await LoadAsync();
+    }
+}

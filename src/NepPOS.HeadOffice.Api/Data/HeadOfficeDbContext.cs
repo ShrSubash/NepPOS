@@ -22,6 +22,7 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<WebsiteKey> WebsiteKeys => Set<WebsiteKey>();
     public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
     public DbSet<WebsiteEvent> WebsiteEvents => Set<WebsiteEvent>();
+    public DbSet<StockLevelRow> StockLevels => Set<StockLevelRow>();
     public DbSet<SharedCustomer> SharedCustomers => Set<SharedCustomer>();
     public DbSet<SharedAccountLine> SharedAccountLines => Set<SharedAccountLine>();
     public DbSet<SharedGiftCard> SharedGiftCards => Set<SharedGiftCard>();
@@ -93,6 +94,14 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.HasIndex(e => e.EventId).IsUnique();
             entity.HasIndex(e => new { e.RegisterId, e.Sequence }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.StoreId, e.OccurredAtUtc });
+        });
+
+        modelBuilder.Entity<StockLevelRow>(entity =>
+        {
+            entity.HasKey(s => new { s.StoreId, s.ProductId });
+            entity.Property(s => s.StockOnHand).HasPrecision(18, 3);
+            entity.HasIndex(s => new { s.StoreId, s.LastEventId });
+            entity.HasOne<Store>().WithMany().HasForeignKey(s => s.StoreId).OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<WebsiteEvent>(entity =>
@@ -304,6 +313,19 @@ public sealed class WebsiteKey
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? LastUsedUtc { get; set; }
     public bool IsRevoked { get; set; }
+}
+
+/// <summary>A product's latest stock on hand at one store (from <c>stock.changed</c>), which the website reads.</summary>
+public sealed class StockLevelRow
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+    public Guid ProductId { get; set; }
+    public decimal StockOnHand { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+
+    /// <summary>The <see cref="ReceivedEvent"/> that last changed it: the website's change number.</summary>
+    public long LastEventId { get; set; }
 }
 
 /// <summary>

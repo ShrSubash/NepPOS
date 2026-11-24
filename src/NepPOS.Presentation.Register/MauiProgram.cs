@@ -114,6 +114,11 @@ public static class MauiProgram
         builder.Services.AddScoped<NepPOS.Application.Customers.ICustomerService, NepPOS.Infrastructure.Database.Customers.CustomerService>();
         builder.Services.AddScoped<NepPOS.Application.Suppliers.ISupplierAccountService, NepPOS.Infrastructure.Database.Suppliers.SupplierAccountService>();
         builder.Services.AddScoped<NepPOS.Application.Stock.IWastageService, NepPOS.Infrastructure.Database.Stock.WastageService>();
+        builder.Services.AddScoped<NepPOS.Application.Stock.IStocktakeService, NepPOS.Infrastructure.Database.Stock.StocktakeService>();
+        builder.Services.AddScoped<NepPOS.Application.Stock.IPurchaseOrderService, NepPOS.Infrastructure.Database.Stock.PurchaseOrderService>();
+        builder.Services.AddScoped<NepPOS.Application.Promotions.IPromotionService, NepPOS.Infrastructure.Database.Promotions.PromotionService>();
+        builder.Services.AddScoped<NepPOS.Application.Sales.IHeldSaleService, NepPOS.Infrastructure.Database.Sales.HeldSaleService>();
+        builder.Services.AddScoped<IStockPublisher, NepPOS.Infrastructure.Database.Sync.StockPublisher>();
         // EFTPOS: mx51 Spice running on this PC.
         // No terminal handy? Swap SpicePaymentGateway for SimulatedPaymentGateway on the line below.
         builder.Services.AddSingleton(new SpiceOptions(Host: "localhost", Port: 8282, PosId: ""));

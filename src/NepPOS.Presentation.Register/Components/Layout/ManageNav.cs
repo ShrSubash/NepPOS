@@ -22,10 +22,14 @@ public static class ManageNav
             new ManageItem("Receive stock", "Supplier deliveries: stock in, costs and margins", "manage/receiving", "truck"),
             new ManageItem("Suppliers", "Contacts, payment terms and what you owe them", "manage/suppliers", "building"),
             new ManageItem("Wastage", "Ullages: broken, expired or used stock written off", "manage/wastage", "trash"),
+            new ManageItem("Stocktake", "Count stock and correct what the system thinks you have", "manage/stocktake", "clipboard"),
+            new ManageItem("Purchase orders", "Reorder points, suggested orders, receive what arrived", "manage/purchase-orders", "cart"),
+            new ManageItem("Shelf labels", "Price labels with barcodes on A4 label sheets", "manage/labels", "barcode"),
         }),
         new ManageSection("Sales", new[]
         {
             new ManageItem("Reports & End of Day", "Today's takings, X and Z reports, PDF and CSV", "manage/reports", "chart", "manage/end-of-day"),
+            new ManageItem("Promotions", "Multi-buys, % and $ off, happy hours and discount limits", "manage/promotions", "gift"),
             new ManageItem("Journal", "Every sale, void, refund and drawer open", "manage/journal", "book"),
             new ManageItem("Payment types", "Tenders, gift cards, store credit and return rules", "manage/payment-types", "wallet"),
             new ManageItem("Gift cards & credit", "Balances and history of every card", "manage/gift-cards", "card"),
@@ -67,6 +71,10 @@ public static class ManageNav
             "building" => "<rect x=\"4\" y=\"2\" width=\"16\" height=\"20\" rx=\"2\"/><path d=\"M9 22v-4h6v4\"/><path d=\"M8 6h.01\"/><path d=\"M12 6h.01\"/><path d=\"M16 6h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M16 10h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 14h.01\"/><path d=\"M16 14h.01\"/>",
             "receipt" => "<path d=\"M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z\"/><path d=\"M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8\"/><path d=\"M12 17.5v-11\"/>",
             "trash" => "<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
+            "clipboard" => "<rect width=\"8\" height=\"4\" x=\"8\" y=\"2\" rx=\"1\"/><path d=\"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2\"/><path d=\"m9 14 2 2 4-4\"/>",
+            "cart" => "<circle cx=\"8\" cy=\"21\" r=\"1\"/><circle cx=\"19\" cy=\"21\" r=\"1\"/><path d=\"M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12\"/>",
+            "barcode" => "<path d=\"M3 5v14\"/><path d=\"M8 5v14\"/><path d=\"M12 5v14\"/><path d=\"M17 5v14\"/><path d=\"M21 5v14\"/><path d=\"M6 5v14\" stroke-width=\"1\"/><path d=\"M15 5v14\" stroke-width=\"1\"/>",
+            "gift" => "<rect x=\"3\" y=\"8\" width=\"18\" height=\"4\" rx=\"1\"/><path d=\"M12 8v13\"/><path d=\"M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7\"/><path d=\"M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5\"/>",
             "back" => "<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
             _ => "<circle cx=\"12\" cy=\"12\" r=\"9\"/>"
         }

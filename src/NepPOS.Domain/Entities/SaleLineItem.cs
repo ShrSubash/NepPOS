@@ -43,8 +43,14 @@ public sealed class SaleLineItem
 
     public bool IsReturn => Quantity < 0;
 
+    /// <summary>Taken off this line (GST inclusive, for the whole line): a promotion or a cashier's discount.</summary>
+    public decimal Discount { get; private set; }
+
+    /// <summary>Why: "2 for $10", "10% off", "Staff discount"… Printed under the line.</summary>
+    public string? DiscountReason { get; private set; }
+
     // Derived from tax-inclusive unit price — never the other way around.
-    public decimal LineTotalIncGst => UnitPriceIncGst * Quantity;
+    public decimal LineTotalIncGst => UnitPriceIncGst * Quantity - Discount;
     public decimal GstAmount => LineTotalIncGst - LineTotalIncGst / (1 + GstRate);
     public decimal LineTotalExGst => LineTotalIncGst - GstAmount;
 
@@ -53,8 +59,12 @@ public sealed class SaleLineItem
 
     public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate, string? category = null,
         int? productId = null, int packUnits = 1, Guid? returnOfLineId = null, string? returnReason = null, bool restock = true,
-        string? giftCardCode = null)
+        string? giftCardCode = null, decimal discount = 0, string? discountReason = null)
     {
+        if (discount < 0)
+            throw new ArgumentOutOfRangeException(nameof(discount), "A discount can't be negative.");
+        if (discount > 0 && (quantity < 0 || discount > unitPriceIncGst * quantity))
+            throw new ArgumentOutOfRangeException(nameof(discount), "A discount can't be more than the line, or on a returned item.");
         if (returnOfLineId is not null && quantity > 0)
             throw new ArgumentException("A returned item has a negative quantity.", nameof(quantity));
         if (giftCardCode is not null && (quantity != 1 || gstRate != 0))
@@ -83,5 +93,7 @@ public sealed class SaleLineItem
         ReturnReason = quantity < 0 && !string.IsNullOrWhiteSpace(returnReason) ? returnReason.Trim() : null;
         Restock = quantity > 0 || restock;
         GiftCardCode = string.IsNullOrWhiteSpace(giftCardCode) ? null : giftCardCode.Trim().ToUpperInvariant();
+        Discount = decimal.Round(discount, 2, MidpointRounding.AwayFromZero);
+        DiscountReason = Discount > 0 && !string.IsNullOrWhiteSpace(discountReason) ? discountReason.Trim() : null;
     }
 }

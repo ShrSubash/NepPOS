@@ -69,7 +69,8 @@ public static class ReceiptBuilder
             var gstFree = item.GstRate == 0 && item.GiftCardCode is null && !AccountPayment.IsAccountPayment(item);
             hasGstFree |= gstFree;
             var name = (gstFree ? "*" : "") + (item.IsReturn ? "RETURN " : "") + item.ProductName;
-            var lineTotal = Money(item.LineTotalIncGst);
+            // Full price here; any discount gets its own line underneath.
+            var lineTotal = Money(item.UnitPriceIncGst * item.Quantity);
 
             if (item.Quantity == 1)
             {
@@ -83,6 +84,8 @@ public static class ReceiptBuilder
             }
             if (item.IsReturn && item.ReturnReason is { } reason)
                 lines.Add(new ReceiptLine($"  Reason: {reason}"));
+            if (item.Discount > 0)
+                lines.Add(TwoColumn($"  {item.DiscountReason ?? "Discount"}", "-" + Money(item.Discount), lineWidth));
         }
 
         lines.Add(separator);
@@ -95,6 +98,9 @@ public static class ReceiptBuilder
         lines.Add(TwoColumn(total < 0 ? "GST refunded" : "GST included", Money(Math.Abs(gst)), lineWidth));
         if (sale.CashRounding != 0)
             lines.Add(TwoColumn("Cash rounding", sale.CashRounding.ToString("+0.00;-0.00", Au), lineWidth));
+        var saved = sale.LineItems.Sum(li => li.Discount);
+        if (saved > 0)
+            lines.Add(TwoColumn("You saved", Money(saved), lineWidth, bold: true));
 
         // ---- payments ----
         if (sale.Payments.Count > 0)

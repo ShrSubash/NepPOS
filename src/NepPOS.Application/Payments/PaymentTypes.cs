@@ -19,6 +19,16 @@ public sealed record PaymentTypeSettings
     public IReadOnlyList<OtherTender> Others { get; init; } = Array.Empty<OtherTender>();
 }
 
+/// <summary>Discounts by hand at the register (Manage → Promotions).</summary>
+public sealed record DiscountSettings
+{
+    /// <summary>A cashier can take off up to this % of a line or sale; more needs a manager. 0 = only managers.</summary>
+    public decimal CashierMaxPercent { get; init; } = 10m;
+
+    /// <summary>Reasons offered as buttons.</summary>
+    public IReadOnlyList<string> Reasons { get; init; } = new[] { "Staff discount", "Damaged packaging", "Price match", "Loyal customer" };
+}
+
 /// <summary>Return rules (Manage → Payment types → Returns).</summary>
 public sealed record ReturnSettings
 {

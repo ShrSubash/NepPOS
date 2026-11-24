@@ -32,6 +32,12 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<CustomerAccountEntry> CustomerAccountEntries => Set<CustomerAccountEntry>();
     public DbSet<SupplierAccountEntry> SupplierAccountEntries => Set<SupplierAccountEntry>();
     public DbSet<SyncCursor> SyncCursors => Set<SyncCursor>();
+    public DbSet<Promotion> Promotions => Set<Promotion>();
+    public DbSet<HeldSale> HeldSales => Set<HeldSale>();
+    public DbSet<Stocktake> Stocktakes => Set<Stocktake>();
+    public DbSet<StocktakeLine> StocktakeLines => Set<StocktakeLine>();
+    public DbSet<PurchaseOrder> PurchaseOrders => Set<PurchaseOrder>();
+    public DbSet<PurchaseOrderLine> PurchaseOrderLines => Set<PurchaseOrderLine>();
 
     public NepPosDbContext(DbContextOptions<NepPosDbContext> options) : base(options)
     {
@@ -102,6 +108,8 @@ public sealed class NepPosDbContext : DbContext
             entity.Ignore(li => li.IsReturn);
             entity.Property(li => li.ReturnReason).HasMaxLength(50);
             entity.Property(li => li.GiftCardCode).HasMaxLength(20);
+            entity.Property(li => li.Discount).HasPrecision(18, 2);
+            entity.Property(li => li.DiscountReason).HasMaxLength(100);
             entity.HasIndex(li => li.ReturnOfLineId);
         });
 
@@ -184,6 +192,74 @@ public sealed class NepPosDbContext : DbContext
             entity.HasIndex(e => e.StockReceiptId);
         });
 
+        modelBuilder.Entity<Promotion>(entity =>
+        {
+            entity.Property(p => p.Name).IsRequired().HasMaxLength(100);
+            entity.Property(p => p.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(p => p.Price).HasPrecision(18, 2);
+            entity.Property(p => p.Percent).HasPrecision(5, 2);
+            entity.Property(p => p.Amount).HasPrecision(18, 2);
+            entity.Property(p => p.Category).HasMaxLength(100);
+            entity.Property(p => p.ProductIds).IsRequired().HasMaxLength(4000);
+            entity.Property(p => p.Days).IsRequired().HasMaxLength(40);
+            entity.Ignore(p => p.ProductIdList);
+        });
+
+        modelBuilder.Entity<HeldSale>(entity =>
+        {
+            entity.HasKey(h => h.Id);
+            entity.Property(h => h.Id).ValueGeneratedNever();
+            entity.Property(h => h.Label).IsRequired().HasMaxLength(200);
+            entity.Property(h => h.Total).HasPrecision(18, 2);
+            entity.Property(h => h.CartJson).IsRequired();
+            entity.Property(h => h.EmployeeName).HasMaxLength(200);
+            entity.Property(h => h.HeldUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+        });
+
+        modelBuilder.Entity<Stocktake>(entity =>
+        {
+            entity.Property(t => t.Name).IsRequired().HasMaxLength(100);
+            entity.Property(t => t.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(t => t.EmployeeName).HasMaxLength(200);
+            entity.Property(t => t.StartedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.Property(t => t.FinishedUtc).HasConversion(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+            entity.HasMany(t => t.Lines).WithOne().HasForeignKey(l => l.StocktakeId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StocktakeLine>(entity =>
+        {
+            entity.Property(l => l.ProductName).IsRequired().HasMaxLength(200);
+            entity.Property(l => l.Counted).HasPrecision(18, 3);
+            entity.Property(l => l.Expected).HasPrecision(18, 3);
+            entity.Property(l => l.UnitCost).HasPrecision(18, 4);
+            entity.Property(l => l.CountedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.HasIndex(l => new { l.StocktakeId, l.ProductId }).IsUnique();
+        });
+
+        modelBuilder.Entity<PurchaseOrder>(entity =>
+        {
+            entity.Property(o => o.Number).IsRequired().HasMaxLength(20);
+            entity.HasIndex(o => o.Number).IsUnique();
+            entity.Property(o => o.SupplierName).IsRequired().HasMaxLength(200);
+            entity.Property(o => o.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(o => o.Note).HasMaxLength(500);
+            entity.Property(o => o.EmployeeName).HasMaxLength(200);
+            entity.Property(o => o.CreatedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.Property(o => o.SentUtc).HasConversion(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+            entity.Property(o => o.ReceivedUtc).HasConversion(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+            entity.Ignore(o => o.Total);
+            entity.HasOne<Supplier>().WithMany().HasForeignKey(o => o.SupplierId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(o => o.Lines).WithOne().HasForeignKey(l => l.PurchaseOrderId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PurchaseOrderLine>(entity =>
+        {
+            entity.Property(l => l.ProductName).IsRequired().HasMaxLength(200);
+            entity.Property(l => l.PackName).IsRequired().HasMaxLength(50);
+            entity.Property(l => l.Quantity).HasPrecision(18, 3);
+            entity.Property(l => l.CostPerPack).HasPrecision(18, 4);
+        });
+
         modelBuilder.Entity<SyncCursor>(entity =>
         {
             entity.HasKey(c => c.Name);
@@ -248,6 +324,9 @@ public sealed class NepPosDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(p => p.SupplierId)
                   .OnDelete(DeleteBehavior.SetNull);
+            entity.Property(p => p.ReorderPoint).HasPrecision(18, 3);
+            entity.Property(p => p.ReorderQuantity).HasPrecision(18, 3);
+            entity.Property(p => p.StockSent).HasPrecision(18, 3);
         });
 
         modelBuilder.Entity<ProductBarcode>(entity =>

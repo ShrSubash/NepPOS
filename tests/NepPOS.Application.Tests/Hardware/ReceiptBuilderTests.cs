@@ -169,4 +169,23 @@ public class ReceiptBuilderTests
     {
         Assert.Empty(ReceiptBuilder.BuildCardSlip("\r\n  \r\n", 48).Lines);
     }
+
+    [Fact]
+    public void Build_ShowsEachDiscountUnderItsLineAndWhatWasSaved()
+    {
+        var sale = new SaleTransaction("STORE-001", "REG-001");
+        sale.AddLineItem(new SaleLineItem("201", "Shiraz 750ml", 2, 20.00m, 0.10m, discount: 4.00m, discountReason: "Wine 10% off"));
+        var tender = new TenderSession(sale.Id, sale.GrandTotal);
+        tender.AddCash(40.00m);
+        sale.RecordPayments(tender.Payments, tender.RoundingAdjustment);
+        sale.Complete(43);
+
+        var text = Text(ReceiptBuilder.Build(sale, Store, 48));
+
+        var item = text.FindIndex(l => l.Contains("Shiraz 750ml"));
+        Assert.Contains("$40.00", string.Join("\n", text.Skip(item).Take(2)));   // full price on the item
+        Assert.Contains(text, l => l.Contains("Wine 10% off") && l.Contains("-$4.00"));
+        Assert.Contains(text, l => l.StartsWith("You saved") && l.Contains("$4.00"));
+        Assert.Equal(36.00m, sale.GrandTotal);
+    }
 }

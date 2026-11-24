@@ -1,0 +1,393 @@
+@page "/manage/purchase-orders"
+@layout ManageLayout
+@using NepPOS.Application.Stock
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IPurchaseOrderService Orders
+@inject IStockReceivingService Receiving
+@inject IWastageService ProductFinder
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Purchase orders</span>
+            <button class="chip" @onclick="OpenLevels">Reorder points</button>
+            <button class="save-btn" @onclick="NewOrder">+ New order</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card @(Edit is null && Levels is null ? "wide" : "")">
+                <h2>Orders
+                    <label class="check hint"><input type="checkbox" checked="@ShowClosed" @onchange="ToggleClosedAsync" /> Show received and cancelled</label>
+                </h2>
+                @if (List.Count == 0)
+                {
+                    <p class="field-note">No orders. Set reorder points on your products, then "+ New order" → "Add what's low" builds the order for you.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Order</th><th>Supplier</th><th class="num">Total</th><th>Status</th></tr></thead>
+                        <tbody>
+                            @foreach (var o in List)
+                            {
+                                <tr class="@(Edit?.Id == o.Id ? "on" : "")" @onclick="() => OpenAsync(o.Id)">
+                                    <td><strong>@o.Number</strong><div class="sub">@o.CreatedUtc.ToLocalTime().ToString("d MMM yyyy")</div></td>
+                                    <td>@o.SupplierName</td>
+                                    <td class="num">@o.Total.ToString("C")</td>
+                                    <td>@o.Status</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+
+            @if (Edit is not null)
+            {
+                <section class="card wide">
+                    <h2>@(Edit.Id == 0 ? "New order" : $"{Edit.Number} · {Edit.Status}")</h2>
+                    @if (Editable)
+                    {
+                        <label>Supplier
+                            <select value="@Edit.SupplierId" @onchange="SupplierChanged">
+                                <option value="0">— choose —</option>
+                                @foreach (var s in Suppliers)
+                                {
+                                    <option value="@s.Id">@s.Name</option>
+                                }
+                            </select>
+                        </label>
+                        <div class="pt-row">
+                            <button class="chip" disabled="@(Edit.SupplierId == 0)" @onclick="AddSuggestedAsync">Add what's low</button>
+                            <form class="pt-row" @onsubmit="FindAsync">
+                                <input @bind="Term" placeholder="Scan or find a product" autocomplete="off" />
+                                <button class="chip" type="submit">Find</button>
+                            </form>
+                        </div>
+                        @foreach (var f in Found)
+                        {
+                            <button class="chip" @onclick="() => AddProduct(f)">+ @f.Name</button>
+                        }
+                    }
+                    else
+                    {
+                        <p><strong>@Edit.SupplierName</strong></p>
+                    }
+
+                    @if (Edit.Lines.Count > 0)
+                    {
+                        <table class="gc-table">
+                            <thead><tr><th>Product</th><th>Pack</th><th class="num">Order</th><th class="num">Cost / pack</th><th class="num">Line</th>
+                                @if (Receive) { <th class="num">Arrived</th> }
+                                @if (Editable) { <th></th> }
+                            </tr></thead>
+                            <tbody>
+                                @foreach (var l in Edit.Lines)
+                                {
+                                    <tr>
+                                        <td><strong>@l.ProductName</strong></td>
+                                        <td>@(l.PackUnits == 1 ? "Single" : $"{l.PackName} ({l.PackUnits})")</td>
+                                        @if (Editable)
+                                        {
+                                            <td class="num"><input class="st-qty" type="number" min="0" step="1" @bind="l.Quantity" /></td>
+                                            <td class="num"><input class="st-qty" type="number" min="0" step="0.01" @bind="l.CostPerPack" /></td>
+                                        }
+                                        else
+                                        {
+                                            <td class="num">@l.Quantity.ToString("0.##")</td>
+                                            <td class="num">@l.CostPerPack.ToString("C")</td>
+                                        }
+                                        <td class="num">@((l.Quantity * l.CostPerPack).ToString("C"))</td>
+                                        @if (Receive)
+                                        {
+                                            <td class="num"><input class="st-qty" type="number" min="0" step="1" value="@ArrivedFor(l)" @onchange="e => SetArrived(l, e.Value)" /></td>
+                                        }
+                                        @if (Editable)
+                                        {
+                                            <td><button class="chip small danger" @onclick="() => Edit.Lines.Remove(l)">✕</button></td>
+                                        }
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        <div class="gc-totals"><span>Order total (ex GST as entered): <strong>@Edit.Lines.Sum(l => l.Quantity * l.CostPerPack).ToString("C")</strong></span></div>
+                    }
+
+                    @if (Editable)
+                    {
+                        <label>Note for the supplier<input @bind="Edit.Note" placeholder="Deliver Tuesday please" /></label>
+                    }
+                    else if (!string.IsNullOrEmpty(Edit.Note))
+                    {
+                        <p class="field-note">@Edit.Note</p>
+                    }
+
+                    @if (Receive)
+                    {
+                        <h3>Receive the delivery</h3>
+                        <div class="cu-grid">
+                            <label>Supplier's invoice number<input @bind="InvoiceNumber" /></label>
+                            <label>Invoice date<input type="date" @bind="InvoiceDate" /></label>
+                        </div>
+                        <p class="field-note">Change "Arrived" for anything short. Stock, costs and the supplier's bill update just like a normal delivery.</p>
+                        <div class="test-row">
+                            <button class="save-btn" @onclick="ReceiveAsync">Post the delivery</button>
+                            <button class="chip" @onclick="() => Receive = false">Back</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="test-row">
+                            @if (Editable)
+                            {
+                                <button class="save-btn" @onclick="SaveAsync">Save</button>
+                            }
+                            @if (Edit.Id != 0 && Edit.Status == PurchaseOrderStatus.Draft)
+                            {
+                                <button class="chip" @onclick="MarkSentAsync">Mark as sent</button>
+                            }
+                            @if (Edit.Id != 0 && Editable)
+                            {
+                                <button class="chip" @onclick="StartReceive">It arrived — receive</button>
+                                <button class="chip danger" @onclick="CancelAsync">Cancel order</button>
+                            }
+                            <button class="chip" @onclick="() => Edit = null">Close</button>
+                        </div>
+                    }
+                </section>
+            }
+
+            @if (Levels is not null)
+            {
+                <section class="card wide">
+                    <h2>Reorder points</h2>
+                    <label>Supplier
+                        <select value="@LevelsSupplierId" @onchange="LevelsSupplierChanged">
+                            <option value="0">— choose —</option>
+                            @foreach (var s in Suppliers)
+                            {
+                                <option value="@s.Id">@s.Name</option>
+                            }
+                        </select>
+                    </label>
+                    <p class="field-note">When stock falls to the reorder point, the product is suggested on the next order. Order quantity is in singles; leave it blank to top up to twice the reorder point.</p>
+                    @if (Levels.Count > 0)
+                    {
+                        <table class="gc-table">
+                            <thead><tr><th>Product</th><th class="num">In stock</th><th class="num">Reorder at</th><th class="num">Order qty</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var r in Levels)
+                                {
+                                    <tr>
+                                        <td><strong>@r.ProductName</strong></td>
+                                        <td class="num @(r.ReorderPoint is { } rp && r.StockOnHand <= rp ? "neg" : "")">@r.StockOnHand.ToString("0.##")</td>
+                                        <td class="num"><input class="st-qty" type="number" min="0" step="1" value="@r.ReorderPoint" @onchange="e => LevelEdits[r.ProductId] = (Parse(e.Value), LevelEdits.GetValueOrDefault(r.ProductId, (r.ReorderPoint, r.ReorderQuantity)).Item2)" /></td>
+                                        <td class="num"><input class="st-qty" type="number" min="1" step="1" value="@r.ReorderQuantity" @onchange="e => LevelEdits[r.ProductId] = (LevelEdits.GetValueOrDefault(r.ProductId, (r.ReorderPoint, r.ReorderQuantity)).Item1, Parse(e.Value))" /></td>
+                                        <td>@(LevelEdits.ContainsKey(r.ProductId) ? "changed" : "")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                    <div class="test-row">
+                        <button class="save-btn" disabled="@(LevelEdits.Count == 0)" @onclick="SaveLevelsAsync">Save @LevelEdits.Count changes</button>
+                        <button class="chip" @onclick="() => Levels = null">Close</button>
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<PurchaseOrder> List = Array.Empty<PurchaseOrder>();
+    private IReadOnlyList<Supplier> Suppliers = Array.Empty<Supplier>();
+    private PurchaseOrder? Edit;
+    private bool ShowClosed;
+    private string Term = "";
+    private IReadOnlyList<WastageProduct> Found = Array.Empty<WastageProduct>();
+    private bool Receive;
+    private string InvoiceNumber = "";
+    private DateOnly InvoiceDate = DateOnly.FromDateTime(DateTime.Today);
+    private readonly Dictionary<int, decimal> Arrived = new();
+    private IReadOnlyList<ReorderLevel>? Levels;
+    private int LevelsSupplierId;
+    private readonly Dictionary<int, (decimal? Point, decimal? Quantity)> LevelEdits = new();
+    private string? Message;
+    private bool IsError;
+
+    private bool Editable => Edit is not null && Edit.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Sent && !Receive;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Suppliers = await Receiving.GetSuppliersAsync();
+        List = await Orders.ListAsync(ShowClosed);
+    }
+
+    private async Task ToggleClosedAsync(ChangeEventArgs e)
+    {
+        ShowClosed = e.Value is true;
+        List = await Orders.ListAsync(ShowClosed);
+    }
+
+    private void NewOrder()
+    {
+        (Edit, Levels, Receive, Message) = (new PurchaseOrder { Status = PurchaseOrderStatus.Draft }, null, false, null);
+    }
+
+    private async Task OpenAsync(int id)
+    {
+        (Edit, Levels, Receive) = (await Orders.GetAsync(id), null, false);
+    }
+
+    private void SupplierChanged(ChangeEventArgs e)
+    {
+        if (Edit is not null && int.TryParse(e.Value as string, out var id))
+            Edit.SupplierId = id;
+    }
+
+    private async Task AddSuggestedAsync()
+    {
+        if (Edit is null || Edit.SupplierId == 0) return;
+        var suggested = await Orders.SuggestAsync(Edit.SupplierId);
+        var added = 0;
+        foreach (var s in suggested.Where(s => Edit.Lines.All(l => l.ProductId != s.ProductId)))
+        {
+            Edit.Lines.Add(new PurchaseOrderLine
+            {
+                ProductId = s.ProductId, ProductName = s.ProductName, PackName = s.PackName, PackUnits = s.PackUnits,
+                Quantity = s.Packs, CostPerPack = s.CostPerPack
+            });
+            added++;
+        }
+        (Message, IsError) = (added == 0 ? "Nothing is at its reorder point for this supplier." : $"Added {added} low products.", false);
+    }
+
+    private async Task FindAsync() => Found = (await ProductFinder.FindProductsAsync(Term)).Take(8).ToList();
+
+    private void AddProduct(WastageProduct p)
+    {
+        if (Edit is null) return;
+        var pack = p.Packs.OrderByDescending(x => x.Units).First();   // suppliers sell by the case
+        Edit.Lines.Add(new PurchaseOrderLine
+        {
+            ProductId = p.ProductId, ProductName = p.Name, PackName = pack.Name, PackUnits = pack.Units,
+            Quantity = 1, CostPerPack = decimal.Round(p.CostPerSingle * pack.Units, 2)
+        });
+        (Term, Found) = ("", Array.Empty<WastageProduct>());
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Edit is null) return;
+        try
+        {
+            Edit.EmployeeName ??= Session.Employee?.FullName;
+            var saved = await Orders.SaveDraftAsync(Edit);
+            Edit = await Orders.GetAsync(saved.Id);
+            List = await Orders.ListAsync(ShowClosed);
+            (Message, IsError) = ($"{saved.Number} saved.", false);
+        }
+        catch (InvalidOperationException ex) { (Message, IsError) = (ex.Message, true); }
+    }
+
+    private async Task MarkSentAsync()
+    {
+        if (Edit is null) return;
+        await Orders.MarkSentAsync(Edit.Id);
+        await AfterChangeAsync($"{Edit.Number} marked as sent.");
+    }
+
+    private async Task CancelAsync()
+    {
+        if (Edit is null) return;
+        await Orders.CancelAsync(Edit.Id);
+        await AfterChangeAsync($"{Edit.Number} cancelled.");
+        Edit = null;
+    }
+
+    private void StartReceive()
+    {
+        Arrived.Clear();
+        (Receive, InvoiceNumber, InvoiceDate) = (true, "", DateOnly.FromDateTime(DateTime.Today));
+    }
+
+    private decimal ArrivedFor(PurchaseOrderLine l) => Arrived.TryGetValue(l.Id, out var q) ? q : l.Quantity;
+
+    private void SetArrived(PurchaseOrderLine l, object? value)
+    {
+        if (Parse(value) is { } q) Arrived[l.Id] = q;
+    }
+
+    private async Task ReceiveAsync()
+    {
+        if (Edit is null) return;
+        if (string.IsNullOrWhiteSpace(InvoiceNumber))
+        {
+            (Message, IsError) = ("Enter the supplier's invoice number.", true);
+            return;
+        }
+        try
+        {
+            var posted = await Orders.ReceiveAsync(Edit.Id, InvoiceNumber.Trim(), InvoiceDate, Arrived, Session.Employee?.FullName);
+            Receive = false;
+            await AfterChangeAsync($"{Edit.Number} received: {posted.Singles:0.##} items into stock.");
+            Edit = null;
+        }
+        catch (InvalidOperationException ex) { (Message, IsError) = (ex.Message, true); }
+    }
+
+    private async Task AfterChangeAsync(string message)
+    {
+        List = await Orders.ListAsync(ShowClosed);
+        if (Edit is not null) Edit = await Orders.GetAsync(Edit.Id);
+        (Message, IsError) = (message, false);
+    }
+
+    private void OpenLevels()
+    {
+        (Levels, Edit, LevelsSupplierId) = (Array.Empty<ReorderLevel>(), null, 0);
+        LevelEdits.Clear();
+    }
+
+    private async Task LevelsSupplierChanged(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value as string, out var id)) return;
+        LevelsSupplierId = id;
+        LevelEdits.Clear();
+        Levels = id == 0 ? Array.Empty<ReorderLevel>() : await Orders.ReorderLevelsAsync(id);
+    }
+
+    private async Task SaveLevelsAsync()
+    {
+        try
+        {
+            foreach (var (productId, (point, quantity)) in LevelEdits)
+                await Orders.SetReorderLevelAsync(productId, point, quantity);
+            (Message, IsError) = ($"Saved {LevelEdits.Count} reorder points.", false);
+            LevelEdits.Clear();
+            Levels = await Orders.ReorderLevelsAsync(LevelsSupplierId);
+        }
+        catch (InvalidOperationException ex) { (Message, IsError) = (ex.Message, true); }
+    }
+
+    private static decimal? Parse(object? value) =>
+        decimal.TryParse(value as string, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : null;
+}

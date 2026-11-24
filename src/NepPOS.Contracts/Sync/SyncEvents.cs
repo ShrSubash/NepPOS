@@ -15,6 +15,9 @@ public static class SyncEventTypes
     /// <summary>A product was added, edited or deactivated at a register. Payload: <see cref="ProductChangedV1"/>.</summary>
     public const string ProductChanged = "product.changed";
 
+    /// <summary>A product's stock on hand at a store changed. Payload: <see cref="StockChangedV1"/>.</summary>
+    public const string StockChanged = "stock.changed";
+
     /// <summary>A customer was added or edited. Payload: <see cref="CustomerChangedV1"/>. Shared with every register.</summary>
     public const string CustomerChanged = "customer.changed";
 
@@ -260,4 +263,10 @@ public sealed record SharedEventsResponse(IReadOnlyList<SharedEvent> Events, lon
 
     public SharedCursor Next(SharedCursor previous) =>
         new(Math.Max(previous.Registers, LastId), Math.Max(previous.Website, LastWebId));
+}
+
+/// <summary>Version 1 of <c>stock.changed</c>: the product's stock on hand (singles) at the sending store now.</summary>
+public sealed record StockChangedV1(Guid ProductId, decimal StockOnHand)
+{
+    public const int Version = 1;
 }

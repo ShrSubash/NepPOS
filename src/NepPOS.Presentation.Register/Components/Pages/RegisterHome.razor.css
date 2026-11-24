@@ -325,7 +325,7 @@
 
 .function-buttons {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 0.6rem;
     margin-bottom: 0.6rem;
 }
@@ -616,3 +616,7 @@
 .surcharge-btn { min-height: 44px; padding: 0 0.8rem; border: 1px solid #e8d7ad; border-radius: 10px; background: #fff; font-weight: 600; cursor: pointer; }
 .surcharge-add { margin: 8px 12px; min-height: 48px; border: 1px dashed #d6b45a; border-radius: 12px; background: #fffaf0; color: #8a5a00; font-weight: 700; cursor: pointer; }
 .fn-btn.fn-primary.refund { background: linear-gradient(135deg, #ff7a59, #ffb35c); }
+
+.line-info.can-discount { cursor: pointer; }
+.line-discount { font-size: 0.75rem; font-weight: 700; color: #17734a; }
+.summary-row.saving { font-size: 0.9rem; color: #17734a; }

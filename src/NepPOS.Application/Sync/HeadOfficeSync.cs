@@ -65,6 +65,16 @@ public interface IHeadOfficeClient
 }
 
 /// <summary>
+/// Puts stock levels that changed since they were last sent into the outbox (a <c>stock.changed</c> event per product),
+/// so Head Office (and the website) know what's on the shelf. Run before sending the outbox.
+/// </summary>
+public interface IStockPublisher
+{
+    /// <summary>Returns how many products were queued (at most <paramref name="max"/> per run).</summary>
+    Task<int> QueueChangesAsync(int max = 500, CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Where this register keeps what other registers shared (customers, account lines, gift card movements)
 /// and how far through Head Office's list it has read.
 /// </summary>

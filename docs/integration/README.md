@@ -104,7 +104,7 @@ Store sales reach the owner's website within about a minute when the shop is onl
 3. Head Office stores each event once: a repeated event id is accepted and ignored, so a retry after a dropped connection never doubles a sale.
 4. Head Office keeps the reporting tables up to date (sales by day, department, product, hour, employee; Z history), using the same calculations as the NepPOS Reports screen.
 5. The HamroGrocery admin area gets a **Store sales** section that reads Head Office's reporting API. The owner sees store and online sales side by side, per store and per day, with the same headline figures as the register.
-6. Stock changes go the same way, then Head Office tells the website (`stock.changed` webhook), so the product page shows what the store actually has.
+6. Stock changes go the same way (`stock.changed`, about once a minute), and the website reads them with `GET /api/v1/stock/changes`, so the product page shows what the store actually has.
 
 If the shop is offline, events wait in the outbox (no limit, nothing lost) and the website shows the last stock it received.
 
@@ -120,7 +120,7 @@ There is one versioned REST API (`/api/v1`) on Head Office. The store and the we
 | Store (Master) | `POST /api/v1/stores/{storeId}/heartbeat` | Every minute; tells the website the store can take orders |
 | Website | `POST /api/v1/orders` | Send a paid order. `Idempotency-Key` header = the website's order GUID |
 | Website | `GET /api/v1/catalog/changes?storeId=&after=` | Products and prices changed after a change number (`after=0`: everything). Web content stays on the website. Types: `NepPOS.Contracts.Catalog`; see `events.md` |
-| Website | `GET /api/v1/stock?storeId=` | Stock on hand per product, for a full refresh |
+| Website | `GET /api/v1/stock/changes?storeId=&after=` | Stock on hand changed after a change number (`after=0`: every product). Types: `NepPOS.Contracts.Catalog`; see `events.md` |
 | Website | `GET /api/v1/stores` | The business's stores: online (heartbeat in the last 10 minutes), last seen, last sale |
 | Website | `GET /api/v1/reports/sales?storeId=&from=&to=` | One store's sales for trading days `from`–`to` (5 am cut-off, store's time zone): totals, tenders, and by day, department, product, hour and employee. Types: `NepPOS.Contracts.Reports` |
 | Website | `GET /api/v1/members/{id}/points` and `POST .../points/redeem` | Balance, and a redemption held for an order |
