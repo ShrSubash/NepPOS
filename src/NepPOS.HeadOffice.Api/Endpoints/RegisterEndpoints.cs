@@ -178,8 +178,8 @@ public static class RegisterEndpoints
 
         var tenantName = await db.Tenants.AsNoTracking().Where(t => t.Id == caller.TenantId).Select(t => t.Name).FirstAsync(ct);
         var licence = await licences.GetOrStartTrialAsync(caller.TenantId, ct);
-        var (signed, _) = await licences.SignAsync(licence, tenantName, ct);
+        var (signed, publicKey) = await licences.SignAsync(licence, tenantName, ct);
 
-        return Results.Ok(new HeartbeatResponse(now, signed));
+        return Results.Ok(new HeartbeatResponse(now, signed, publicKey));
     }
 }

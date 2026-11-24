@@ -1,4 +1,4 @@
-namespace NepPOS.Presentation.Register.Components.Layout;
+﻿namespace NepPOS.Presentation.Register.Components.Layout;
 
 /// <summary>One page in Manage. A null <see cref="Href"/> means it isn't built yet (shown as "Soon").</summary>
 public sealed record ManageItem(string Label, string Description, string? Href, string Icon, params string[] AlsoActiveOn);
@@ -25,7 +25,8 @@ public static class ManageNav
         {
             new ManageItem("Reports & End of Day", "Today's takings, X and Z reports, PDF and CSV", "manage/reports", "chart", "manage/end-of-day"),
             new ManageItem("Journal", "Every sale, void, refund and drawer open", "manage/journal", "book"),
-            new ManageItem("Payment types", "Cash, EFTPOS and other tenders", null, "wallet"),
+            new ManageItem("Payment types", "Tenders, gift cards, store credit and return rules", "manage/payment-types", "wallet"),
+            new ManageItem("Gift cards & credit", "Balances and history of every card", "manage/gift-cards", "card"),
         }),
         new ManageSection("Customers", new[]
         {
@@ -36,6 +37,7 @@ public static class ManageNav
         {
             new ManageItem("Receipt & printer", "Store details on receipts, printer and cash drawer", "manage/receipt-settings", "printer"),
             new ManageItem("Email", "Who gets the end-of-day report by email", "manage/email", "mail"),
+            new ManageItem("Surcharges", "Sunday and public holiday surcharges", "manage/surcharges", "percent"),
         }),
         new ManageSection("Connections", new[]
         {
@@ -55,6 +57,7 @@ public static class ManageNav
             "book" => "<path d=\"M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20\"/><path d=\"M8 7h8\"/><path d=\"M8 11h6\"/>",
             "wallet" => "<path d=\"M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1\"/><path d=\"M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4\"/>",
             "users" => "<path d=\"M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M22 21v-2a4 4 0 0 0-3-3.9\"/><path d=\"M16 3.1a4 4 0 0 1 0 7.8\"/>",
+            "percent" => "<line x1=\"19\" x2=\"5\" y1=\"5\" y2=\"19\"/><circle cx=\"6.5\" cy=\"6.5\" r=\"2.5\"/><circle cx=\"17.5\" cy=\"17.5\" r=\"2.5\"/>",
             "card" => "<rect width=\"20\" height=\"14\" x=\"2\" y=\"5\" rx=\"2\"/><path d=\"M2 10h20\"/>",
             "printer" => "<path d=\"M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2\"/><path d=\"M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6\"/><rect x=\"6\" y=\"14\" width=\"12\" height=\"8\" rx=\"1\"/>",
             "mail" => "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/><path d=\"m22 7-9 5.7a2 2 0 0 1-2 0L2 7\"/>",

@@ -1,4 +1,4 @@
-@using System.Globalization
+﻿@using System.Globalization
 @using Microsoft.Extensions.Logging
 @using NepPOS.Application.Payments
 @using NepPOS.Domain.Entities
@@ -10,6 +10,7 @@
 @inject IJournal Journal
 @inject ILocalHardwareService Hardware
 @inject IRegisterSettingsStore SettingsStore
+@inject NepPOS.Application.Sales.IGiftCardService GiftCards
 
 @* Full-screen tender overlay opened by the Charge button. It only closes itself once the sale is saved. *@
 <div class="tender-overlay">
@@ -65,6 +66,15 @@
                         Exact @_session.RemainingCash.ToString("C")
                     </button>
                 </div>
+
+                @* Split the bill: fills the amount with one person's share; each pays it any way they like. *@
+                <div class="split-row">
+                    <span class="muted">Split evenly</span>
+                    @foreach (var ways in new[] { 2, 3, 4 })
+                    {
+                        <button class="key split" disabled="@(IsBusy || _session.Remaining <= 0)" @onclick="() => Split(ways)">÷ @ways</button>
+                    }
+                </div>
             </section>
 
             <!-- RIGHT: amount due, payments taken, tender buttons -->
@@ -92,7 +102,7 @@
                         @foreach (var payment in _session.Payments)
                         {
                             <li>
-                                <span>@payment.TenderType @(payment.AuthCode is null ? "" : $"· auth {payment.AuthCode}")</span>
+                                <span>@ReceiptBuilder.TenderLabel(payment) @(payment.AuthCode is null ? "" : $"· auth {payment.AuthCode}")</span>
                                 <span>@payment.Amount.ToString("C")</span>
                             </li>
                         }
@@ -104,7 +114,24 @@
                     <div class="msg @(_isError ? "error" : "")">@_message</div>
                 }
 
-                <div class="tender-buttons">
+                @if (_voucherEntry)
+                {
+                    <form class="code-entry" @onsubmit="PayVoucherAsync">
+                        <input @ref="_codeInput" @bind="_code" placeholder="Scan the gift card or store credit (GC-… / SC-…)" autocomplete="off" />
+                        <button type="submit" class="btn-grad" disabled="@IsBusy">Use</button>
+                        <button type="button" class="btn-back" @onclick="() => _voucherEntry = false">Cancel</button>
+                    </form>
+                }
+                else if (_otherPending is { } pending)
+                {
+                    <form class="code-entry" @onsubmit="PayOtherWithReferenceAsync">
+                        <input @ref="_codeInput" @bind="_code" placeholder="@($"{pending.Name}: reference (account name, cheque number…)")" autocomplete="off" />
+                        <button type="submit" class="btn-grad">Take @(EntryOrRemaining.ToString("C"))</button>
+                        <button type="button" class="btn-back" @onclick="() => _otherPending = null">Cancel</button>
+                    </form>
+                }
+
+                <div class="tender-buttons @(MoreTenders ? "many" : "")">
                     <button class="tender eftpos" disabled="@IsBusy" @onclick="PayEftposAsync">
                         <span class="t-title">EFTPOS</span>
                         <span class="t-sub">@((EntryAmount > 0 ? EntryAmount : _session.Remaining).ToString("C"))</span>
@@ -113,6 +140,20 @@
                         <span class="t-title">CASH</span>
                         <span class="t-sub">@((EntryAmount > 0 ? EntryAmount : _session.RemainingCash).ToString("C"))</span>
                     </button>
+                    @if (_paymentTypes.GiftCards || _paymentTypes.StoreCredit)
+                    {
+                        <button class="tender voucher" disabled="@IsBusy" @onclick="StartVoucher">
+                            <span class="t-title">GIFT CARD</span>
+                            <span class="t-sub">or store credit</span>
+                        </button>
+                    }
+                    @foreach (var other in _paymentTypes.Others)
+                    {
+                        <button class="tender other" disabled="@IsBusy" @onclick="() => PayOtherAsync(other)">
+                            <span class="t-title">@other.Name.ToUpperInvariant()</span>
+                            <span class="t-sub">@EntryOrRemaining.ToString("C")</span>
+                        </button>
+                    }
                 </div>
 
                 @if (_stage == Stage.SaveFailed)
@@ -178,12 +219,120 @@
     private bool _printing;
     private bool _printThisSale;
 
+    // Gift cards, store credit and the owner's own tenders (Manage → Payment types).
+    private PaymentTypeSettings _paymentTypes = new();
+    private bool _voucherEntry;
+    private OtherTender? _otherPending;
+    private string _code = "";
+    private ElementReference _codeInput;
+    private bool _focusCode;
+
+    private bool MoreTenders => _paymentTypes.GiftCards || _paymentTypes.StoreCredit || _paymentTypes.Others.Count > 0;
+    private decimal EntryOrRemaining => EntryAmount > 0 ? EntryAmount : _session.Remaining;
+
     protected override void OnInitialized()
     {
         _session = new TenderSession(Sale.Id, Sale.GrandTotal);
-        var printer = SettingsStore.Load().Printer;
-        _printerMode = printer.Mode;
-        _printThisSale = printer.AutoPrint;
+        var settings = SettingsStore.Load();
+        _printerMode = settings.Printer.Mode;
+        _printThisSale = settings.Printer.AutoPrint;
+        _paymentTypes = settings.PaymentTypes;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusCode)
+        {
+            _focusCode = false;
+            try { await _codeInput.FocusAsync(); } catch (InvalidOperationException) { }
+        }
+    }
+
+    /// <summary>Fills the amount with one share of what's left (the last person pays the odd cents).</summary>
+    private void Split(int ways)
+    {
+        var share = _session.EvenShare(ways);
+        _entryDigits = ((long)(share * 100)).ToString(CultureInfo.InvariantCulture).TrimStart('0');
+        ShowInfo($"Split {ways} ways: {share:C} each. Take the first share, then the next.");
+    }
+
+    private void StartVoucher()
+    {
+        (_voucherEntry, _otherPending, _code, _focusCode) = (true, null, "", true);
+        _message = null;
+    }
+
+    /// <summary>Looks the card up and takes what it can (up to the amount, or all that's due).</summary>
+    private async Task PayVoucherAsync()
+    {
+        if (IsBusy) return;
+        var code = _code.Trim().ToUpperInvariant();
+        if (!NepPOS.Application.Sales.IGiftCardService.LooksLikeCode(code))
+        {
+            ShowError("Card numbers look like GC-123456 (gift card) or SC-123456 (store credit).");
+            return;
+        }
+
+        var card = await GiftCards.GetAsync(code);
+        if (card is null) { ShowError($"{code} isn't a gift card or store credit on this register."); return; }
+        if (!card.IsActive) { ShowError($"{code} has been cancelled."); return; }
+        var type = card.Kind == GiftCardKind.StoreCredit ? TenderType.StoreCredit : TenderType.GiftCard;
+        if ((type == TenderType.GiftCard && !_paymentTypes.GiftCards) || (type == TenderType.StoreCredit && !_paymentTypes.StoreCredit))
+        {
+            ShowError($"{card.KindName} isn't accepted on this register (Manage → Payment types).");
+            return;
+        }
+
+        try
+        {
+            var taken = _session.AddVoucher(type, code, EntryAmount, card.Balance);
+            (_entryDigits, _voucherEntry, _code) = (string.Empty, false, "");
+            if (_session.IsComplete)
+                await SaveAsync();
+            else
+                ShowInfo($"{card.KindName} {code}: {taken:C} taken ({card.Balance - taken:C} left on it). {_session.Remaining:C} still due.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
+    private async Task PayOtherAsync(OtherTender tender)
+    {
+        if (IsBusy) return;
+        if (tender.NeedsReference)
+        {
+            (_otherPending, _voucherEntry, _code, _focusCode) = (tender, false, "", true);
+            _message = null;
+            return;
+        }
+        await TakeOtherAsync(tender, null);
+    }
+
+    private async Task PayOtherWithReferenceAsync()
+    {
+        if (_otherPending is not { } tender) return;
+        if (string.IsNullOrWhiteSpace(_code)) { ShowError($"{tender.Name} needs a reference."); return; }
+        await TakeOtherAsync(tender, _code.Trim());
+    }
+
+    private async Task TakeOtherAsync(OtherTender tender, string? reference)
+    {
+        try
+        {
+            var amount = EntryOrRemaining;
+            _session.AddOther(tender.Name, amount, reference);
+            (_entryDigits, _otherPending, _code) = (string.Empty, null, "");
+            if (_session.IsComplete)
+                await SaveAsync();
+            else
+                ShowInfo($"{tender.Name} {amount:C} taken. {_session.Remaining:C} still due.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowError(ex.Message);
+        }
     }
 
     private void Press(string digits)
@@ -315,7 +464,9 @@
     {
         var printer = SettingsStore.Load().Printer;
 
-        if (printer.DrawerMode != CashDrawerMode.None && _session.Payments.Any(p => p.TenderType == TenderType.Cash))
+        var drawerTenders = _paymentTypes.Others.Where(o => o.OpensDrawer).Select(o => o.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (printer.DrawerMode != CashDrawerMode.None && _session.Payments.Any(p =>
+                p.TenderType == TenderType.Cash || (p.TenderType == TenderType.Other && p.TenderName is { } n && drawerTenders.Contains(n))))
         {
             var drawer = await Hardware.OpenCashDrawerAsync();
             if (!drawer.Succeeded)
@@ -339,7 +490,7 @@
         {
             var settings = SettingsStore.Load();
             var reprint = _receiptPrinted;
-            var receipt = ReceiptBuilder.Build(Sale, settings.Store, settings.Printer.LineWidth, reprint);
+            var receipt = ReceiptBuilder.Build(Sale, settings.Store, settings.Printer.LineWidth, reprint, settings.Returns.ReceiptNote);
             var result = await Hardware.PrintReceiptAsync(receipt);
 
             if (result.Succeeded)
@@ -410,11 +561,11 @@
         }
     }
 
-    // e.g. "Cash $20.00 (change $1.50), EFTPOS $20.00 Mastercard auth 851898"
+    // e.g. "Cash $20.00 (change $1.50), EFTPOS Mastercard $20.00 auth 851898, Gift card GC-123456 $10.00"
     private string PaymentSummary() => string.Join(", ", _session.Payments.Select(p =>
         p.TenderType == TenderType.Cash
             ? (p.Change > 0 ? $"Cash {p.Tendered:C} (change {p.Change:C})" : $"Cash {p.Amount:C}")
-            : $"EFTPOS {p.Amount:C}{(p.CardType is null ? "" : " " + p.CardType)}{(p.AuthCode is null ? "" : " auth " + p.AuthCode)}"));
+            : $"{ReceiptBuilder.TenderLabel(p)} {p.Amount:C}{(p.AuthCode is null ? "" : " auth " + p.AuthCode)}"));
 
     private void ShowError(string message)
     {

@@ -24,6 +24,8 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<StockReceipt> StockReceipts => Set<StockReceipt>();
     public DbSet<StockReceiptLine> StockReceiptLines => Set<StockReceiptLine>();
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
+    public DbSet<GiftCard> GiftCards => Set<GiftCard>();
+    public DbSet<GiftCardMovement> GiftCardMovements => Set<GiftCardMovement>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     public NepPosDbContext(DbContextOptions<NepPosDbContext> options) : base(options)
@@ -52,6 +54,9 @@ public sealed class NepPosDbContext : DbContext
 
             entity.Property(st => st.CashRounding).HasPrecision(18, 2);
             entity.Property(st => st.EmployeeName).HasMaxLength(200);
+            entity.Ignore(st => st.HasReturns);
+            entity.Ignore(st => st.IsRefund);
+            entity.HasIndex(st => st.ReturnOfSaleId);
 
             entity.HasMany(st => st.Payments)
                   .WithOne()
@@ -73,6 +78,9 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(p => p.MaskedPan).HasMaxLength(25);
             entity.Property(p => p.ResponseText).HasMaxLength(100);
             entity.Property(p => p.CustomerReceipt).HasMaxLength(4000);
+            entity.Property(p => p.Reference).HasMaxLength(50);
+            entity.Property(p => p.TenderName).HasMaxLength(50);
+            entity.Ignore(p => p.IsRefund);
         });
 
         modelBuilder.Entity<SaleLineItem>(entity =>
@@ -84,6 +92,32 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(li => li.GstRate).HasPrecision(5, 4);
             entity.Property(li => li.Category).HasMaxLength(100);
             entity.Ignore(li => li.StockUnits);
+            entity.Ignore(li => li.IsReturn);
+            entity.Property(li => li.ReturnReason).HasMaxLength(50);
+            entity.Property(li => li.GiftCardCode).HasMaxLength(20);
+            entity.HasIndex(li => li.ReturnOfLineId);
+        });
+
+        modelBuilder.Entity<GiftCard>(entity =>
+        {
+            entity.HasKey(g => g.Id);
+            entity.Property(g => g.Code).IsRequired().HasMaxLength(20);
+            entity.HasIndex(g => g.Code).IsUnique();
+            entity.Property(g => g.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(g => g.Balance).HasPrecision(18, 2);
+            entity.Ignore(g => g.KindName);
+            entity.Property(g => g.IssuedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.Property(g => g.LastUsedUtc).HasConversion(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+            entity.HasMany(g => g.Movements).WithOne().HasForeignKey(m => m.GiftCardId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GiftCardMovement>(entity =>
+        {
+            entity.HasKey(m => m.Id);
+            entity.Property(m => m.Id).ValueGeneratedOnAdd();
+            entity.Property(m => m.Amount).HasPrecision(18, 2);
+            entity.Property(m => m.Note).IsRequired().HasMaxLength(200);
+            entity.Property(m => m.AtUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
         });
 
         modelBuilder.Entity<JournalEntry>(entity =>

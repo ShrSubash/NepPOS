@@ -1,4 +1,4 @@
-using System.Runtime.Versioning;
+﻿using System.Runtime.Versioning;
 using Microsoft.Extensions.Logging;
 using NepPOS.Application.Hardware;
 
@@ -40,6 +40,7 @@ public sealed class LocalHardwareService : ILocalHardwareService
                 return null;
             }
 
+            RawPrinterQueue.ThrowIfNotReady(printer.PrinterName);
             var file = WindowsReceiptPrinter.Print(printer.PrinterName, receipt, "NepPOS receipt");
             return file is null ? null : $"Saved to {file}";
         }, cancellationToken);
@@ -53,7 +54,7 @@ public sealed class LocalHardwareService : ILocalHardwareService
 
         return await RunAsync("open cash drawer", printer.PrinterName, () =>
         {
-            RawPrinterQueue.Send(printer.PrinterName, EscPosRenderer.DrawerKick, "NepPOS drawer");
+            RawPrinterQueue.Send(printer.PrinterName, EscPosRenderer.DrawerKick, "NepPOS drawer", "Drawer not opened");
             return null;
         }, cancellationToken);
     }
@@ -67,6 +68,12 @@ public sealed class LocalHardwareService : ILocalHardwareService
             var note = await Task.Run(work, cancellationToken);
             _logger.LogInformation("Hardware: {Action} on '{Printer}' OK {Note}", action, printerName, note);
             return new HardwareResult(true, note);
+        }
+        catch (PrinterNotReadyException ex)
+        {
+            // Offline, out of paper, didn't take the job…: already in words for the cashier.
+            _logger.LogWarning("Hardware: {Action} on '{Printer}' not done: {Reason}", action, printerName, ex.Message);
+            return HardwareResult.Failed(ex.Message);
         }
         catch (Exception ex)
         {

@@ -1,0 +1,139 @@
+@page "/manage/gift-cards"
+@layout ManageLayout
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Sales
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IGiftCardService Cards
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Gift cards &amp; store credit</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body gc-body">
+            <section class="card">
+                <form class="pt-row" @onsubmit="LoadAsync">
+                    <input @bind="Search" placeholder="Search a card number (GC-… / SC-…)" />
+                    <button class="chip" type="submit">Search</button>
+                </form>
+                <div class="gc-totals">
+                    <span>Gift cards: <strong>@List.Where(c => c.Kind == GiftCardKind.GiftCard && c.IsActive).Sum(c => c.Balance).ToString("C")</strong> unspent</span>
+                    <span>Store credit: <strong>@List.Where(c => c.Kind == GiftCardKind.StoreCredit && c.IsActive).Sum(c => c.Balance).ToString("C")</strong> unspent</span>
+                </div>
+                @if (List.Count == 0)
+                {
+                    <p class="field-note">No cards yet. Sell one with the Gift card button on the register; store credit is created by returns.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Card</th><th>Type</th><th>Issued</th><th class="num">Balance</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var c in List)
+                            {
+                                <tr class="@(Selected == c.Code ? "on" : "") @(c.IsActive ? "" : "off")" @onclick="() => OpenAsync(c.Code)">
+                                    <td><strong>@c.Code</strong></td>
+                                    <td>@c.KindName@(c.IsActive ? "" : " (cancelled)")</td>
+                                    <td>@c.IssuedUtc.ToLocalTime().ToString("d MMM yyyy")</td>
+                                    <td class="num">@c.Balance.ToString("C")</td>
+                                    <td></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+
+            @if (Selected is not null)
+            {
+                <section class="card">
+                    <h2>@Selected <span class="hint">history</span></h2>
+                    <table class="gc-table">
+                        <thead><tr><th>When</th><th>What</th><th>Invoice</th><th class="num">Amount</th></tr></thead>
+                        <tbody>
+                            @foreach (var m in History)
+                            {
+                                <tr>
+                                    <td>@m.AtUtc.ToLocalTime().ToString("d MMM yyyy h:mm tt")</td>
+                                    <td>@m.Note</td>
+                                    <td>@(m.InvoiceNumber is null ? "" : $"#{m.InvoiceNumber}")</td>
+                                    <td class="num @(m.Amount < 0 ? "neg" : "")">@m.Amount.ToString("+$#,##0.00;-$#,##0.00")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (List.FirstOrDefault(c => c.Code == Selected) is { IsActive: true })
+                    {
+                        @if (Confirming)
+                        {
+                            <div class="test-row">
+                                <span>Cancel @Selected? Its balance can't be spent any more (e.g. lost or stolen).</span>
+                                <button class="chip danger" @onclick="CancelAsync">Yes, cancel it</button>
+                                <button class="chip" @onclick="() => Confirming = false">Keep it</button>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="test-row"><button class="chip danger" @onclick="() => Confirming = true">Cancel this card…</button></div>
+                        }
+                    }
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string Search = "";
+    private IReadOnlyList<GiftCardBalance> List = Array.Empty<GiftCardBalance>();
+    private string? Selected;
+    private IReadOnlyList<GiftCardMovement> History = Array.Empty<GiftCardMovement>();
+    private bool Confirming;
+    private string? Message;
+    private bool IsError;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync() => List = await Cards.ListAsync(Search);
+
+    private async Task OpenAsync(string code)
+    {
+        (Selected, Confirming) = (code, false);
+        History = await Cards.HistoryAsync(code);
+    }
+
+    private async Task CancelAsync()
+    {
+        if (Selected is null) return;
+        try
+        {
+            await Cards.CancelAsync(Selected);
+            await Journal.WriteAsync(JournalEventType.SettingsChanged, $"Card {Selected} cancelled by {Session.Employee?.FullName}");
+            (Message, IsError, Confirming) = ($"{Selected} cancelled.", false, false);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+    }
+}

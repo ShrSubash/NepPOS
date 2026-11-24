@@ -1,4 +1,4 @@
-using NepPOS.Domain.Enums;
+﻿using NepPOS.Domain.Enums;
 
 namespace NepPOS.Domain.Entities;
 
@@ -6,6 +6,7 @@ namespace NepPOS.Domain.Entities;
 /// One tender applied to a SaleTransaction. A split sale (part card, part cash) has several.
 /// <see cref="Amount"/> is the money actually kept for the sale: for cash it is the
 /// 5c-rounded amount (Tendered minus Change), so cash payments always reconcile with the drawer.
+/// A refund is a negative amount (money back to the customer), with no change.
 /// </summary>
 public sealed class SalePayment
 {
@@ -26,6 +27,14 @@ public sealed class SalePayment
     /// <summary>The bank's card slip text (customer copy), kept so it can be reprinted later.</summary>
     public string? CustomerReceipt { get; private set; }
 
+    /// <summary>Gift card or store credit code (GC-…, SC-…), or the reference typed for an "other" tender.</summary>
+    public string? Reference { get; private set; }
+
+    /// <summary>The name shown and printed: an "other" tender's name ("Account"), or e.g. "Card refund".</summary>
+    public string? TenderName { get; private set; }
+
+    public bool IsRefund => Amount < 0;
+
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     // EF Core requires a parameterless constructor for materialization.
@@ -40,12 +49,16 @@ public sealed class SalePayment
         string? cardType = null,
         string? maskedPan = null,
         string? responseText = null,
-        string? customerReceipt = null)
+        string? customerReceipt = null,
+        string? reference = null,
+        string? tenderName = null)
     {
-        if (amount <= 0)
-            throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount must be positive.");
+        if (amount == 0)
+            throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount can't be zero.");
         if (change < 0)
             throw new ArgumentOutOfRangeException(nameof(change), "Change cannot be negative.");
+        if (amount < 0 && change != 0)
+            throw new ArgumentException("A refund has no change.", nameof(change));
         if (tendered - change != amount)
             throw new ArgumentException("Tendered minus change must equal the payment amount.", nameof(tendered));
 
@@ -59,6 +72,8 @@ public sealed class SalePayment
         MaskedPan = maskedPan;
         ResponseText = responseText;
         CustomerReceipt = customerReceipt;
+        Reference = string.IsNullOrWhiteSpace(reference) ? null : reference.Trim();
+        TenderName = string.IsNullOrWhiteSpace(tenderName) ? null : tenderName.Trim();
         CreatedAtUtc = DateTimeOffset.UtcNow;
     }
 }

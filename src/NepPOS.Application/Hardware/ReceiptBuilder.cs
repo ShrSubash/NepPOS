@@ -1,7 +1,8 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.RegularExpressions;
 using NepPOS.Domain.Entities;
 using NepPOS.Application.Reports;
+using NepPOS.Application.Sales;
 using NepPOS.Domain.Enums;
 
 namespace NepPOS.Application.Hardware;
@@ -16,7 +17,8 @@ public static class ReceiptBuilder
 {
     private static readonly CultureInfo Au = CultureInfo.GetCultureInfo("en-AU");
 
-    public static ReceiptDocument Build(SaleTransaction sale, StoreProfile store, int lineWidth, bool reprint = false)
+    /// <param name="receiptNote">Printed under the barcode (e.g. "Keep this receipt for returns and exchanges").</param>
+    public static ReceiptDocument Build(SaleTransaction sale, StoreProfile store, int lineWidth, bool reprint = false, string? receiptNote = null)
     {
         ArgumentNullException.ThrowIfNull(sale);
         ArgumentNullException.ThrowIfNull(store);
@@ -39,7 +41,11 @@ public static class ReceiptBuilder
             lines.Add(new ReceiptLine("ABN " + FormatAbn(store.Abn), ReceiptAlign.Center));
 
         lines.Add(new ReceiptLine(""));
-        lines.Add(new ReceiptLine(reprint ? "TAX INVOICE (REPRINT)" : "TAX INVOICE", ReceiptAlign.Center, Bold: true));
+        // A refund is an adjustment note (it reduces GST already paid); an exchange that's paid for stays a tax invoice.
+        var heading = sale.IsRefund ? "REFUND - ADJUSTMENT NOTE" : sale.HasReturns ? "TAX INVOICE - EXCHANGE" : "TAX INVOICE";
+        lines.Add(new ReceiptLine(reprint ? heading + " (REPRINT)" : heading, ReceiptAlign.Center, Bold: true));
+        if (sale.ReturnOfInvoice is { } original)
+            lines.Add(new ReceiptLine($"Return of invoice #{original}", ReceiptAlign.Center));
         lines.Add(new ReceiptLine(""));
 
         // ---- invoice details ----
@@ -57,7 +63,7 @@ public static class ReceiptBuilder
         {
             var gstFree = item.GstRate == 0;
             hasGstFree |= gstFree;
-            var name = (gstFree ? "*" : "") + item.ProductName;
+            var name = (gstFree && item.GiftCardCode is null ? "*" : "") + (item.IsReturn ? "RETURN " : "") + item.ProductName;
             var lineTotal = Money(item.LineTotalIncGst);
 
             if (item.Quantity == 1)
@@ -70,6 +76,8 @@ public static class ReceiptBuilder
                     lines.Add(new ReceiptLine(part));
                 lines.Add(TwoColumn($"  {item.Quantity} x {Money(item.UnitPriceIncGst)}", lineTotal, lineWidth));
             }
+            if (item.IsReturn && item.ReturnReason is { } reason)
+                lines.Add(new ReceiptLine($"  Reason: {reason}"));
         }
 
         lines.Add(separator);
@@ -78,8 +86,8 @@ public static class ReceiptBuilder
         var total = decimal.Round(sale.GrandTotal, 2, MidpointRounding.AwayFromZero);
         var gst = decimal.Round(sale.GstTotal, 2, MidpointRounding.AwayFromZero);
 
-        lines.Add(TwoColumn("TOTAL", Money(total), lineWidth, bold: true));
-        lines.Add(TwoColumn("GST included", Money(gst), lineWidth));
+        lines.Add(TwoColumn(total < 0 ? "TOTAL REFUND" : "TOTAL", Money(Math.Abs(total)), lineWidth, bold: true));
+        lines.Add(TwoColumn(total < 0 ? "GST refunded" : "GST included", Money(Math.Abs(gst)), lineWidth));
         if (sale.CashRounding != 0)
             lines.Add(TwoColumn("Cash rounding", sale.CashRounding.ToString("+0.00;-0.00", Au), lineWidth));
 
@@ -88,20 +96,9 @@ public static class ReceiptBuilder
         {
             lines.Add(new ReceiptLine(""));
             foreach (var payment in sale.Payments)
-            {
-                if (payment.TenderType == TenderType.Cash)
-                {
-                    lines.Add(TwoColumn("Cash", Money(payment.Tendered), lineWidth));
-                    if (payment.Change > 0)
-                        lines.Add(TwoColumn("Change", Money(payment.Change), lineWidth));
-                }
-                else
-                {
-                    var card = string.Join(" ", new[] { payment.CardType, LastFour(payment.MaskedPan) }
-                        .Where(s => !string.IsNullOrWhiteSpace(s)));
-                    lines.Add(TwoColumn(string.IsNullOrEmpty(card) ? "EFTPOS" : $"EFTPOS {card}", Money(payment.Amount), lineWidth));
-                }
-            }
+                lines.Add(TwoColumn(TenderLabel(payment), Money(payment.IsRefund ? -payment.Amount : payment.Tendered), lineWidth));
+            foreach (var payment in sale.Payments.Where(p => p.TenderType == TenderType.Cash && p.Change > 0))
+                lines.Add(TwoColumn("Change", Money(payment.Change), lineWidth));
         }
 
         // ---- GST statement (ATO) ----
@@ -110,6 +107,12 @@ public static class ReceiptBuilder
         if (hasGstFree)
             lines.Add(new ReceiptLine("* GST-free item", ReceiptAlign.Center));
 
+        // ---- store credit issued, gift cards sold: their codes, scannable ----
+        foreach (var credit in sale.Payments.Where(p => p.TenderType == TenderType.StoreCredit && p.IsRefund && p.Reference is not null))
+            AddVoucher(lines, "STORE CREDIT", credit.Reference!, -credit.Amount, lineWidth);
+        foreach (var card in sale.LineItems.Where(li => li.GiftCardCode is not null && li.Quantity > 0))
+            AddVoucher(lines, "GIFT CARD", card.GiftCardCode!, card.LineTotalIncGst, lineWidth);
+
         if (!string.IsNullOrWhiteSpace(store.Footer))
         {
             lines.Add(new ReceiptLine(""));
@@ -117,7 +120,46 @@ public static class ReceiptBuilder
                 lines.Add(new ReceiptLine(part, ReceiptAlign.Center));
         }
 
+        // ---- the receipt's own barcode: scanned to find this sale for a return ----
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine(ReceiptCode.For(sale.RegisterId, sale.InvoiceNumber!.Value), ReceiptAlign.Center, Barcode: true));
+        if (!string.IsNullOrWhiteSpace(receiptNote))
+            foreach (var part in Wrap(receiptNote.Trim(), lineWidth))
+                lines.Add(new ReceiptLine(part, ReceiptAlign.Center));
+
         return new ReceiptDocument(lineWidth, lines);
+    }
+
+    /// <summary>"Cash", "EFTPOS Visa ...1234", "Gift card GC-123456", "Card refund", "Account"…</summary>
+    public static string TenderLabel(SalePayment payment)
+    {
+        switch (payment.TenderType)
+        {
+            case TenderType.Cash:
+                return payment.IsRefund ? "Cash refund" : "Cash";
+            case TenderType.Eftpos:
+                var card = string.Join(" ", new[] { payment.CardType, LastFour(payment.MaskedPan) }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                var label = payment.IsRefund ? "Card refund" : "EFTPOS";
+                return string.IsNullOrEmpty(card) ? label : $"{label} {card}";
+            case TenderType.GiftCard:
+                return $"{(payment.IsRefund ? "To gift card" : "Gift card")} {payment.Reference}".Trim();
+            case TenderType.StoreCredit:
+                return $"{(payment.IsRefund ? "Store credit issued" : "Store credit")} {payment.Reference}".Trim();
+            default:
+                var name = payment.TenderName ?? "Other";
+                return payment.IsRefund ? $"{name} refund" : name;
+        }
+    }
+
+    /// <summary>A gift card or store credit: its name, value and code as a barcode, to scan when it's spent.</summary>
+    private static void AddVoucher(List<ReceiptLine> lines, string title, string code, decimal amount, int lineWidth)
+    {
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine(new string('=', lineWidth)));
+        lines.Add(new ReceiptLine($"{title} {Money(amount)}", ReceiptAlign.Center, Bold: true, Large: true));
+        lines.Add(new ReceiptLine(code, ReceiptAlign.Center, Barcode: true));
+        lines.Add(new ReceiptLine("Present this to spend it", ReceiptAlign.Center));
+        lines.Add(new ReceiptLine(new string('=', lineWidth)));
     }
 
     /// <summary>
@@ -213,6 +255,8 @@ public static class ReceiptBuilder
                 ? $"#{report.FirstInvoice}"
                 : $"#{report.FirstInvoice} - #{report.LastInvoice}");
         Row("Items sold", report.ItemCount.ToString(Au));
+        if (report.RefundCount > 0)
+            Row($"Refunds ({report.RefundCount})", Money(-report.RefundAmount));
         Row("Gross sales (inc GST)", Money(report.GrossSales));
         Row("GST", Money(report.Gst));
         Row("Net sales (ex GST)", Money(report.NetSales));
@@ -222,7 +266,7 @@ public static class ReceiptBuilder
         // ---- tenders and cash (always) ----
         Section("TENDERS");
         foreach (var tender in report.Tenders)
-            Row($"{(tender.Tender == TenderType.Eftpos ? "EFTPOS" : tender.Tender.ToString())} ({tender.Count})", Money(tender.Amount));
+            Row($"{tender.Label} ({tender.Count})", Money(tender.Amount));
         Row("TOTAL TAKEN", Money(report.TotalTaken), bold: true);
         lines.Add(separator);
         Row("CASH IN DRAWER", Money(report.CashExpected), bold: true);

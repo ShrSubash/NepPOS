@@ -1,8 +1,9 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Abstractions;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
 using NepPOS.Infrastructure.Database.Outbox;
+using NepPOS.Infrastructure.Database.Sales;
 
 namespace NepPOS.Infrastructure.Database;
 
@@ -30,16 +31,49 @@ public sealed class SaleTransactionRepository : ISaleTransactionRepository
         // are saved together or not at all.
         if (saleTransaction.Status == SaleTransactionStatus.Completed)
         {
+            await CheckReturnsAsync(saleTransaction, cancellationToken);
             _dbContext.OutboxMessages.Add(OutboxMessage.SaleCompleted(saleTransaction));
             await TakeStockAsync(saleTransaction, cancellationToken);
+            await new GiftCardLedger(_dbContext).ApplyAsync(saleTransaction, cancellationToken);
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     /// <summary>
+    /// A returned line can't bring back more than was sold on it, counting earlier returns. Checked again here
+    /// (the return screen checks first) so two returns of the same receipt can't both go through.
+    /// </summary>
+    private async Task CheckReturnsAsync(SaleTransaction sale, CancellationToken cancellationToken)
+    {
+        var returning = sale.LineItems.Where(li => li.ReturnOfLineId is not null)
+            .GroupBy(li => li.ReturnOfLineId!.Value)
+            .ToDictionary(g => g.Key, g => -g.Sum(li => li.Quantity));
+        if (returning.Count == 0)
+            return;
+
+        var ids = returning.Keys.ToList();
+        var sold = await _dbContext.SaleLineItems.AsNoTracking().Where(li => ids.Contains(li.Id))
+            .Select(li => new { li.Id, li.Quantity, li.ProductName }).ToListAsync(cancellationToken);
+        var earlier = await _dbContext.SaleLineItems.AsNoTracking()
+            .Where(li => li.ReturnOfLineId != null && ids.Contains(li.ReturnOfLineId.Value))
+            .Select(li => new { Id = li.ReturnOfLineId!.Value, li.Quantity }).ToListAsync(cancellationToken);
+
+        foreach (var (lineId, count) in returning)
+        {
+            var original = sold.FirstOrDefault(l => l.Id == lineId)
+                ?? throw new InvalidOperationException("A returned item's original sale isn't on this register.");
+            var alreadyBack = -earlier.Where(e => e.Id == lineId).Sum(e => e.Quantity);
+            if (count > original.Quantity - alreadyBack)
+                throw new InvalidOperationException(
+                    $"{original.ProductName}: {original.Quantity} sold, {alreadyBack} already returned, so at most {Math.Max(0, original.Quantity - alreadyBack)} can come back.");
+        }
+    }
+
+    /// <summary>
     /// Takes each product line off stock in singles (a case of 24 is −24; a refund line puts stock back).
-    /// Products deleted since they were rung up are skipped: the sale must still save.
+    /// A returned item that's faulty or damaged comes back in and goes straight out again as wastage, so the
+    /// stock history shows both. Products deleted since they were rung up are skipped: the sale must still save.
     /// </summary>
     private async Task TakeStockAsync(SaleTransaction sale, CancellationToken cancellationToken)
     {
@@ -55,11 +89,18 @@ public sealed class SaleTransactionRepository : ISaleTransactionRepository
         var reference = sale.InvoiceNumber is { } invoice ? $"Invoice {invoice}" : "Sale";
         var now = DateTime.UtcNow;
 
+        var writtenOff = sale.LineItems
+            .Where(li => li.ProductId is not null && li.IsReturn && !li.Restock)
+            .GroupBy(li => li.ProductId!.Value)
+            .ToDictionary(g => g.Key, g => -g.Sum(li => li.StockUnits));
+
         foreach (var product in products)
         {
             var units = byProduct[product.Id];
             if (units != 0)
                 _dbContext.StockMovements.Add(product.MoveStock(StockMovementType.Sale, -units, reference, now, employeeName: sale.EmployeeName));
+            if (writtenOff.TryGetValue(product.Id, out var wasted) && wasted > 0)
+                _dbContext.StockMovements.Add(product.MoveStock(StockMovementType.Wastage, -wasted, $"{reference}: returned faulty", now, employeeName: sale.EmployeeName));
         }
     }
 

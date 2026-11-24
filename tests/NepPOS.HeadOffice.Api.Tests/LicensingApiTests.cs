@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -85,6 +85,7 @@ public sealed class LicensingApiTests : IDisposable
         register.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", activation.ApiKey);
         var beat = await (await register.PostAsync("/api/v1/heartbeat", null)).Content.ReadFromJsonAsync<HeartbeatResponse>(SyncJson.Options);
         Assert.NotNull(LicenceSignature.Verify(beat!.Licence, activation.LicencePublicKey));
+        Assert.Equal(activation.LicencePublicKey, beat.LicencePublicKey);
 
         // An edited licence doesn't pass.
         var edited = beat.Licence! with { Payload = Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes("{\"version\":1,\"status\":\"Active\"}")) };

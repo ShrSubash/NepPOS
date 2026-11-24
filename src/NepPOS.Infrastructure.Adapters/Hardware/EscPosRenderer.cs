@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using NepPOS.Application.Hardware;
 
 namespace NepPOS.Infrastructure.Adapters.Hardware;
@@ -28,6 +28,12 @@ public static class EscPosRenderer
 
         foreach (var line in receipt.Lines)
         {
+            if (line.Barcode)
+            {
+                bytes.AddRange(Code128(line.Text));
+                continue;
+            }
+
             bytes.AddRange(new byte[] { Esc, (byte)'a', line.Align switch
             {
                 ReceiptAlign.Center => (byte)1,
@@ -45,6 +51,33 @@ public static class EscPosRenderer
         bytes.AddRange(new byte[] { Esc, (byte)'E', 0, Gs, (byte)'!', 0, Esc, (byte)'a', 0 });
         bytes.AddRange(new byte[] { Gs, (byte)'V', 66, 3 });
 
+        return bytes.ToArray();
+    }
+
+    /// <summary>
+    /// A centred Code 128 barcode with its text printed under it (GS k, function B, code set B), sized to
+    /// scan reliably from 58 and 80 mm paper: 2-dot bars, 64 dots tall.
+    /// </summary>
+    public static byte[] Code128(string data)
+    {
+        var text = ToPrinterText(data);
+        if (text.Length is 0 or > 40)
+            throw new ArgumentException("A receipt barcode holds 1 to 40 characters.", nameof(data));
+
+        var bytes = new List<byte>(text.Length + 20)
+        {
+            Esc, (byte)'a', 1,          // centre
+            Gs, (byte)'h', 64,          // height in dots
+            Gs, (byte)'w', 2,           // bar width
+            Gs, (byte)'H', 2,           // human-readable text below
+            Gs, (byte)'f', 0,           // in font A
+            Gs, (byte)'k', 73,          // CODE128, length-prefixed
+            (byte)(text.Length + 2),
+            (byte)'{', (byte)'B'        // code set B: letters, digits and '-'
+        };
+        bytes.AddRange(text);
+        bytes.Add(Lf);
+        bytes.AddRange(new byte[] { Esc, (byte)'a', 0 });
         return bytes.ToArray();
     }
 

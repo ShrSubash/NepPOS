@@ -59,9 +59,17 @@
                 <p class="licence-note licence-@lic.State.Level.ToString().ToLowerInvariant()"><strong>@lic.State.Headline.</strong> @lic.State.Detail</p>
             }
 
+            @if (lic.RegistersUsed > lic.MaxRegisters || lic.StoresUsed > lic.MaxStores)
+            {
+                <p class="licence-note licence-warning">
+                    <strong>More in use than the plan allows.</strong>
+                    @OverLimit(lic) Nothing stops, but no more can be added. Revoke what's no longer used below, or raise the limit.
+                </p>
+            }
+
             <dl class="licence-facts">
-                <div><dt>Stores</dt><dd class="@(lic.StoresUsed >= lic.MaxStores ? "full" : "")">@lic.StoresUsed of @lic.MaxStores</dd></div>
-                <div><dt>Registers</dt><dd class="@(lic.RegistersUsed >= lic.MaxRegisters ? "full" : "")">@lic.RegistersUsed of @lic.MaxRegisters</dd></div>
+                <div><dt>Stores</dt><dd class="@(lic.StoresUsed > lic.MaxStores ? "over" : lic.StoresUsed == lic.MaxStores ? "full" : "")">@lic.StoresUsed of @lic.MaxStores</dd></div>
+                <div><dt>Registers</dt><dd class="@(lic.RegistersUsed > lic.MaxRegisters ? "over" : lic.RegistersUsed == lic.MaxRegisters ? "full" : "")">@lic.RegistersUsed of @lic.MaxRegisters</dd></div>
                 <div><dt>Includes</dt><dd>@(lic.Features.Count == 0 ? "Register only" : string.Join(", ", lic.Features.Select(LicenceFeatures.Label)))</dd></div>
                 @if (!string.IsNullOrEmpty(lic.Message))
                 {
@@ -277,6 +285,14 @@ else if (_problem is null)
     private bool _editingLicence;
     private bool _busy;
     private LicenceInput _edit = new();
+
+    private static string OverLimit(LicenceDetail l)
+    {
+        var parts = new List<string>();
+        if (l.RegistersUsed > l.MaxRegisters) parts.Add($"{l.RegistersUsed} registers are active and the plan allows {l.MaxRegisters}.");
+        if (l.StoresUsed > l.MaxStores) parts.Add($"{l.StoresUsed} stores exist and the plan allows {l.MaxStores}.");
+        return string.Join(" ", parts);
+    }
 
     private static string Day(DateTime utc) => utc.ToLocalTime().ToString("d MMM yyyy");
 

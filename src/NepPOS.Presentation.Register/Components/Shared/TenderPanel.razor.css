@@ -11,8 +11,8 @@
 
 .tender-shell {
     position: relative;
-    width: min(1100px, 96vw);
-    height: min(680px, 92vh);
+    width: min(1100px, calc(96vw / var(--z)));
+    height: min(680px, calc(92vh / var(--z)));
     background: #f4f5f9;
     border-radius: 18px;
     overflow: hidden;
@@ -292,3 +292,14 @@ button:disabled {
         background: #eceef5;
         color: #6b6f8e;
     }
+
+/* ---------- split, gift cards, other tenders ---------- */
+.split-row { display: grid; grid-template-columns: auto repeat(3, 1fr); gap: 10px; align-items: center; }
+.key.split { font-size: 1.1rem; min-height: 52px; background: #eef0ff; color: #3a2fd0; }
+.tender-buttons.many { grid-auto-rows: minmax(84px, 1fr); }
+.tender.voucher { background: linear-gradient(135deg, #b46cff, #ff7eb3); }
+.tender.other { background: linear-gradient(135deg, #2f3b5c, #55607f); }
+.tender-buttons.many .t-title { font-size: 1.25rem; }
+.code-entry { display: flex; gap: 8px; }
+.code-entry input { flex: 1; min-height: 52px; padding: 0 12px; border: 1px solid #d5d8e5; border-radius: 12px; font-size: 1.05rem; text-transform: uppercase; }
+.code-entry button { min-height: 52px; padding: 0 1rem; }

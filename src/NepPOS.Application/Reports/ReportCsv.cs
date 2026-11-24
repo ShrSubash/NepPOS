@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using NepPOS.Domain.Enums;
 
@@ -42,7 +42,7 @@ public static class ReportCsv
             Row("Sales", $"Invoices {report.FirstInvoice} to {report.LastInvoice}", null, null);
 
         foreach (var tender in report.Tenders)
-            Row("Tenders", tender.Tender == TenderType.Eftpos ? "EFTPOS" : tender.Tender.ToString(), tender.Count, tender.Amount);
+            Row("Tenders", tender.Label, tender.Count, tender.Amount);
         Row("Tenders", "Total taken", null, report.TotalTaken);
         Row("Tenders", "Cash in drawer (excludes float)", null, report.CashExpected);
 

@@ -4,12 +4,12 @@ using NepPOS.Application.Scanning;
 namespace NepPOS.Infrastructure.Database.Scanning;
 
 /// <summary>
-/// Handles gift/voucher codes — distinct "GC-" prefix keeps these
-/// unambiguous against numeric-only barcodes and PLUs.
+/// Gift card (GC-) and store credit (SC-) codes: letters first, so never mistaken for a PLU or barcode.
+/// Payload: the code; the sell screen shows its balance.
 /// </summary>
 public sealed class VoucherScanResolver : IScanResolver
 {
-    private static readonly Regex VoucherPattern = new(@"^GC-\d{6}$", RegexOptions.Compiled);
+    private static readonly Regex VoucherPattern = new(@"^(GC|SC)-\d{6}$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public int Priority => 20;
 
@@ -17,7 +17,6 @@ public sealed class VoucherScanResolver : IScanResolver
 
     public Task<ScanResolution> ResolveAsync(string rawCode, CancellationToken cancellationToken = default)
     {
-        // TODO: real voucher balance lookup once VII Gift Card adapter is wired.
-        return Task.FromResult(new ScanResolution(ScanResultType.Voucher, rawCode, null));
+        return Task.FromResult(new ScanResolution(ScanResultType.Voucher, rawCode.Trim().ToUpperInvariant(), null));
     }
 }

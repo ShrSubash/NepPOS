@@ -13,6 +13,7 @@
 @inject ScanResolutionService Scanner
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
+@inject NepPOS.Application.Licensing.LicenceGuard Licence
 
 @if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
 {
@@ -28,10 +29,17 @@ else
             <span class="brand-text">@(Mode switch { View.New => "New delivery", View.Detail => $"Invoice {Detail?.InvoiceNumber}", View.Posted => "Delivery received", _ => "Receive stock" })</span>
             @if (Mode is View.List or View.New)
             {
-                <label class="top-save file-btn" title="The XML invoice file from the supplier (ALM / Metcash)">
-                    ⬆ Import e-invoice
-                    <InputFile OnChange="ImportAsync" accept=".xml,text/xml,application/xml" />
-                </label>
+                @if (EInvoicesAllowed)
+                {
+                    <label class="top-save file-btn" title="The XML invoice file from the supplier (ALM / Metcash)">
+                        ⬆ Import e-invoice
+                        <InputFile OnChange="ImportAsync" accept=".xml,text/xml,application/xml" />
+                    </label>
+                }
+                else
+                {
+                    <button class="top-save" disabled title="Supplier e-invoices aren't in this business's NepPOS plan. Contact NepPOS to add them.">⬆ Import e-invoice (not in plan)</button>
+                }
             }
             @if (Mode == View.List)
             {
@@ -625,9 +633,20 @@ else
     }
 
     /// <summary>Reads the supplier's XML file. One invoice loads straight away; several ask which one.</summary>
+    /// <summary>
+    /// The plan decides. Before the first licence arrives (new or not yet activated register) it's allowed,
+    /// like the rest of a trial.
+    /// </summary>
+    private bool EInvoicesAllowed => Licence.Claims is not { } claims || claims.Has(NepPOS.Contracts.Licensing.LicenceFeatures.EInvoices);
+
     private async Task ImportAsync(InputFileChangeEventArgs e)
     {
         Message = null;
+        if (!EInvoicesAllowed)
+        {
+            Show("Supplier e-invoices aren't in this business's NepPOS plan. Enter the delivery by hand, or contact NepPOS to add them.", error: true);
+            return;
+        }
         try
         {
             // The browser's file stream is async-only: copy it before the XML reader reads it.
