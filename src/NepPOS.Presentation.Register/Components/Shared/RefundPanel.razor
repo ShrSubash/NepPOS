@@ -13,6 +13,7 @@
 @inject IRegisterSettingsStore SettingsStore
 @inject IGiftCardService GiftCards
 @inject CurrentUserSession Session
+@inject IPaymentGateway PaymentGateway
 
 @*
     Money back for a return (or an even exchange). The refund goes back the way the customer paid when possible:
@@ -105,13 +106,27 @@
                 @if (_stage == Stage.ConfirmCard)
                 {
                     <div class="rf-card">
-                        <h3>Refund @_cardAmount.ToString("C") on the EFTPOS terminal</h3>
-                        <p>Choose <strong>Refund</strong> on the terminal (or in the Spice window), enter @_cardAmount.ToString("C") and let the customer tap or insert their card.</p>
-                        <label>Approval / auth code <span class="muted">(optional)</span><input @bind="_authCode" maxlength="20" /></label>
-                        <div class="rf-row">
-                            <button class="btn-back" @onclick="() => _stage = Stage.Choosing">It didn't go through</button>
-                            <button class="btn-grad" @onclick="ConfirmCardAsync">Approved</button>
-                        </div>
+                        <h3>Refund @_cardAmount.ToString("C") to a card</h3>
+                        @if (OriginalCard is { } card)
+                        {
+                            <p class="rf-check">Ask for the card they paid with: <strong>@card</strong>. Refunds go back to the same card.</p>
+                        }
+                        @if (_terminalBusy)
+                        {
+                            <p><span class="spinner-inline"></span> Follow the terminal: the customer taps or inserts their card…</p>
+                        }
+                        else
+                        {
+                            <div class="rf-row">
+                                <button class="btn-back" @onclick="() => _stage = Stage.Choosing">Back</button>
+                                <button class="btn-grad" @onclick="RefundOnTerminalAsync">Send @_cardAmount.ToString("C") to the terminal</button>
+                            </div>
+                            <details class="rf-manual">
+                                <summary>Done on the terminal by hand?</summary>
+                                <label>Approval / auth code <span class="muted">(optional)</span><input @bind="_authCode" maxlength="20" /></label>
+                                <button class="btn-back" @onclick="ConfirmCardAsync">It was approved</button>
+                            </details>
+                        }
                     </div>
                 }
                 else if (_session.RefundTotal == 0)
@@ -236,6 +251,51 @@
             return;
         }
         (_cardAmount, _authCode, _message, _stage) = (amount, "", null, Stage.ConfirmCard);
+    }
+
+    private bool _terminalBusy;
+
+    /// <summary>The card the original sale was paid with ("Visa ...4821"), to check it's the same one.</summary>
+    private string? OriginalCard => (Original ?? Array.Empty<SalePayment>())
+        .Where(p => p.TenderType == TenderType.Eftpos && p.Amount > 0)
+        .Select(p => string.Join(" ", new[] { p.CardType, p.MaskedPan is { Length: >= 4 } pan ? "..." + pan[^4..] : null }.Where(x => !string.IsNullOrWhiteSpace(x))))
+        .FirstOrDefault(s => s.Length > 0);
+
+    /// <summary>Sends the refund to the EFTPOS terminal and records it only when the terminal approves.</summary>
+    private async Task RefundOnTerminalAsync()
+    {
+        _terminalBusy = true;
+        _message = null;
+        StateHasChanged();
+        try
+        {
+            var result = await PaymentGateway.RefundAsync(new PaymentRequest(Sale.Id, _cardAmount));
+            if (!result.Approved)
+            {
+                ShowError($"Terminal: {result.ResponseText}. Nothing was refunded; try again or choose another way.");
+                await Journal.WriteAsync(JournalEventType.CardDeclined, $"Card refund declined: {result.ResponseText}", Sale.Id, amount: _cardAmount);
+                return;
+            }
+
+            _session.RefundCard(_cardAmount, result.AuthCode);
+            _stage = Stage.Choosing;
+            if (result.CustomerReceipt is { Length: > 0 } slip && _printerMode != PrinterMode.None)
+                await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(slip, Settings.Printer.LineWidth));
+            await AfterTenderAsync();
+        }
+        catch (PaymentOutcomeUnknownException ex)
+        {
+            ShowError($"The terminal didn't confirm (reference {ex.TerminalReference}). Check the terminal or Spice before trying again; if it shows approved, use \"Done on the terminal by hand\".");
+            await Journal.WriteAsync(JournalEventType.CardOutcomeUnknown, $"Card refund result unknown ({ex.TerminalReference})", Sale.Id, amount: _cardAmount);
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowError(ex.Message);
+        }
+        finally
+        {
+            _terminalBusy = false;
+        }
     }
 
     private async Task ConfirmCardAsync()

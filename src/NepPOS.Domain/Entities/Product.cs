@@ -31,6 +31,15 @@ public sealed class Product
     /// <summary>GST-free (fresh food, some basics). False = 10% GST included in the price.</summary>
     public bool IsGstFree { get; set; }
 
+    /// <summary>Order more when stock on hand falls to this (singles). Null = not tracked.</summary>
+    public decimal? ReorderPoint { get; set; }
+
+    /// <summary>How many singles a suggested order brings in. Null = enough to reach twice the reorder point.</summary>
+    public decimal? ReorderQuantity { get; set; }
+
+    /// <summary>The stock on hand last sent to Head Office (for the website). Null = never sent.</summary>
+    public decimal? StockSent { get; set; }
+
     /// <summary>The usual supplier.</summary>
     public int? SupplierId { get; set; }
 

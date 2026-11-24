@@ -69,7 +69,8 @@ public static class ReceiptBuilder
             var gstFree = item.GstRate == 0 && item.GiftCardCode is null && !AccountPayment.IsAccountPayment(item);
             hasGstFree |= gstFree;
             var name = (gstFree ? "*" : "") + (item.IsReturn ? "RETURN " : "") + item.ProductName;
-            var lineTotal = Money(item.LineTotalIncGst);
+            // Full price here; any discount gets its own line underneath.
+            var lineTotal = Money(item.UnitPriceIncGst * item.Quantity);
 
             if (item.Quantity == 1)
             {
@@ -83,6 +84,8 @@ public static class ReceiptBuilder
             }
             if (item.IsReturn && item.ReturnReason is { } reason)
                 lines.Add(new ReceiptLine($"  Reason: {reason}"));
+            if (item.Discount > 0)
+                lines.Add(TwoColumn($"  {item.DiscountReason ?? "Discount"}", "-" + Money(item.Discount), lineWidth));
         }
 
         lines.Add(separator);
@@ -95,6 +98,9 @@ public static class ReceiptBuilder
         lines.Add(TwoColumn(total < 0 ? "GST refunded" : "GST included", Money(Math.Abs(gst)), lineWidth));
         if (sale.CashRounding != 0)
             lines.Add(TwoColumn("Cash rounding", sale.CashRounding.ToString("+0.00;-0.00", Au), lineWidth));
+        var saved = sale.LineItems.Sum(li => li.Discount);
+        if (saved > 0)
+            lines.Add(TwoColumn("You saved", Money(saved), lineWidth, bold: true));
 
         // ---- payments ----
         if (sale.Payments.Count > 0)
@@ -327,6 +333,7 @@ public static class ReceiptBuilder
             Row("Card result unknown", report.CardOutcomeUnknown.ToString(Au));
             Row("Sales not saved", report.SaveFailures.ToString(Au));
             Row("Receipts reprinted", report.Reprints.ToString(Au));
+            Row($"Wastage at cost ({report.WastageCount})", Money(report.WastageValue));
         }
 
         // ---- by day (weekly/monthly) or by month (longer periods, so a yearly report stays short) ----
@@ -352,6 +359,42 @@ public static class ReceiptBuilder
         var footer = isPeriod ? "*** END OF REPORT ***" : report.IsZ ? "*** END OF DAY ***" : "*** NOT A Z - DAY STILL OPEN ***";
         lines.Add(new ReceiptLine(footer, ReceiptAlign.Center, Bold: true));
 
+        return new ReceiptDocument(lineWidth, lines);
+    }
+
+    /// <summary>A wastage (ullage) docket: what was written off, why, by whom, and its value at cost.</summary>
+    public static ReceiptDocument BuildWastage(Stock.WastageRecorded recorded, IReadOnlyList<Stock.WastageLine> items, string reason,
+        string? employeeName, StoreProfile store, int lineWidth)
+    {
+        ArgumentNullException.ThrowIfNull(recorded);
+        ArgumentNullException.ThrowIfNull(items);
+        ArgumentNullException.ThrowIfNull(store);
+        if (lineWidth < 24)
+            throw new ArgumentOutOfRangeException(nameof(lineWidth), "Receipts need at least 24 characters per line.");
+
+        var lines = new List<ReceiptLine>();
+        var separator = new ReceiptLine(new string('-', lineWidth));
+        if (!string.IsNullOrWhiteSpace(store.BusinessName))
+            lines.Add(new ReceiptLine(store.BusinessName.Trim(), ReceiptAlign.Center, Bold: true));
+        lines.Add(new ReceiptLine("WASTAGE", ReceiptAlign.Center, Bold: true, Large: true));
+        lines.Add(new ReceiptLine(""));
+        lines.Add(TwoColumn($"Docket {recorded.Docket}", recorded.AtUtc.ToLocalTime().ToString("dd/MM/yyyy HH:mm", Au), lineWidth));
+        if (!string.IsNullOrWhiteSpace(employeeName))
+            lines.Add(new ReceiptLine("By " + employeeName.Trim()));
+        foreach (var part in Wrap("Reason: " + reason, lineWidth))
+            lines.Add(new ReceiptLine(part));
+        lines.Add(separator);
+        foreach (var item in items.Where(i => i.Quantity != 0))
+        {
+            foreach (var part in Wrap(item.ProductName, lineWidth))
+                lines.Add(new ReceiptLine(part));
+            var what = item.PackUnits == 1 ? $"  {item.Quantity:0.##} x single" : $"  {item.Quantity:0.##} x {item.PackName} ({item.PackUnits})";
+            lines.Add(TwoColumn(what, Money(item.Cost), lineWidth));
+        }
+        lines.Add(separator);
+        lines.Add(TwoColumn($"Total at cost ({recorded.Singles:0.##} items)", Money(recorded.Cost), lineWidth, bold: true));
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine("Signed " + new string('_', Math.Max(10, lineWidth - 7))));
         return new ReceiptDocument(lineWidth, lines);
     }
 

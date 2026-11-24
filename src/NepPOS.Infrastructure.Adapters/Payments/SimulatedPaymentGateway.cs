@@ -31,4 +31,8 @@ public sealed class SimulatedPaymentGateway : IPaymentGateway
             CardType: "VISA",
             MaskedPan: "**** **** **** 4242");
     }
+
+    /// <summary>Refunds always approve (after the same short wait), except amounts ending in .13 cents.</summary>
+    public Task<PaymentResult> RefundAsync(PaymentRequest request, CancellationToken cancellationToken = default) =>
+        PurchaseAsync(request, cancellationToken);
 }

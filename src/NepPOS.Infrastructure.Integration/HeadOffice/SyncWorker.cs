@@ -12,6 +12,7 @@ namespace NepPOS.Infrastructure.Integration.HeadOffice;
 public sealed class SyncWorker : IDisposable
 {
     private static readonly TimeSpan HeartbeatEvery = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan StockEvery = TimeSpan.FromMinutes(1);
 
     private readonly IServiceScopeFactory _scopes;
     private readonly ILogger<SyncWorker> _logger;
@@ -21,6 +22,7 @@ public sealed class SyncWorker : IDisposable
 
     private SyncStatus _status = new(SyncOutcome.NotConnected, null, null, 0);
     private DateTime _lastHeartbeatUtc = DateTime.MinValue;
+    private DateTime _lastStockUtc = DateTime.MinValue;
 
     public SyncWorker(IServiceScopeFactory scopes, ILogger<SyncWorker> logger)
     {
@@ -53,6 +55,13 @@ public sealed class SyncWorker : IDisposable
             {
                 using var scope = _scopes.CreateScope();
                 var sync = scope.ServiceProvider.GetRequiredService<SyncService>();
+
+                // Stock levels for the website, at most once a minute (it reads every product).
+                if (DateTime.UtcNow - _lastStockUtc >= StockEvery && scope.ServiceProvider.GetService<IStockPublisher>() is { } stock)
+                {
+                    await stock.QueueChangesAsync(cancellationToken: _stop.Token);
+                    _lastStockUtc = DateTime.UtcNow;
+                }
 
                 var result = await sync.SendOutboxAsync(_stop.Token);
 

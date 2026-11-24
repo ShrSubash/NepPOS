@@ -21,6 +21,12 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<ReceivedEvent> ReceivedEvents => Set<ReceivedEvent>();
     public DbSet<WebsiteKey> WebsiteKeys => Set<WebsiteKey>();
     public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
+    public DbSet<WebsiteEvent> WebsiteEvents => Set<WebsiteEvent>();
+    public DbSet<StockLevelRow> StockLevels => Set<StockLevelRow>();
+    public DbSet<SharedCustomer> SharedCustomers => Set<SharedCustomer>();
+    public DbSet<SharedAccountLine> SharedAccountLines => Set<SharedAccountLine>();
+    public DbSet<SharedGiftCard> SharedGiftCards => Set<SharedGiftCard>();
+    public DbSet<SharedGiftCardLine> SharedGiftCardLines => Set<SharedGiftCardLine>();
     public DbSet<PlatformUser> PlatformUsers => Set<PlatformUser>();
     public DbSet<AuditEntry> AuditEntries => Set<AuditEntry>();
     public DbSet<TenantLicence> TenantLicences => Set<TenantLicence>();
@@ -88,6 +94,66 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.HasIndex(e => e.EventId).IsUnique();
             entity.HasIndex(e => new { e.RegisterId, e.Sequence }).IsUnique();
             entity.HasIndex(e => new { e.TenantId, e.StoreId, e.OccurredAtUtc });
+        });
+
+        modelBuilder.Entity<StockLevelRow>(entity =>
+        {
+            entity.HasKey(s => new { s.StoreId, s.ProductId });
+            entity.Property(s => s.StockOnHand).HasPrecision(18, 3);
+            entity.HasIndex(s => new { s.StoreId, s.LastEventId });
+            entity.HasOne<Store>().WithMany().HasForeignKey(s => s.StoreId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WebsiteEvent>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Type).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.Payload).IsRequired();
+            entity.HasIndex(e => e.EventId).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.Id });
+            entity.HasOne<Tenant>().WithMany().HasForeignKey(e => e.TenantId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasOne<WebsiteKey>().WithMany().HasForeignKey(e => e.WebsiteKeyId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<SharedCustomer>(entity =>
+        {
+            entity.HasKey(c => new { c.TenantId, c.CustomerId });
+            entity.Property(c => c.Code).IsRequired().HasMaxLength(20);
+            entity.Property(c => c.Name).IsRequired().HasMaxLength(200);
+            entity.Property(c => c.Email).HasMaxLength(200);
+            entity.Property(c => c.Phone).HasMaxLength(30);
+            entity.Property(c => c.CreditLimit).HasPrecision(18, 2);
+            entity.Property(c => c.Balance).HasPrecision(18, 2);
+            entity.HasIndex(c => new { c.TenantId, c.Email });
+            entity.HasIndex(c => new { c.TenantId, c.Code });
+        });
+
+        modelBuilder.Entity<SharedAccountLine>(entity =>
+        {
+            entity.HasKey(l => l.EntryId);
+            entity.Property(l => l.Kind).IsRequired().HasMaxLength(20);
+            entity.Property(l => l.Amount).HasPrecision(18, 2);
+            entity.Property(l => l.Where).HasMaxLength(100);
+            entity.Property(l => l.Note).HasMaxLength(300);
+            entity.HasIndex(l => new { l.TenantId, l.CustomerId });
+        });
+
+        modelBuilder.Entity<SharedGiftCard>(entity =>
+        {
+            entity.HasKey(g => new { g.TenantId, g.Code });
+            entity.Property(g => g.Code).HasMaxLength(20);
+            entity.Property(g => g.Kind).IsRequired().HasMaxLength(20);
+            entity.Property(g => g.Balance).HasPrecision(18, 2);
+        });
+
+        modelBuilder.Entity<SharedGiftCardLine>(entity =>
+        {
+            entity.HasKey(l => l.EventId);
+            entity.Property(l => l.Code).IsRequired().HasMaxLength(20);
+            entity.Property(l => l.Amount).HasPrecision(18, 2);
+            entity.Property(l => l.Note).HasMaxLength(200);
+            entity.Property(l => l.Where).HasMaxLength(100);
+            entity.HasIndex(l => new { l.TenantId, l.Code });
         });
 
         modelBuilder.Entity<CatalogItem>(entity =>
@@ -247,6 +313,92 @@ public sealed class WebsiteKey
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
     public DateTime? LastUsedUtc { get; set; }
     public bool IsRevoked { get; set; }
+}
+
+/// <summary>A product's latest stock on hand at one store (from <c>stock.changed</c>), which the website reads.</summary>
+public sealed class StockLevelRow
+{
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+    public Guid ProductId { get; set; }
+    public decimal StockOnHand { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+
+    /// <summary>The <see cref="ReceivedEvent"/> that last changed it: the website's change number.</summary>
+    public long LastEventId { get; set; }
+}
+
+/// <summary>
+/// A change the business's website made (a customer signed up, a gift card spent online). Kept like a register's
+/// event and passed on to every register (GET /api/v1/sync/shared, numbered separately from register events).
+/// </summary>
+public sealed class WebsiteEvent
+{
+    public long Id { get; set; }
+    public Guid EventId { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid WebsiteKeyId { get; set; }
+    public string Type { get; set; } = "";
+    public int Version { get; set; } = 1;
+    public DateTime OccurredAtUtc { get; set; }
+    public string Payload { get; set; } = "";
+    public DateTime ReceivedUtc { get; set; } = DateTime.UtcNow;
+}
+
+/// <summary>Head Office's copy of a customer (newest edit from any register or the website), with their account balance.</summary>
+public sealed class SharedCustomer
+{
+    public Guid TenantId { get; set; }
+    public Guid CustomerId { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? Email { get; set; }
+    public string? Phone { get; set; }
+    public bool IsAccount { get; set; }
+    public decimal CreditLimit { get; set; }
+    public int TermsDays { get; set; }
+    public bool IsActive { get; set; } = true;
+    public decimal Balance { get; set; }
+    public DateTime CreatedUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+}
+
+/// <summary>Head Office's copy of one line on a customer's account.</summary>
+public sealed class SharedAccountLine
+{
+    public Guid EntryId { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid CustomerId { get; set; }
+    public string Kind { get; set; } = "";
+    public decimal Amount { get; set; }
+    public long? InvoiceNumber { get; set; }
+    public DateTime AtUtc { get; set; }
+    public DateTime? DueUtc { get; set; }
+    public string? Where { get; set; }
+    public string? Note { get; set; }
+}
+
+/// <summary>Head Office's copy of a gift card or store credit and its balance across all stores and the website.</summary>
+public sealed class SharedGiftCard
+{
+    public Guid TenantId { get; set; }
+    public string Code { get; set; } = "";
+    public string Kind { get; set; } = "GiftCard";
+    public decimal Balance { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime? LastUsedUtc { get; set; }
+}
+
+/// <summary>One movement of a gift card (from a register or the website); its id is the event's id.</summary>
+public sealed class SharedGiftCardLine
+{
+    public Guid EventId { get; set; }
+    public Guid TenantId { get; set; }
+    public string Code { get; set; } = "";
+    public decimal Amount { get; set; }
+    public DateTime AtUtc { get; set; }
+    public string? Note { get; set; }
+    public string? Where { get; set; }
 }
 
 /// <summary>

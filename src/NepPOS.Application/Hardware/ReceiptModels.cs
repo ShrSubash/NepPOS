@@ -83,6 +83,9 @@ public sealed record RegisterSettings
 
     /// <summary>Sunday and public holiday surcharges (Manage → Surcharges).</summary>
     public SurchargeSettings Surcharges { get; init; } = new();
+
+    /// <summary>Discounts by hand (Manage → Promotions).</summary>
+    public DiscountSettings Discounts { get; init; } = new();
 }
 
 public enum ReceiptAlign

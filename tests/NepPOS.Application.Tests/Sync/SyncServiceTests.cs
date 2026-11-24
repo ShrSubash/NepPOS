@@ -118,10 +118,10 @@ public class SyncServiceTests
         var store = new FakeShared();
         var client = new FakeClient
         {
-            Shared = after => after switch
+            Shared = after => after.Registers switch
             {
                 0 => new SharedEventsResponse(new[] { Shared(3), Shared(5) }, 5, More: true),
-                5 => new SharedEventsResponse(new[] { Shared(9) }, 12, More: false),
+                5 => new SharedEventsResponse(new[] { Shared(9), new SharedEvent(2, Shared(2).Event, FromWebsite: true) }, 12, More: false, LastWebId: 2),
                 _ => throw new InvalidOperationException("asked again")
             }
         };
@@ -129,32 +129,32 @@ public class SyncServiceTests
         var result = await new SyncService(new FakeConnections(Connected), client, new FakeOutbox(), shared: store).PullSharedAsync();
 
         Assert.Equal(SyncOutcome.UpToDate, result.Outcome);
-        Assert.Equal(3, result.Received);
-        Assert.Equal(12, store.Cursor);
-        Assert.Equal(new long[] { 3, 5, 9 }, store.Applied);
+        Assert.Equal(4, result.Received);
+        Assert.Equal(new SharedCursor(12, 2), store.Cursor);
+        Assert.Equal(new long[] { 3, 5, 9, 2 }, store.Applied);
     }
 
     [Fact]
     public async Task PullShared_NothingNew_StillMovesPastOtherEvents()
     {
-        var store = new FakeShared { Cursor = 40 };
-        var client = new FakeClient { Shared = after => new SharedEventsResponse(Array.Empty<SharedEvent>(), 57, false) };
+        var store = new FakeShared { Cursor = new SharedCursor(40, 3) };
+        var client = new FakeClient { Shared = after => new SharedEventsResponse(Array.Empty<SharedEvent>(), 57, false, after.Website) };
 
         await new SyncService(new FakeConnections(Connected), client, new FakeOutbox(), shared: store).PullSharedAsync();
 
-        Assert.Equal(57, store.Cursor);
+        Assert.Equal(new SharedCursor(57, 3), store.Cursor);
     }
 
     [Fact]
     public async Task PullShared_Unreachable_KeepsTheCursor()
     {
-        var store = new FakeShared { Cursor = 8 };
+        var store = new FakeShared { Cursor = new SharedCursor(8, 1) };
         var client = new FakeClient { Throw = new HeadOfficeException(HeadOfficeProblem.Unreachable, "offline") };
 
         var result = await new SyncService(new FakeConnections(Connected), client, new FakeOutbox(), shared: store).PullSharedAsync();
 
         Assert.Equal(SyncOutcome.Failed, result.Outcome);
-        Assert.Equal(8, store.Cursor);
+        Assert.Equal(new SharedCursor(8, 1), store.Cursor);
     }
 
     [Fact]
@@ -172,15 +172,15 @@ public class SyncServiceTests
 
     private sealed class FakeShared : ISharedDataStore
     {
-        public long Cursor { get; set; }
+        public SharedCursor Cursor { get; set; }
         public List<long> Applied { get; } = new();
 
-        public Task<long> GetCursorAsync(CancellationToken ct = default) => Task.FromResult(Cursor);
+        public Task<SharedCursor> GetCursorAsync(CancellationToken ct = default) => Task.FromResult(Cursor);
 
-        public Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, long lastId, CancellationToken ct = default)
+        public Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, SharedCursor next, CancellationToken ct = default)
         {
             Applied.AddRange(events.Select(e => e.Id));
-            Cursor = lastId;
+            Cursor = next;
             return Task.FromResult(events.Count);
         }
     }
@@ -237,13 +237,13 @@ public class SyncServiceTests
                 ?? new SyncEventsResponse(events.Select(e => e.EventId).ToList(), Array.Empty<Guid>(), Array.Empty<RejectedEvent>(), events[^1].Sequence));
         }
 
-        public Func<long, SharedEventsResponse>? Shared { get; init; }
+        public Func<SharedCursor, SharedEventsResponse>? Shared { get; init; }
 
-        public Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection c, long afterId, CancellationToken ct = default)
+        public Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection c, SharedCursor after, CancellationToken ct = default)
         {
             Calls++;
             if (Throw is not null) throw Throw;
-            return Task.FromResult(Shared?.Invoke(afterId) ?? new SharedEventsResponse(Array.Empty<SharedEvent>(), afterId, false));
+            return Task.FromResult(Shared?.Invoke(after) ?? new SharedEventsResponse(Array.Empty<SharedEvent>(), after.Registers, false, after.Website));
         }
 
         public Task<ActivateResponse> ActivateAsync(string baseUrl, ActivateRequest request, CancellationToken ct = default) =>

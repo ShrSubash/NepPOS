@@ -29,6 +29,8 @@ public static class WebsiteEndpoints
         website.MapGet("/stores", GetStoresAsync);
         website.MapGet("/reports/sales", GetSalesAsync);
         website.MapGet("/catalog/changes", GetCatalogChangesAsync);
+        website.MapWebsiteAccountEndpoints();
+        website.MapGet("/stock/changes", GetStockChangesAsync);
     }
 
     internal static async Task<IResult> GetStoresAsync(HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
@@ -93,6 +95,28 @@ public static class WebsiteEndpoints
     /// A store's products changed after <paramref name="after"/> (a change number), oldest first.
     /// <c>after=0</c> gives the whole catalog. Inactive products are included, so the website can stop selling them.
     /// </summary>
+    /// <summary>A store's stock levels changed after change number <paramref name="after"/>, oldest first (0 = all).</summary>
+    internal static async Task<IResult> GetStockChangesAsync(Guid storeId, long? after, int? limit, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var tenantId = WebsiteApiKeyHandler.TenantOf(http.User);
+        if (!await db.Stores.AnyAsync(s => s.Id == storeId && s.TenantId == tenantId, ct))
+            return Results.NotFound();
+
+        var take = Math.Clamp(limit ?? 500, 1, 1000);
+        var from = Math.Max(0, after ?? 0);
+        var rows = await db.StockLevels.AsNoTracking()
+            .Where(s => s.StoreId == storeId && s.LastEventId > from)
+            .OrderBy(s => s.LastEventId)
+            .Take(take + 1)
+            .ToListAsync(ct);
+        var more = rows.Count > take;
+        var page = rows.Take(take).ToList();
+        return Results.Ok(new StockChanges(
+            page.Select(s => new StockLevel(s.ProductId, s.StockOnHand, DateTime.SpecifyKind(s.UpdatedUtc, DateTimeKind.Utc), s.LastEventId)).ToList(),
+            page.Count > 0 ? page[^1].LastEventId : from,
+            more));
+    }
+
     internal static async Task<IResult> GetCatalogChangesAsync(Guid storeId, long? after, int? limit, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
     {
         var tenantId = WebsiteApiKeyHandler.TenantOf(http.User);

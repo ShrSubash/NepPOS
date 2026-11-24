@@ -1,4 +1,4 @@
-using NepPOS.Application.Accounts;
+using NepPOS.Contracts.Accounts;
 using NepPOS.Application.Customers;
 using NepPOS.Application.Hardware;
 using NepPOS.Application.Payments;

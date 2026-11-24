@@ -1,0 +1,93 @@
+@*
+    A discount by hand on one line or the whole sale: % or $, with a reason. Over the cashier's limit (Manage → Promotions)
+    a manager has to give it.
+*@
+<div class="rd-overlay">
+    <div class="rd-shell dd-shell">
+        <div class="rd-head">
+            <h2>@Title</h2>
+            <button class="rd-close" @onclick="() => OnClose.InvokeAsync()">Close</button>
+        </div>
+        <div class="rd-info"><span>Price</span><strong>@Full.ToString("C")</strong>@if (Current > 0) { <span>now @Current.ToString("C") off</span> }</div>
+
+        @if (_message is not null)
+        {
+            <div class="rd-msg error">@_message</div>
+        }
+
+        <div class="gc-amounts">
+            @foreach (var p in Percents)
+            {
+                <button class="rd-chip @(_percent == p && !_byAmount ? "on" : "")" @onclick="() => (_percent, _byAmount) = (p, false)">@p%</button>
+            }
+        </div>
+        <div class="gc-amounts">
+            <input class="gc-other" type="number" min="0" max="100" step="1" placeholder="Other %" @bind="_percent" @bind:event="oninput" @onfocus="() => _byAmount = false" />
+            <span class="rd-muted">or</span>
+            <input class="gc-other" type="number" min="0" step="0.05" placeholder="$ off" @bind="_amount" @bind:event="oninput" @onfocus="() => _byAmount = true" />
+        </div>
+
+        <label class="gc-label">Reason</label>
+        <div class="gc-amounts">
+            @foreach (var r in Reasons)
+            {
+                <button class="rd-chip @(_reason == r ? "on" : "")" @onclick="() => _reason = r">@r</button>
+            }
+        </div>
+        <input class="dd-reason" @bind="_reason" placeholder="Or type the reason" />
+
+        <div class="rd-foot">
+            @if (Current > 0)
+            {
+                <button class="rd-btn" @onclick="() => OnApply.InvokeAsync((0m, null))">Remove discount</button>
+            }
+            else
+            {
+                <span></span>
+            }
+            <button class="rd-btn primary" disabled="@(Off <= 0 || string.IsNullOrWhiteSpace(_reason))" @onclick="ApplyAsync">
+                Take off @Off.ToString("C")
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Discount";
+
+    /// <summary>The full price of the line or sale (what the % is of).</summary>
+    [Parameter] public decimal Full { get; set; }
+
+    /// <summary>The discount already on it (0 = none).</summary>
+    [Parameter] public decimal Current { get; set; }
+
+    [Parameter] public decimal CashierMaxPercent { get; set; } = 10m;
+    [Parameter] public bool IsManager { get; set; }
+    [Parameter] public IReadOnlyList<string> Reasons { get; set; } = Array.Empty<string>();
+
+    /// <summary>(amount off, reason); (0, null) removes it.</summary>
+    [Parameter] public EventCallback<(decimal Amount, string? Reason)> OnApply { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private static readonly decimal[] Percents = { 5m, 10m, 15m, 20m, 25m };
+    private decimal? _percent;
+    private decimal? _amount;
+    private bool _byAmount;
+    private string _reason = "";
+    private string? _message;
+
+    private decimal Off => Math.Min(Full, decimal.Round(_byAmount ? _amount ?? 0m : Full * (_percent ?? 0m) / 100m, 2, MidpointRounding.AwayFromZero));
+
+    private async Task ApplyAsync()
+    {
+        var percent = Full == 0 ? 0 : Off / Full * 100m;
+        if (!IsManager && percent > CashierMaxPercent + 0.001m)
+        {
+            _message = CashierMaxPercent <= 0
+                ? "Only a manager can give discounts."
+                : $"Cashiers can take off up to {CashierMaxPercent:0.#}%. A manager has to give more.";
+            return;
+        }
+        await OnApply.InvokeAsync((Off, _reason.Trim()));
+    }
+}

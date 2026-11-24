@@ -54,12 +54,45 @@ public sealed class SpicePaymentGateway : IPaymentGateway, IDisposable
 
     public string Name => "mx51 Spice";
 
-    public async Task<PaymentResult> PurchaseAsync(PaymentRequest request, CancellationToken cancellationToken = default)
+    public Task<PaymentResult> PurchaseAsync(PaymentRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (request.Amount <= 0)
             throw new ArgumentOutOfRangeException(nameof(request), "Purchase amount must be positive.");
 
+        return SendAsync("purchase", request, posRefId => new Dictionary<string, object>
+        {
+            ["posRefId"] = posRefId,
+            ["purchaseAmount"] = ToCents(request.Amount),
+            ["tipAmount"] = 0,
+            ["surchargeAmount"] = 0,
+            ["cashoutAmount"] = 0,
+            ["promptForCashout"] = false
+        }, cancellationToken);
+    }
+
+    /// <summary>
+    /// A refund to the card the customer taps (Spice /v1/refund). Spice doesn't tie it to the original purchase, so the
+    /// register shows the cashier the original card's last digits to check. The merchant password prompt is left on.
+    /// </summary>
+    public Task<PaymentResult> RefundAsync(PaymentRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Amount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(request), "Refund amount must be positive.");
+
+        return SendAsync("refund", request, posRefId => new Dictionary<string, object>
+        {
+            ["posRefId"] = posRefId,
+            ["refundAmount"] = ToCents(request.Amount),
+            ["suppressMerchantPassword"] = false
+        }, cancellationToken);
+    }
+
+    /// <summary>One purchase or refund: ping, send once, and if the answer is lost, look it up before saying anything.</summary>
+    private async Task<PaymentResult> SendAsync(string kind, PaymentRequest request, Func<string, Dictionary<string, object>> buildPayload,
+        CancellationToken cancellationToken)
+    {
         // 1. Is Spice running and paired? If not, nothing is sent and nobody is charged.
         if (!await IsReadyAsync(cancellationToken))
             return Declined("NR", "EFTPOS NOT AVAILABLE - check Spice is running and the terminal is paired.");
@@ -68,50 +101,42 @@ public sealed class SpicePaymentGateway : IPaymentGateway, IDisposable
         var posRefId = $"{request.TransactionId:N}"[..12] + "-" +
                        DateTime.Now.ToString("HHmmssfff", CultureInfo.InvariantCulture);
 
-        var payload = new Dictionary<string, object>
-        {
-            ["posRefId"] = posRefId,
-            ["purchaseAmount"] = ToCents(request.Amount),
-            ["tipAmount"] = 0,
-            ["surchargeAmount"] = 0,
-            ["cashoutAmount"] = 0,
-            ["promptForCashout"] = false
-        };
+        var payload = buildPayload(posRefId);
         if (!string.IsNullOrWhiteSpace(_options.PosId))
             payload["posId"] = _options.PosId;
 
         var json = JsonSerializer.Serialize(payload);
-        Log($"Purchase request: {json}");
+        Log($"{kind} request: {json}");
 
         string body;
         try
         {
             // Deliberately NOT cancellable (CancellationToken.None) — see class remarks.
             using var content = new StringContent(json, Encoding.UTF8, "application/json");
-            using var response = await _http.PostAsync("v1/purchase", content, CancellationToken.None);
+            using var response = await _http.PostAsync("v1/" + kind, content, CancellationToken.None);
             body = await response.Content.ReadAsStringAsync(CancellationToken.None);
         }
         catch (HttpRequestException ex) when (ex.HttpRequestError == HttpRequestError.ConnectionError)
         {
-            // Never reached Spice: the purchase was not sent, the customer was not charged.
-            Log($"Purchase {posRefId} not sent - Spice not reachable: {ex.Message}");
+            // Never reached Spice: nothing was sent, the card was not touched.
+            Log($"{kind} {posRefId} not sent - Spice not reachable: {ex.Message}");
             return Declined("NC", "EFTPOS (Spice) is not running.");
         }
         catch (Exception ex)
         {
             // Sent, but no answer. Find out what actually happened before telling the cashier anything.
-            Log($"Purchase {posRefId} sent but no response ({ex.Message}) - checking status");
-            return await RecoverAsync(posRefId);
+            Log($"{kind} {posRefId} sent but no response ({ex.Message}) - checking status");
+            return await RecoverAsync(kind, posRefId);
         }
 
-        Log($"Purchase response: {body}");
+        Log($"{kind} response: {body}");
 
         var node = ParseResponseNode(body);
         if (node is null || !node.Value.TryGetProperty("success", out _))
         {
             // mx51: no Response object means the result is unknown — recover, don't guess.
-            Log($"Purchase {posRefId} returned no Response - checking status");
-            return await RecoverAsync(posRefId);
+            Log($"{kind} {posRefId} returned no Response - checking status");
+            return await RecoverAsync(kind, posRefId);
         }
 
         return MapResult(node.Value);
@@ -137,10 +162,10 @@ public sealed class SpicePaymentGateway : IPaymentGateway, IDisposable
         }
     }
 
-    /// <summary>Looks a sent purchase up by posRefId (legacy SendLast). Three tries before giving up.</summary>
-    private async Task<PaymentResult> RecoverAsync(string posRefId)
+    /// <summary>Looks a sent purchase or refund up by posRefId (legacy SendLast). Three tries before giving up.</summary>
+    private async Task<PaymentResult> RecoverAsync(string kind, string posRefId)
     {
-        var url = "v1/purchase?posRefId=" + Uri.EscapeDataString(posRefId);
+        var url = $"v1/{kind}?posRefId=" + Uri.EscapeDataString(posRefId);
         if (!string.IsNullOrWhiteSpace(_options.PosId))
             url += "&posId=" + Uri.EscapeDataString(_options.PosId);
 

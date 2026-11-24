@@ -1,0 +1,244 @@
+@page "/manage/wastage"
+@layout ManageLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Stock
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IWastageService WastageService
+@inject ILocalHardwareService Hardware
+@inject IRegisterSettingsStore SettingsStore
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Wastage (ullages)</span>
+            <span class="hint-light">Broken, expired or used stock, written off at cost</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card">
+                <h2>Write off stock</h2>
+                <form class="pt-row" @onsubmit="FindAsync">
+                    <input @ref="FindInput" @bind="Term" placeholder="Scan a barcode, or type a PLU or name" autocomplete="off" />
+                    <button class="chip" type="submit">Find</button>
+                </form>
+
+                @if (Found.Count > 0)
+                {
+                    <div class="ws-found">
+                        @foreach (var p in Found)
+                        {
+                            <button class="ws-pick" @onclick="() => Add(p)">
+                                <strong>@p.Name</strong>
+                                <span>@(p.Plu is null ? "" : $"PLU {p.Plu} · ")@p.CostPerSingle.ToString("C") cost · @p.StockOnHand.ToString("0.##") in stock</span>
+                            </button>
+                        }
+                    </div>
+                }
+
+                @if (Lines.Count > 0)
+                {
+                    <table class="gc-table ws-lines">
+                        <thead><tr><th>Product</th><th>Size</th><th>Qty</th><th class="num">Cost</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var line in Lines)
+                            {
+                                <tr>
+                                    <td><strong>@line.Product.Name</strong></td>
+                                    <td>
+                                        @foreach (var pack in line.Product.Packs)
+                                        {
+                                            <button class="chip small @(line.Pack == pack ? "on" : "")" @onclick="() => line.Pack = pack">@(pack.Units == 1 ? "Single" : $"{pack.Name} ({pack.Units})")</button>
+                                        }
+                                    </td>
+                                    <td class="ws-qty">
+                                        <button class="chip small" @onclick="() => line.Quantity = Math.Max(1, line.Quantity - 1)">−</button>
+                                        <span>@line.Quantity</span>
+                                        <button class="chip small" @onclick="() => line.Quantity++">+</button>
+                                    </td>
+                                    <td class="num">@line.ToLine().Cost.ToString("C")</td>
+                                    <td><button class="chip small danger" @onclick="() => Lines.Remove(line)">✕</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <h3>Reason</h3>
+                    <div class="pt-row">
+                        @foreach (var r in NepPOS.Application.Stock.Wastage.Reasons)
+                        {
+                            <button class="chip @(Reason == r ? "on" : "")" @onclick="() => Reason = r">@r</button>
+                        }
+                    </div>
+                    <input @bind="Reason" placeholder="Or type the reason" />
+
+                    <div class="test-row">
+                        @if (PrinterOn)
+                        {
+                            <label class="check"><input type="checkbox" @bind="PrintDocket" /> Print the docket</label>
+                        }
+                        <button class="save-btn" disabled="@(Busy || string.IsNullOrWhiteSpace(Reason))" @onclick="RecordAsync">
+                            Write off @Lines.Sum(l => l.ToLine().Cost).ToString("C")
+                        </button>
+                        <button class="chip" @onclick="() => Lines.Clear()">Clear</button>
+                    </div>
+                }
+                else
+                {
+                    <p class="field-note">Find each product, choose single or pack and how many, then the reason. Stock comes off straight away, and the day's Z shows the wastage total.</p>
+                }
+            </section>
+
+            <section class="card">
+                <h2>Written off <span class="hint">at cost</span></h2>
+                <div class="pt-row">
+                    @foreach (var (label, days) in Periods)
+                    {
+                        <button class="chip @(Days == days ? "on" : "")" @onclick="() => LoadHistoryAsync(days)">@label</button>
+                    }
+                </div>
+                <div class="gc-totals">
+                    <span>Total: <strong>@History.Sum(h => h.Cost).ToString("C")</strong></span>
+                    @foreach (var reason in History.GroupBy(h => h.Reason).OrderByDescending(g => g.Sum(h => h.Cost)).Take(4))
+                    {
+                        <span>@(string.IsNullOrEmpty(reason.Key) ? "Other" : reason.Key): <strong>@reason.Sum(h => h.Cost).ToString("C")</strong></span>
+                    }
+                </div>
+                @if (History.Count == 0)
+                {
+                    <p class="field-note">Nothing written off in this period.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>When</th><th>Product</th><th>Why</th><th class="num">Qty</th><th class="num">Cost</th></tr></thead>
+                        <tbody>
+                            @foreach (var h in History)
+                            {
+                                <tr>
+                                    <td>@h.AtUtc.ToLocalTime().ToString("d MMM h:mm tt")</td>
+                                    <td>@h.ProductName<div class="sub">@h.EmployeeName</div></td>
+                                    <td>@h.Reason</td>
+                                    <td class="num">@h.Singles.ToString("0.##")</td>
+                                    <td class="num">@h.Cost.ToString("C")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly (string Label, int Days)[] Periods = { ("Today", 0), ("7 days", 6), ("30 days", 29) };
+
+    private ElementReference FindInput;
+    private string Term = "";
+    private IReadOnlyList<WastageProduct> Found = Array.Empty<WastageProduct>();
+    private readonly List<LineForm> Lines = new();
+    private string Reason = "";
+    private bool PrinterOn;
+    private bool PrintDocket = true;
+    private int Days = 6;
+    private IReadOnlyList<WastageEntry> History = Array.Empty<WastageEntry>();
+    private bool Busy;
+    private string? Message;
+    private bool IsError;
+
+    private sealed class LineForm
+    {
+        public required WastageProduct Product { get; init; }
+        public required WastagePack Pack { get; set; }
+        public int Quantity { get; set; } = 1;
+
+        public WastageLine ToLine() => new(Product.ProductId, Product.Name, Pack.Name, Pack.Units, Quantity, Product.CostPerSingle);
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        PrinterOn = SettingsStore.Load().Printer.Mode != PrinterMode.None;
+        await LoadHistoryAsync(Days);
+    }
+
+    private async Task FindAsync()
+    {
+        Found = await WastageService.FindProductsAsync(Term);
+        if (Found.Count == 1)
+        {
+            Add(Found[0]);
+            Found = Array.Empty<WastageProduct>();
+        }
+        else if (Found.Count == 0)
+        {
+            (Message, IsError) = ($"Nothing matches \"{Term.Trim()}\".", true);
+        }
+    }
+
+    private void Add(WastageProduct product)
+    {
+        var existing = Lines.FirstOrDefault(l => l.Product.ProductId == product.ProductId);
+        if (existing is not null)
+            existing.Quantity++;
+        else
+            Lines.Add(new LineForm { Product = product, Pack = product.Packs[0] });
+        (Term, Found, Message) = ("", Array.Empty<WastageProduct>(), null);
+    }
+
+    private async Task RecordAsync()
+    {
+        Busy = true;
+        try
+        {
+            var lines = Lines.Select(l => l.ToLine()).ToList();
+            var who = Session.Employee?.FullName;
+            var recorded = await WastageService.RecordAsync(lines, Reason, who);
+            (Message, IsError) = ($"Docket {recorded.Docket}: {recorded.Singles:0.##} items written off ({recorded.Cost:C} at cost)."
+                + (recorded.NegativeStock.Count > 0 ? $" Stock is now below zero for {string.Join(", ", recorded.NegativeStock)}: count it." : ""), false);
+
+            if (PrinterOn && PrintDocket)
+            {
+                var settings = SettingsStore.Load();
+                var printed = await Hardware.PrintReceiptAsync(
+                    ReceiptBuilder.BuildWastage(recorded, lines, Reason.Trim(), who, settings.Store, settings.Printer.LineWidth));
+                if (!printed.Succeeded)
+                    Message += " The docket didn't print: " + printed.Message;
+            }
+
+            Lines.Clear();
+            Reason = "";
+            await LoadHistoryAsync(Days);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task LoadHistoryAsync(int days)
+    {
+        Days = days;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        History = await WastageService.HistoryAsync(today.AddDays(-days), today);
+    }
+}

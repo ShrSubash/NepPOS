@@ -25,6 +25,19 @@ public enum JournalEventType
     /// <summary>The Sunday / public holiday surcharge was taken off a sale.</summary>
     SurchargeRemoved,
 
+    /// <summary>Stock written off (ullages): Amount = its value at cost.</summary>
+    WastageRecorded,
+
+    /// <summary>A sale put on hold (Amount = its total), and one recalled.</summary>
+    SaleHeld,
+    SaleRecalled,
+
+    /// <summary>A cashier gave a discount by hand (Amount = how much); promotions aren't journalled.</summary>
+    DiscountGiven,
+
+    /// <summary>A stocktake posted: stock set to what was counted (Amount = the difference at cost).</summary>
+    StocktakePosted,
+
     /// <summary>X reading printed: running totals since the last Z, nothing reset.</summary>
     XReport,
 

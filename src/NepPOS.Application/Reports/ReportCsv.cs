@@ -64,6 +64,7 @@ public static class ReportCsv
         Row("Activity", "Card result unknown", report.CardOutcomeUnknown, null);
         Row("Activity", "Sales not saved", report.SaveFailures, null);
         Row("Activity", "Receipts reprinted", report.Reprints, null);
+        Row("Activity", "Wastage at cost", report.WastageCount, report.WastageValue);
 
         return csv.ToString();
     }

@@ -1,0 +1,226 @@
+@page "/manage/labels"
+@layout ManageLayout
+@using NepPOS.Application.Catalog
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Promotions
+@using NepPOS.Application.Reports
+@using NepPOS.Application.Stock
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IProductCatalogService Catalog
+@inject IStockReceivingService Receiving
+@inject IPromotionService PromotionService
+@inject IReportFileStore Files
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Shelf labels</span>
+            <span class="hint-light">A4 sheets, 21 labels (Avery L7160 / J8160), any printer</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card">
+                <h2>Add products</h2>
+                <form class="pt-row" @onsubmit="FindAsync">
+                    <input @bind="Term" placeholder="Scan a barcode, or type a PLU or name" autocomplete="off" />
+                    <button class="chip" type="submit">Find</button>
+                </form>
+                @foreach (var f in Found)
+                {
+                    <button class="chip" @onclick="() => Add(f)">+ @f.Name · @f.Price.ToString("C")</button>
+                }
+
+                <h3>From a delivery</h3>
+                <p class="field-note">New stock and new prices usually need new labels.</p>
+                @foreach (var r in Deliveries)
+                {
+                    <button class="chip" @onclick="() => AddDeliveryAsync(r.Id)">@r.SupplierName · @r.InvoiceNumber · @r.PostedUtc.ToLocalTime().ToString("d MMM")</button>
+                }
+
+                <h3>On promotion now</h3>
+                <button class="chip" @onclick="AddPromotedAsync">+ Everything with a % or $ off running now</button>
+            </section>
+
+            <section class="card wide">
+                <h2>To print <span class="hint">@Queue.Sum(q => q.Copies) labels, @Sheets sheet@(Sheets == 1 ? "" : "s")</span></h2>
+                @if (Queue.Count > 0)
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Product</th><th class="num">Price</th><th>Code</th><th class="num">Copies</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var q in Queue)
+                            {
+                                <tr>
+                                    <td><strong>@q.Product.Name</strong>@if (q.WasPrice is { } was) { <div class="sub">Was @was.ToString("C")</div> }</td>
+                                    <td class="num">@q.Price.ToString("C")</td>
+                                    <td class="sub">@(CodeFor(q.Product) ?? "no barcode")</td>
+                                    <td class="num"><input class="st-qty" type="number" min="1" max="99" step="1" @bind="q.Copies" /></td>
+                                    <td><button class="chip small danger" @onclick="() => Queue.Remove(q)">✕</button></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+                else
+                {
+                    <p class="field-note">Nothing yet. Find products, or add a whole delivery.</p>
+                }
+                <label>Skip the first labels on the sheet (already used)
+                    <input class="st-qty" type="number" min="0" max="20" step="1" @bind="Skip" />
+                </label>
+                <div class="test-row">
+                    <button class="save-btn" disabled="@(Queue.Count == 0)" @onclick="PrintAsync">Make the PDF</button>
+                    <button class="chip" @onclick="Files.OpenFolder">📂 Open folder</button>
+                    @if (Queue.Count > 0)
+                    {
+                        <button class="chip" @onclick="Queue.Clear">Clear</button>
+                    }
+                </div>
+                <p class="field-note">Print at 100% (not "fit to page") so the labels line up.</p>
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private sealed class QueuedLabel
+    {
+        public required Product Product { get; init; }
+        public decimal Price { get; init; }
+        public decimal? WasPrice { get; init; }
+        public int Copies { get; set; } = 1;
+    }
+
+    private readonly List<QueuedLabel> Queue = new();
+    private IReadOnlyList<ReceiptSummary> Deliveries = Array.Empty<ReceiptSummary>();
+    private IReadOnlyList<Promotion> Running = Array.Empty<Promotion>();
+    private IReadOnlyList<Product> Found = Array.Empty<Product>();
+    private string Term = "";
+    private int Skip;
+    private string? Message;
+    private bool IsError;
+
+    private int Sheets => Queue.Count == 0 ? 0 : (int)Math.Ceiling((Math.Clamp(Skip, 0, 20) + Queue.Sum(q => Math.Max(1, q.Copies))) / (double)ShelfLabels.PerSheet);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Deliveries = (await Receiving.GetRecentAsync(6)).Where(r => !r.Reversed).ToList();
+        Running = (await PromotionService.ActiveAsync())
+            .Where(p => p.Kind is PromotionKind.PercentOff or PromotionKind.AmountOff && p.RunsAt(DateTime.Now))
+            .ToList();
+    }
+
+    private async Task FindAsync()
+    {
+        var term = Term.Trim();
+        if (term.Length == 0) return;
+        Found = (await Catalog.SearchAsync(term, 8)).ToList();
+        if (Found.Count == 1 && (Found[0].Barcode == term || Found[0].Plu == term))
+        {
+            Add(Found[0]);   // a scan adds straight away
+        }
+        else if (Found.Count == 0)
+        {
+            (Message, IsError) = ($"Nothing matches \"{term}\".", true);
+        }
+    }
+
+    private void Add(Product product)
+    {
+        var existing = Queue.FirstOrDefault(q => q.Product.Id == product.Id);
+        if (existing is not null)
+            existing.Copies++;
+        else
+            Queue.Add(Labelled(product));
+        (Term, Found, Message) = ("", Array.Empty<Product>(), null);
+    }
+
+    private async Task AddDeliveryAsync(int receiptId)
+    {
+        var receipt = await Receiving.GetAsync(receiptId);
+        if (receipt is null) return;
+        var products = (await Catalog.GetAllActiveAsync()).ToDictionary(p => p.Id);
+        var added = 0;
+        foreach (var id in receipt.Lines.Select(l => l.ProductId).Distinct())
+        {
+            if (!products.TryGetValue(id, out var product) || Queue.Any(q => q.Product.Id == id)) continue;
+            Queue.Add(Labelled(product));
+            added++;
+        }
+        (Message, IsError) = ($"Added {added} products from {receipt.SupplierName} {receipt.InvoiceNumber}.", false);
+    }
+
+    private async Task AddPromotedAsync()
+    {
+        if (Running.Count == 0)
+        {
+            (Message, IsError) = ("No % or $ off promotion is running right now.", true);
+            return;
+        }
+        var added = 0;
+        foreach (var product in await Catalog.GetAllActiveAsync())
+        {
+            if (Queue.Any(q => q.Product.Id == product.Id) || PromoFor(product) is null) continue;
+            Queue.Add(Labelled(product));
+            added++;
+        }
+        (Message, IsError) = ($"Added {added} products on promotion.", false);
+    }
+
+    /// <summary>The label price: a running % or $ off promotion shows its price, with "Was" the normal price.</summary>
+    private QueuedLabel Labelled(Product product)
+    {
+        var promo = PromoFor(product);
+        if (promo is null)
+            return new QueuedLabel { Product = product, Price = product.Price };
+        var price = promo.Kind == PromotionKind.PercentOff
+            ? product.Price * (1 - promo.Percent / 100m)
+            : product.Price - promo.Amount;
+        price = Math.Max(0, decimal.Round(price, 2, MidpointRounding.AwayFromZero));
+        return new QueuedLabel { Product = product, Price = price, WasPrice = product.Price };
+    }
+
+    private Promotion? PromoFor(Product product) =>
+        Running.FirstOrDefault(p => p.ProductIdList.Contains(product.Id)
+            || (!string.IsNullOrEmpty(p.Category) && string.Equals(p.Category, product.Category, StringComparison.OrdinalIgnoreCase)));
+
+    private static string? CodeFor(Product product)
+    {
+        var code = !string.IsNullOrWhiteSpace(product.Barcode) ? product.Barcode : product.Plu;
+        return string.IsNullOrWhiteSpace(code) || code.Any(c => c < 32 || c > 126) ? null : code.Trim();
+    }
+
+    private async Task PrintAsync()
+    {
+        try
+        {
+            var labels = Queue
+                .SelectMany(q => Enumerable.Repeat(new ShelfLabel(q.Product.Name, q.Price, CodeFor(q.Product), null, q.WasPrice), Math.Clamp(q.Copies, 1, 99)))
+                .ToList();
+            var pdf = ShelfLabels.Pdf(labels, Skip);
+            var path = await Files.SaveAsync($"Shelf labels {DateTime.Now:yyyy-MM-dd HHmm}.pdf", pdf);
+            (Message, IsError) = ($"Saved {labels.Count} labels: {path}", false);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            (Message, IsError) = ($"Couldn't make the labels: {ex.Message}", true);
+        }
+    }
+}

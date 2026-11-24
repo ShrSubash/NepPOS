@@ -1,0 +1,30 @@
+@using NepPOS.Domain.Entities
+
+@* Sales on hold at this register: tap one to bring it back onto the screen. *@
+<div class="rd-overlay">
+    <div class="rd-shell">
+        <div class="rd-head">
+            <h2>Recall a held sale</h2>
+            <button class="rd-close" @onclick="() => OnClose.InvokeAsync()">Close</button>
+        </div>
+        @if (Held.Count == 0)
+        {
+            <p class="rd-muted">Nothing is on hold.</p>
+        }
+        <div class="cu-list">
+            @foreach (var h in Held)
+            {
+                <button class="cu-row" @onclick="() => OnRecall.InvokeAsync(h)">
+                    <span class="cu-row-name">@h.Label<small>@h.ItemCount @(h.ItemCount == 1 ? "item" : "items") · held @h.HeldUtc.ToLocalTime().ToString("h:mm tt")@(h.EmployeeName is null ? "" : " by " + h.EmployeeName)</small></span>
+                    <span class="hs-total">@h.Total.ToString("C")</span>
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<HeldSale> Held { get; set; } = Array.Empty<HeldSale>();
+    [Parameter] public EventCallback<HeldSale> OnRecall { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}

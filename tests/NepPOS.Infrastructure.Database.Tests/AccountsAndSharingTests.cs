@@ -178,14 +178,14 @@ public class AccountsAndSharingTests : IDisposable
         var sold = Shared(3, SyncEventTypes.GiftCardMoved, new GiftCardMovedV1("GC-1234567890", "GiftCard", 50m, Guid.NewGuid(), 82, now, "Sold"), giftEventId);
 
         await using (var db = Db())
-            Assert.Equal(3, await new SharedDataStore(db).ApplyAsync(new[] { customer, charge, sold }, 3));
+            Assert.Equal(3, await new SharedDataStore(db).ApplyAsync(new[] { customer, charge, sold }, new SharedCursor(3, 0)));
 
         // The same page again (e.g. after a crash before the cursor was saved): nothing changes twice.
         await using (var db = Db())
-            Assert.Equal(0, await new SharedDataStore(db).ApplyAsync(new[] { customer, charge, sold }, 3));
+            Assert.Equal(0, await new SharedDataStore(db).ApplyAsync(new[] { customer, charge, sold }, new SharedCursor(3, 0)));
 
         await using var check = Db();
-        Assert.Equal(3, await new SharedDataStore(check).GetCursorAsync());
+        Assert.Equal(new SharedCursor(3, 0), await new SharedDataStore(check).GetCursorAsync());
         var club = await check.Customers.SingleAsync(c => c.Id == customerId);
         Assert.Equal(("Bowling Club", 240m), (club.Name, club.Balance));
         var card = await check.GiftCards.SingleAsync(g => g.Code == "GC-1234567890");
@@ -201,7 +201,7 @@ public class AccountsAndSharingTests : IDisposable
             null, null, null, null, null, null, true, 0m, 14, true, customer.CreatedUtc, customer.UpdatedUtc.AddMinutes(-5)));
 
         await using (var db = Db())
-            await new SharedDataStore(db).ApplyAsync(new[] { older }, 1);
+            await new SharedDataStore(db).ApplyAsync(new[] { older }, new SharedCursor(1, 0));
 
         await using var check = Db();
         Assert.Equal("Corner Café", (await check.Customers.SingleAsync(c => c.Id == customer.Id)).Name);
@@ -212,7 +212,7 @@ public class AccountsAndSharingTests : IDisposable
     {
         var sold = Shared(1, SyncEventTypes.GiftCardMoved, new GiftCardMovedV1("GC-9988776655", "GiftCard", 50m, null, 5, DateTime.UtcNow, "Sold"));
         await using (var db = Db())
-            await new SharedDataStore(db).ApplyAsync(new[] { sold }, 1);
+            await new SharedDataStore(db).ApplyAsync(new[] { sold }, new SharedCursor(1, 0));
 
         var sale = new SaleTransaction("STORE-001", "REG-001");
         sale.AddLineItem(new SaleLineItem("1", "Wine", 1, 30m, 0.10m));

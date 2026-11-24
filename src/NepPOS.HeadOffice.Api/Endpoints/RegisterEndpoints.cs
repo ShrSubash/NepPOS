@@ -1,5 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using NepPOS.Contracts.Sync;
+using NepPOS.HeadOffice.Api.Accounts;
 using NepPOS.HeadOffice.Api.Catalog;
 using NepPOS.HeadOffice.Api.Data;
 using NepPOS.HeadOffice.Api.Licensing;
@@ -21,13 +23,15 @@ public static class RegisterEndpoints
     }
 
     /// <summary>
-    /// The owner's shared events (customers, account lines, gift card movements) from their other registers,
-    /// after Head Office's number <paramref name="after"/>, oldest first. Each register keeps its own place.
+    /// The owner's shared events (customers, account lines, gift card movements) from their other registers after
+    /// Head Office's number <paramref name="after"/>, and from their website after <paramref name="afterWeb"/>,
+    /// oldest first. Each register keeps its own place.
     /// </summary>
-    internal static async Task<IResult> SharedAsync(long? after, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    internal static async Task<IResult> SharedAsync(long? after, long? afterWeb, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
     {
         var caller = RegisterIdentity.From(http.User);
         var from = Math.Max(0, after ?? 0);
+        var fromWeb = Math.Max(0, afterWeb ?? 0);
         var types = SyncEventTypes.Shared.ToList();
 
         // Read up to the newest number now, so an event arriving meanwhile is picked up next time, never skipped.
@@ -54,7 +58,20 @@ public static class RegisterEndpoints
         // When everything fitted, move the caller past events it doesn't need (its own, sales…) up to the newest.
         var lastId = more ? events[^1].Id : newest;
 
-        return Results.Ok(new SharedEventsResponse(events, Math.Max(from, lastId), more));
+        // The website's changes (sign-ups, gift cards spent online), numbered separately.
+        var web = await db.WebsiteEvents.AsNoTracking()
+            .Where(e => e.TenantId == caller.TenantId && e.Id > fromWeb)
+            .OrderBy(e => e.Id)
+            .Take(SharedEventsResponse.MaxEvents + 1)
+            .ToListAsync(ct);
+        var moreWeb = web.Count > SharedEventsResponse.MaxEvents;
+        web = web.Take(SharedEventsResponse.MaxEvents).ToList();
+        events.AddRange(web.Select(w => new SharedEvent(w.Id, new SyncEvent(
+            w.EventId, w.Type, w.Version, "WEB", "WEBSITE", w.Id, DateTime.SpecifyKind(w.OccurredAtUtc, DateTimeKind.Utc),
+            System.Text.Json.JsonDocument.Parse(w.Payload).RootElement.Clone()), FromWebsite: true)));
+        var lastWebId = web.Count > 0 ? web[^1].Id : fromWeb;
+
+        return Results.Ok(new SharedEventsResponse(events, Math.Max(from, lastId), more || moreWeb, lastWebId));
     }
 
     /// <summary>
@@ -127,6 +144,8 @@ public static class RegisterEndpoints
         var duplicates = new List<Guid>();
         var rejected = new List<RejectedEvent>();
         var productChanges = new List<(ReceivedEvent Row, ProductChangedV1 Product)>();
+        var sharedChanges = new List<SyncEvent>();
+        var stockChanges = new List<(ReceivedEvent Row, StockChangedV1 Stock)>();
 
         var eventIds = events.Select(e => e.EventId).Distinct().ToList();
         var sequences = events.Select(e => e.Sequence).Distinct().ToList();
@@ -154,6 +173,16 @@ public static class RegisterEndpoints
 
             ProductChangedV1? product = null;
             var productProblem = e.Type == SyncEventTypes.ProductChanged ? CatalogProjection.Read(e, out product) : null;
+            var sharedProblem = SharedAccounts.Check(e);
+            StockChangedV1? stock = null;
+            string? stockProblem = null;
+            if (e.Type == SyncEventTypes.StockChanged)
+            {
+                try { stock = e.Payload.Deserialize<StockChangedV1>(SyncJson.Options); }
+                catch (System.Text.Json.JsonException ex) { stockProblem = $"Stock payload can't be read: {ex.Message}"; }
+                if (stockProblem is null && (stock is null || stock.ProductId == Guid.Empty))
+                    stockProblem = "A stock change needs a productId.";
+            }
 
             var problem = e switch
             {
@@ -166,6 +195,8 @@ public static class RegisterEndpoints
                 _ when e.Payload.ValueKind != System.Text.Json.JsonValueKind.Object => "Payload must be a JSON object.",
                 _ when usedSequences.Contains(e.Sequence) => $"Sequence {e.Sequence} is already used by a different event from this register.",
                 _ when productProblem is not null => productProblem,
+                _ when sharedProblem is not null => sharedProblem,
+                _ when stockProblem is not null => stockProblem,
                 _ => null
             };
             if (problem is not null)
@@ -189,6 +220,10 @@ public static class RegisterEndpoints
             db.ReceivedEvents.Add(row);
             if (product is not null)
                 productChanges.Add((row, product));
+            if (SharedAccounts.IsShared(e.Type))
+                sharedChanges.Add(e);
+            if (stock is not null)
+                stockChanges.Add((row, stock));
             usedSequences.Add(e.Sequence);
             known.Add(new { e.EventId, caller.RegisterId });
             accepted.Add(e.EventId);
@@ -196,6 +231,31 @@ public static class RegisterEndpoints
 
         // The store's catalog changes in the same save as the events, so it can't fall behind them.
         await CatalogProjection.ApplyAsync(db, caller, productChanges, ct);
+        // Ids first, so each stock level can remember the event that set it.
+        if (stockChanges.Count > 0)
+        {
+            await db.SaveChangesAsync(ct);
+            foreach (var (row, stock) in stockChanges)
+            {
+                var level = db.StockLevels.Local.FirstOrDefault(s => s.StoreId == caller.StoreId && s.ProductId == stock.ProductId)
+                            ?? await db.StockLevels.FirstOrDefaultAsync(s => s.StoreId == caller.StoreId && s.ProductId == stock.ProductId, ct);
+                if (level is null)
+                {
+                    level = new StockLevelRow { TenantId = caller.TenantId, StoreId = caller.StoreId, ProductId = stock.ProductId };
+                    db.StockLevels.Add(level);
+                }
+                else if (level.UpdatedUtc > row.OccurredAtUtc)
+                {
+                    continue;   // an older count arriving late
+                }
+                level.StockOnHand = stock.StockOnHand;
+                level.UpdatedUtc = row.OccurredAtUtc;
+                level.LastEventId = row.Id;
+            }
+        }
+        foreach (var shared in sharedChanges)
+            await SharedAccounts.ApplyAsync(db, caller.TenantId, shared.EventId, shared.Type, shared.Payload,
+                $"{caller.StoreCode} / {caller.RegisterCode}", ct);
         await db.SaveChangesAsync(ct);
 
         var lastSequence = await db.ReceivedEvents.AsNoTracking()

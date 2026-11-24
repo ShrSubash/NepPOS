@@ -110,6 +110,8 @@ public static class ReportPdf
             ("Paid but not saved", report.SaveFailures, null),
             ("Receipts reprinted", report.Reprints, null)
         };
+        if (report.WastageCount > 0)
+            activity = activity.Append(("Wastage written off (at cost)", report.WastageCount, (decimal?)report.WastageValue)).ToArray();
         y = layout.Table(y, "Activity to check", new[] { ("Event", 0.6f, false), ("Count", 0.16f, true), ("Amount", 0.24f, true) },
             activity.Select(a => new TableRow(new[] { a.Label, a.Count.ToString(Au), a.Amount is null ? "" : Money(a.Amount.Value) }, null, a.Count > 0)).ToList(),
             withShare: false);

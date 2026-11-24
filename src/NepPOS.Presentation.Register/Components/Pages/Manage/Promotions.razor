@@ -1,0 +1,276 @@
+@page "/manage/promotions"
+@layout ManageLayout
+@using NepPOS.Application.Catalog
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Payments
+@using NepPOS.Application.Promotions
+@using NepPOS.Application.Stock
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IPromotionService PromotionService
+@inject IWastageService ProductFinder
+@inject IProductCatalogService Catalog
+@inject IRegisterSettingsStore SettingsStore
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Promotions &amp; discounts</span>
+            <button class="save-btn" @onclick="NewPromotion">+ New promotion</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card @(Edit is null ? "wide" : "")">
+                <h2>Promotions <span class="hint">applied automatically at the register</span></h2>
+                @if (List.Count == 0)
+                {
+                    <p class="field-note">None yet. Add a multi-buy ("2 for $10", any mix of the products), a % or $ off, or a happy hour.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Promotion</th><th>On</th><th>When</th><th></th></tr></thead>
+                        <tbody>
+                            @foreach (var p in List)
+                            {
+                                <tr class="@(Edit?.Id == p.Id ? "on" : "") @(p.IsActive ? "" : "off")" @onclick="() => Open(p)">
+                                    <td><strong>@p.Name</strong><div class="sub">@Describe(p)</div></td>
+                                    <td>@(p.Category ?? $"{p.ProductIdList.Count} products")</td>
+                                    <td class="sub">@When(p)</td>
+                                    <td>@(p.IsActive ? "" : "Off")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+
+                <h3>Discounts by hand</h3>
+                <label>Cashiers can take off up to (%)
+                    <input type="number" min="0" max="100" step="1" @bind="CashierMax" />
+                </label>
+                <p class="field-note">On the register, tap a line or the Discount button. More than this needs a manager; every discount by hand goes in the Journal.</p>
+                <div class="test-row"><button class="chip" @onclick="SaveDiscountSettings">Save discount limit</button></div>
+            </section>
+
+            @if (Edit is not null)
+            {
+                <section class="card">
+                    <h2>@(Edit.Id == 0 ? "New promotion" : Edit.Name)</h2>
+                    <label>Name (printed on the receipt)<input @bind="Edit.Name" placeholder="2 for $10" /></label>
+
+                    <div class="pt-row">
+                        @foreach (var kind in Enum.GetValues<PromotionKind>())
+                        {
+                            <button class="chip @(Edit.Kind == kind ? "on" : "")" @onclick="() => Edit.Kind = kind">@KindLabel(kind)</button>
+                        }
+                    </div>
+                    @switch (Edit.Kind)
+                    {
+                        case PromotionKind.MultiBuy:
+                            <div class="cu-grid">
+                                <label>Buy (items)<input type="number" min="2" step="1" @bind="Edit.BuyQuantity" /></label>
+                                <label>For ($)<input type="number" min="0.05" step="0.05" @bind="Edit.Price" /></label>
+                            </div>
+                            break;
+                        case PromotionKind.PercentOff:
+                            <label>% off each item<input type="number" min="1" max="100" step="1" @bind="Edit.Percent" /></label>
+                            break;
+                        default:
+                            <label>$ off each item<input type="number" min="0.05" step="0.05" @bind="Edit.Amount" /></label>
+                            break;
+                    }
+
+                    <h3>On</h3>
+                    <label>A whole department
+                        <select @bind="Edit.Category">
+                            <option value="">— chosen products —</option>
+                            @foreach (var c in Categories)
+                            {
+                                <option value="@c">@c</option>
+                            }
+                        </select>
+                    </label>
+                    @if (string.IsNullOrEmpty(Edit.Category))
+                    {
+                        <form class="pt-row" @onsubmit="FindAsync">
+                            <input @bind="Term" placeholder="Scan or find a product to add" autocomplete="off" />
+                            <button class="chip" type="submit">Find</button>
+                        </form>
+                        @foreach (var f in Found)
+                        {
+                            <button class="chip" @onclick="() => AddProduct(f)">+ @f.Name</button>
+                        }
+                        <div class="sc-dates">
+                            @foreach (var (id, name) in Products)
+                            {
+                                <span class="sc-date">@name <button @onclick="() => Products.Remove(id)">✕</button></span>
+                            }
+                        </div>
+                    }
+
+                    <h3>When</h3>
+                    <div class="cu-grid">
+                        <label>From date<input type="date" @bind="Edit.StartDate" /></label>
+                        <label>To date<input type="date" @bind="Edit.EndDate" /></label>
+                    </div>
+                    <div class="pt-row">
+                        @foreach (var day in Week)
+                        {
+                            <button class="chip @(Days.Contains(day) ? "on" : "")" @onclick="() => ToggleDay(day)">@day</button>
+                        }
+                    </div>
+                    <div class="cu-grid">
+                        <label>Happy hour from<input type="time" @bind="Edit.FromTime" /></label>
+                        <label>to<input type="time" @bind="Edit.ToTime" /></label>
+                    </div>
+                    <p class="field-note">No days ticked = every day. No times = all day.</p>
+                    <label class="check"><input type="checkbox" @bind="Edit.IsActive" /> On</label>
+
+                    <div class="test-row">
+                        <button class="save-btn" @onclick="SaveAsync">Save</button>
+                        @if (Edit.Id != 0)
+                        {
+                            <button class="chip danger" @onclick="DeleteAsync">Delete</button>
+                        }
+                        <button class="chip" @onclick="() => Edit = null">Close</button>
+                    </div>
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] Week = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" };
+
+    private IReadOnlyList<Promotion> List = Array.Empty<Promotion>();
+    private IReadOnlyList<string> Categories = Array.Empty<string>();
+    private Dictionary<int, string> Names = new();
+    private Promotion? Edit;
+    private readonly Dictionary<int, string> Products = new();
+    private readonly HashSet<string> Days = new();
+    private string Term = "";
+    private IReadOnlyList<WastageProduct> Found = Array.Empty<WastageProduct>();
+    private decimal CashierMax;
+    private string? Message;
+    private bool IsError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        List = await PromotionService.ListAsync();
+        Categories = await Catalog.GetCategoriesAsync();
+        Names = (await Catalog.GetAllActiveAsync()).ToDictionary(p => p.Id, p => p.Name);
+        CashierMax = SettingsStore.Load().Discounts.CashierMaxPercent;
+    }
+
+    private void NewPromotion()
+    {
+        Edit = new Promotion { Kind = PromotionKind.MultiBuy, BuyQuantity = 2, IsActive = true };
+        Products.Clear();
+        Days.Clear();
+        Message = null;
+    }
+
+    private void Open(Promotion p)
+    {
+        Edit = new Promotion
+        {
+            Id = p.Id, Name = p.Name, Kind = p.Kind, BuyQuantity = p.BuyQuantity, Price = p.Price, Percent = p.Percent, Amount = p.Amount,
+            Category = p.Category, ProductIds = p.ProductIds, StartDate = p.StartDate, EndDate = p.EndDate, Days = p.Days,
+            FromTime = p.FromTime, ToTime = p.ToTime, IsActive = p.IsActive
+        };
+        Days.Clear();
+        foreach (var d in p.Days.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) Days.Add(d);
+        Products.Clear();
+        foreach (var id in p.ProductIdList)
+            Products[id] = Names.TryGetValue(id, out var name) ? name : $"Product #{id} (inactive)";
+    }
+
+    private async Task FindAsync() => Found = (await ProductFinder.FindProductsAsync(Term)).Take(8).ToList();
+
+    private void AddProduct(WastageProduct p)
+    {
+        Products[p.ProductId] = p.Name;
+        (Term, Found) = ("", Array.Empty<WastageProduct>());
+    }
+
+    private void ToggleDay(string day)
+    {
+        if (!Days.Remove(day)) Days.Add(day);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Edit is null) return;
+        Edit.ProductIds = string.Join(',', Products.Keys);
+        Edit.Days = string.Join(',', Week.Where(Days.Contains));
+        try
+        {
+            var saved = await PromotionService.SaveAsync(Edit);
+            await Journal.WriteAsync(JournalEventType.SettingsChanged, $"Promotion \"{saved.Name}\" saved by {Session.Employee?.FullName}");
+            (Message, IsError, Edit) = ($"\"{saved.Name}\" saved. The register uses it from the next sale.", false, null);
+            List = await PromotionService.ListAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (Edit is null) return;
+        await PromotionService.DeleteAsync(Edit.Id);
+        (Message, IsError, Edit) = ("Promotion deleted.", false, null);
+        List = await PromotionService.ListAsync();
+    }
+
+    private void SaveDiscountSettings()
+    {
+        var settings = SettingsStore.Load();
+        SettingsStore.Save(settings with { Discounts = settings.Discounts with { CashierMaxPercent = Math.Clamp(CashierMax, 0, 100) } });
+        (Message, IsError) = ($"Cashiers can now take off up to {Math.Clamp(CashierMax, 0, 100):0.#}%.", false);
+    }
+
+    private static string KindLabel(PromotionKind kind) => kind switch
+    {
+        PromotionKind.MultiBuy => "Multi-buy (2 for $10)",
+        PromotionKind.PercentOff => "% off",
+        _ => "$ off"
+    };
+
+    private static string Describe(Promotion p) => p.Kind switch
+    {
+        PromotionKind.MultiBuy => $"Any {p.BuyQuantity} for {p.Price:C}",
+        PromotionKind.PercentOff => $"{p.Percent:0.#}% off",
+        _ => $"{p.Amount:C} off each"
+    };
+
+    private static string When(Promotion p)
+    {
+        var parts = new List<string>();
+        if (p.StartDate is { } s) parts.Add($"from {s:d MMM}");
+        if (p.EndDate is { } e) parts.Add($"to {e:d MMM}");
+        if (p.Days.Length > 0) parts.Add(p.Days.Replace(",", " "));
+        if (p.FromTime is { } f && p.ToTime is { } t) parts.Add($"{f:h:mm tt}–{t:h:mm tt}");
+        return parts.Count == 0 ? "Always" : string.Join(", ", parts);
+    }
+}

@@ -15,6 +15,12 @@ public interface IPaymentGateway
     /// terminal but its result could not be confirmed — the card MAY have been charged.
     /// </summary>
     Task<PaymentResult> PurchaseAsync(PaymentRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Refunds money to a card on the terminal (the customer taps their card). Same rules as a purchase: a decline is a
+    /// normal result, and <see cref="PaymentOutcomeUnknownException"/> means check the terminal before trying again.
+    /// </summary>
+    Task<PaymentResult> RefundAsync(PaymentRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <param name="TransactionId">The sale's GUID, sent as the merchant reference so terminal logs tie back to the sale.</param>
