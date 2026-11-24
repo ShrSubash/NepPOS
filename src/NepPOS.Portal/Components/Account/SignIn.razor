@@ -1,4 +1,4 @@
-@page "/account/sign-in"
+﻿@page "/account/sign-in"
 @attribute [ExcludeFromInteractiveRouting]
 @attribute [AllowAnonymous]
 @layout AuthLayout
@@ -9,6 +9,11 @@
 <PageTitle>Sign in · NepPOS Portal</PageTitle>
 
 <h1>Sign in</h1>
+
+@if (Expired && _problem is null)
+{
+    <p class="notice">The sign-in page had expired (it was open a while, or the Portal restarted). Please sign in again with a new code.</p>
+}
 
 <ProblemMessage Text="@_problem" />
 
@@ -39,6 +44,10 @@
 
     [SupplyParameterFromQuery]
     private string? ReturnUrl { get; set; }
+
+    /// <summary>Set when a stale form was sent back here (see Program.cs).</summary>
+    [SupplyParameterFromQuery(Name = "expired")]
+    private bool Expired { get; set; }
 
     private string? _problem;
 

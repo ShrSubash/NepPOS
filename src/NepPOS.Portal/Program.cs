@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authentication;
+﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.Extensions.Options;
 using NepPOS.Contracts.Admin;
@@ -62,6 +62,24 @@ app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseAntiforgery();
+
+// A sign-in (or two-step) form left open while the Portal restarted, or brought back from the browser's
+// history, carries a stale security token. Instead of a bare "antiforgery token" error page, send the
+// person back to a fresh form with a short note. Any other form keeps the normal protection.
+app.Use(async (context, next) =>
+{
+    if (HttpMethods.IsPost(context.Request.Method)
+        && context.Request.Path.StartsWithSegments("/account")
+        && context.Features.Get<Microsoft.AspNetCore.Antiforgery.IAntiforgeryValidationFeature>() is { IsValid: false })
+    {
+        var returnUrl = context.Request.Query["ReturnUrl"].ToString();
+        var target = context.Request.Path.Value + "?expired=true"
+            + (returnUrl.Length > 0 ? "&ReturnUrl=" + Uri.EscapeDataString(returnUrl) : "");
+        context.Response.Redirect(target);
+        return;
+    }
+    await next();
+});
 
 app.MapPost("/account/sign-out", async (HttpContext http) =>
 {

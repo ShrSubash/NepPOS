@@ -443,3 +443,6 @@ qr-code svg { display: block; width: 100%; height: 100%; }
 @media (max-width: 900px) {
     .row4, .licence-facts { grid-template-columns: 1fr; }
 }
+
+/* A friendly note (e.g. "the sign-in page had expired"). */
+.notice { margin: 0 0 14px; padding: 10px 12px; border-radius: var(--radius); background: var(--indigo-soft); color: var(--ink-2); font-size: 0.9rem; }
