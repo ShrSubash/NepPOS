@@ -3,6 +3,7 @@ using NepPOS.Application.Abstractions;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
 using NepPOS.Infrastructure.Database.Outbox;
+using NepPOS.Infrastructure.Database.Sales;
 
 namespace NepPOS.Infrastructure.Database;
 
