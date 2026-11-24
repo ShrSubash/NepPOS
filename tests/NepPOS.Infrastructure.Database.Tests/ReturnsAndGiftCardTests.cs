@@ -110,7 +110,7 @@ public class ReturnsAndGiftCardTests : IDisposable
         await SaveAsync(sold, tender);
 
         var back = new SaleTransaction("STORE-001", "REG-001");
-        back.AddLineItem(new SaleLineItem("101", "Heineken 6-Pack", -1, 20m, 0.10m, returnOfLineId: sold.LineItems[0].Id));
+        back.AddLineItem(new SaleLineItem("101", "Heineken 6-Pack", -1, 20m, 0.10m, returnOfLineId: sold.LineItems.First().Id));
         back.MarkAsReturnOf(sold.Id, sold.InvoiceNumber!.Value);
         var refund = new RefundSession(back.Id, back.GrandTotal);
         refund.RefundToVoucher(TenderType.StoreCredit, "SC-444444", 20m);
@@ -131,7 +131,7 @@ public class ReturnsAndGiftCardTests : IDisposable
         async Task ReturnAsync(int quantity)
         {
             var back = new SaleTransaction("STORE-001", "REG-001");
-            back.AddLineItem(new SaleLineItem("101", "Heineken 6-Pack", -quantity, 20m, 0.10m, returnOfLineId: sold.LineItems[0].Id));
+            back.AddLineItem(new SaleLineItem("101", "Heineken 6-Pack", -quantity, 20m, 0.10m, returnOfLineId: sold.LineItems.First().Id));
             var refund = new RefundSession(back.Id, back.GrandTotal);
             refund.RefundCash();
             await SaveAsync(back, refund);
@@ -164,7 +164,7 @@ public class ReturnsAndGiftCardTests : IDisposable
 
         var back = new SaleTransaction("STORE-001", "REG-001");
         back.AddLineItem(new SaleLineItem("37", "ASAHI SUPER DRY", -1, 5.50m, 0.10m, productId: productId,
-            returnOfLineId: sold.LineItems[0].Id, returnReason: "Faulty", restock: false));
+            returnOfLineId: sold.LineItems.First().Id, returnReason: "Faulty", restock: false));
         var refund = new RefundSession(back.Id, back.GrandTotal);
         refund.RefundCash();
         await SaveAsync(back, refund);
