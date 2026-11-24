@@ -49,10 +49,28 @@ public sealed class SaleTransaction
     /// <summary>That sale's invoice number, printed on the refund receipt.</summary>
     public long? ReturnOfInvoice { get; private set; }
 
+    /// <summary>The customer on the sale (picked or scanned), for their history and account. Null = walk-in.</summary>
+    public Guid? CustomerId { get; private set; }
+
+    /// <summary>The customer's name when the sale was made, printed on the receipt.</summary>
+    public string? CustomerName { get; private set; }
+
     public bool HasReturns => _lineItems.Any(li => li.Quantity < 0);
 
     /// <summary>Money goes back to the customer (more returned than bought).</summary>
     public bool IsRefund => GrandTotal < 0;
+
+    /// <summary>Puts a customer on the sale (or takes them off with null), before it's completed.</summary>
+    public void SetCustomer(Guid? customerId, string? customerName)
+    {
+        if (Status != SaleTransactionStatus.InProgress)
+            throw new InvalidOperationException("The customer can only be changed before the sale is completed.");
+        if (customerId is { } id && id == Guid.Empty)
+            throw new ArgumentException("Customer id is empty.", nameof(customerId));
+
+        CustomerId = customerId;
+        CustomerName = customerId is null ? null : string.IsNullOrWhiteSpace(customerName) ? null : customerName.Trim();
+    }
 
     /// <summary>Links a return or exchange to the sale its items came from.</summary>
     public void MarkAsReturnOf(Guid saleId, long invoiceNumber)

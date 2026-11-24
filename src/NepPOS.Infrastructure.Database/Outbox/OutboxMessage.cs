@@ -129,6 +129,43 @@ public sealed class OutboxMessage
         static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
     }
 
+    /// <summary>The <c>customer.changed</c> event: the whole customer as it is now (shared with every register).</summary>
+    public static OutboxMessage CustomerChanged(Customer customer, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(customer);
+        var payload = new CustomerChangedV1(customer.Id, customer.Code, customer.Name, customer.Phone, customer.Email,
+            customer.Company, customer.Abn, customer.Address, customer.Notes, customer.IsAccount, customer.CreditLimit,
+            customer.TermsDays, customer.IsActive, customer.CreatedUtc, customer.UpdatedUtc);
+        return new OutboxMessage(SyncEventTypes.CustomerChanged, CustomerChangedV1.Version,
+            storeId, registerId, DateTime.UtcNow, JsonSerializer.Serialize(payload, SyncJson.Options));
+    }
+
+    /// <summary>
+    /// The <c>giftcard.moved</c> event for one movement (shared with every register). The movement takes the
+    /// event's id, so other registers can tell it's the same one.
+    /// </summary>
+    public static OutboxMessage GiftCardMoved(GiftCard card, GiftCardMovement movement, string storeId, string registerId, bool cancelled = false)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        ArgumentNullException.ThrowIfNull(movement);
+        var payload = new GiftCardMovedV1(card.Code, card.Kind.ToString(), movement.Amount, movement.SaleId,
+            movement.InvoiceNumber, movement.AtUtc, movement.Note, cancelled);
+        var message = new OutboxMessage(SyncEventTypes.GiftCardMoved, GiftCardMovedV1.Version,
+            storeId, registerId, movement.AtUtc, JsonSerializer.Serialize(payload, SyncJson.Options));
+        movement.EventId = message.EventId;
+        return message;
+    }
+
+    /// <summary>The <c>account.entry</c> event for one line on a customer's account (shared with every register).</summary>
+    public static OutboxMessage AccountEntry(CustomerAccountEntry entry, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(entry);
+        var payload = new AccountEntryV1(entry.Id, entry.CustomerId, entry.Kind.ToString(), entry.Amount, entry.SaleId,
+            entry.InvoiceNumber, entry.AtUtc, entry.DueUtc, entry.Reference, entry.Note);
+        return new OutboxMessage(SyncEventTypes.AccountEntry, AccountEntryV1.Version,
+            storeId, registerId, entry.AtUtc, JsonSerializer.Serialize(payload, SyncJson.Options));
+    }
+
     /// <summary>The envelope Head Office receives (integration build step 3 sends it).</summary>
     public SyncEvent ToSyncEvent() => new(
         EventId, Type, Version, StoreId, RegisterId, Id,

@@ -111,6 +111,8 @@ public static class MauiProgram
         // Returns (scan the receipt) and gift cards / store credit (balances kept on this register).
         builder.Services.AddScoped<NepPOS.Application.Sales.IReturnsService, NepPOS.Infrastructure.Database.Sales.ReturnsService>();
         builder.Services.AddScoped<NepPOS.Application.Sales.IGiftCardService, NepPOS.Infrastructure.Database.Sales.GiftCardService>();
+        builder.Services.AddScoped<NepPOS.Application.Customers.ICustomerService, NepPOS.Infrastructure.Database.Customers.CustomerService>();
+        builder.Services.AddScoped<NepPOS.Application.Suppliers.ISupplierAccountService, NepPOS.Infrastructure.Database.Suppliers.SupplierAccountService>();
         // EFTPOS: mx51 Spice running on this PC.
         // No terminal handy? Swap SpicePaymentGateway for SimulatedPaymentGateway on the line below.
         builder.Services.AddSingleton(new SpiceOptions(Host: "localhost", Port: 8282, PosId: ""));
@@ -133,6 +135,7 @@ public static class MauiProgram
         // and the background loop that sends the outbox and a heartbeat.
         builder.Services.AddSingleton<IHeadOfficeConnectionStore, JsonHeadOfficeConnectionStore>();
         builder.Services.AddSingleton<IHeadOfficeClient>(_ => new HeadOfficeClient(HeadOfficeClient.CreateDefaultHttpClient()));
+        builder.Services.AddScoped<ISharedDataStore, NepPOS.Infrastructure.Database.Sync.SharedDataStore>();
         builder.Services.AddScoped<SyncService>();
         builder.Services.AddSingleton<SyncWorker>();
 

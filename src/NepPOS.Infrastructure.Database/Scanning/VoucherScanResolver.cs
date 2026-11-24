@@ -9,7 +9,7 @@ namespace NepPOS.Infrastructure.Database.Scanning;
 /// </summary>
 public sealed class VoucherScanResolver : IScanResolver
 {
-    private static readonly Regex VoucherPattern = new(@"^(GC|SC)-\d{6}$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex VoucherPattern = new(@"^(GC|SC)-\d{6,12}$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public int Priority => 20;
 

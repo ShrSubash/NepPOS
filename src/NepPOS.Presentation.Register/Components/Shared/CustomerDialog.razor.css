@@ -1,0 +1,43 @@
+.rd-overlay { position: fixed; inset: 0; z-index: 880; background: rgba(13, 15, 34, 0.55); display: flex; align-items: center; justify-content: center; font-family: "Segoe UI", sans-serif; }
+.rd-shell { width: min(760px, calc(96vw / var(--z))); max-height: calc(92vh / var(--z)); overflow: auto; background: #f4f5f9; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 12px; }
+.rd-head { display: flex; align-items: center; justify-content: space-between; }
+.rd-head h2 { margin: 0; font-size: 1.4rem; color: #14162b; }
+.rd-close { min-height: 48px; padding: 0 1.2rem; border: 0; border-radius: 12px; background: #fff; font-weight: 600; cursor: pointer; }
+.rd-msg { padding: 10px 14px; border-radius: 10px; background: #e8f6ef; color: #17734a; }
+.rd-msg.error { background: #fdecec; color: #b42323; }
+.rd-find { display: flex; gap: 10px; }
+.rd-find input { flex: 1; min-height: 56px; padding: 0 14px; border: 1px solid #d5d8e5; border-radius: 12px; font-size: 1.1rem; text-transform: uppercase; }
+.rd-btn { min-height: 56px; padding: 0 1.4rem; border: 1px solid #d5d8e5; border-radius: 12px; background: #fff; font-weight: 700; font-size: 1rem; cursor: pointer; }
+.rd-btn.primary { border: 0; color: #0d0f22; background: linear-gradient(135deg, #6a5cff, #3ee0d8); }
+.rd-btn:disabled { opacity: .45; cursor: default; }
+.rd-info { display: flex; flex-wrap: wrap; gap: 6px 18px; color: #3b3f5c; background: #fff; padding: 12px 14px; border-radius: 12px; }
+.rd-muted { color: #7a7e98; font-size: .9rem; }
+.rd-chip { min-height: 52px; min-width: 84px; padding: 0 1rem; border: 1px solid #d5d8e5; border-radius: 12px; background: #fff; font-weight: 700; font-size: 1.05rem; cursor: pointer; }
+.rd-chip.on { background: #14162b; color: #fff; border-color: #14162b; }
+.rd-foot { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin-top: 6px; }
+.gc-label { font-weight: 700; color: #3b3f5c; margin-top: 4px; }
+.gc-amounts { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.gc-other { width: 120px; min-height: 52px; padding: 0 12px; border: 1px solid #d5d8e5; border-radius: 12px; font-size: 1.1rem; }
+.gc-bad { color: #b42323; font-weight: 700; }
+.cu-shell { width: min(860px, calc(96vw / var(--z))); }
+.cu-search { text-transform: none !important; }
+.cu-form { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.cu-form label { display: flex; flex-direction: column; gap: 4px; font-weight: 600; color: #3b3f5c; font-size: .92rem; }
+.cu-form input { min-height: 52px; padding: 0 12px; border: 1px solid #d5d8e5; border-radius: 12px; font-size: 1.05rem; }
+.cu-check { display: flex; align-items: center; gap: 10px; font-weight: 600; color: #3b3f5c; min-height: 48px; }
+.cu-check input { width: 24px; height: 24px; }
+.cu-card { background: #fff; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; border: 2px solid #6a5cff; }
+.cu-card-head { display: flex; justify-content: space-between; align-items: flex-start; }
+.cu-name { font-size: 1.25rem; font-weight: 700; color: #14162b; }
+.cu-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.cu-stats div { background: #f4f5f9; border-radius: 10px; padding: 8px 10px; display: flex; flex-direction: column; }
+.cu-stats span { color: #7a7e98; font-size: .82rem; }
+.cu-stats strong { font-size: 1.1rem; color: #14162b; }
+.cu-stats strong.owing { color: #8a4b00; }
+.cu-stats strong.bad { color: #b42323; }
+.cu-list { display: flex; flex-direction: column; gap: 6px; }
+.cu-row { display: flex; justify-content: space-between; align-items: center; min-height: 58px; padding: 6px 14px; border: 1px solid #e2e4ee; border-radius: 12px; background: #fff; cursor: pointer; text-align: left; }
+.cu-row.on { border-color: #6a5cff; background: #f1efff; }
+.cu-row-name { display: flex; flex-direction: column; font-weight: 700; color: #14162b; }
+.cu-row-name small { font-weight: 400; color: #7a7e98; }
+.cu-tag { background: #fff4e0; color: #8a4b00; border-radius: 999px; padding: 4px 10px; font-size: .85rem; font-weight: 700; white-space: nowrap; }

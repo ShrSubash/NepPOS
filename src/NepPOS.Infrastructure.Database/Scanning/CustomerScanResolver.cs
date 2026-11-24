@@ -9,7 +9,7 @@ namespace NepPOS.Infrastructure.Database.Scanning;
 /// </summary>
 public sealed class CustomerScanResolver : IScanResolver
 {
-    private static readonly Regex CustomerPattern = new(@"^CUST-\d{4,8}$", RegexOptions.Compiled);
+    private static readonly Regex CustomerPattern = new(@"^CUST-\d{4,12}$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public int Priority => 20;
 
@@ -17,7 +17,7 @@ public sealed class CustomerScanResolver : IScanResolver
 
     public Task<ScanResolution> ResolveAsync(string rawCode, CancellationToken cancellationToken = default)
     {
-        // TODO: real loyalty lookup once local-database-authoritative loyalty is wired.
-        return Task.FromResult(new ScanResolution(ScanResultType.Customer, rawCode, null));
+        // The register looks the customer up (ICustomerService) and puts them on the sale.
+        return Task.FromResult(new ScanResolution(ScanResultType.Customer, rawCode.Trim().ToUpperInvariant(), null));
     }
 }

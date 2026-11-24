@@ -10,6 +10,12 @@ public sealed record PaymentTypeSettings
 {
     public bool GiftCards { get; init; } = true;
     public bool StoreCredit { get; init; } = true;
+
+    /// <summary>Account customers can charge sales to their account (an ACCOUNT button on the payment screen).</summary>
+    public bool Accounts { get; init; } = true;
+
+    /// <summary>A charge to an account that has overdue money needs a manager.</summary>
+    public bool OverdueAccountsNeedManager { get; init; } = true;
     public IReadOnlyList<OtherTender> Others { get; init; } = Array.Empty<OtherTender>();
 }
 

@@ -56,6 +56,15 @@ public sealed class SyncWorker : IDisposable
 
                 var result = await sync.SendOutboxAsync(_stop.Token);
 
+                // Then fetch what the owner's other registers shared (customers, accounts, gift cards).
+                if (result.Outcome is SyncOutcome.UpToDate)
+                {
+                    var pulled = await sync.PullSharedAsync(_stop.Token);
+                    result = pulled.Outcome is SyncOutcome.UpToDate
+                        ? result with { Received = pulled.Received }
+                        : result with { Outcome = pulled.Outcome, Problem = pulled.Problem, Received = pulled.Received };
+                }
+
                 if (result.Outcome is SyncOutcome.UpToDate && DateTime.UtcNow - _lastHeartbeatUtc >= HeartbeatEvery)
                 {
                     var heartbeat = await sync.HeartbeatAsync(_stop.Token);
@@ -68,8 +77,9 @@ public sealed class SyncWorker : IDisposable
                 failures = result.Outcome is SyncOutcome.Failed or SyncOutcome.Unauthorized ? failures + 1 : 0;
                 Record(result);
 
-                if (result.Sent + result.Rejected > 0)
-                    _logger.LogInformation("Head Office sync: {Sent} sent, {Rejected} rejected", result.Sent, result.Rejected);
+                if (result.Sent + result.Rejected + result.Received > 0)
+                    _logger.LogInformation("Head Office sync: {Sent} sent, {Rejected} rejected, {Received} received from other registers",
+                        result.Sent, result.Rejected, result.Received);
                 if (result.Problem is not null)
                     _logger.LogWarning("Head Office sync problem ({Outcome}): {Problem}", result.Outcome, result.Problem);
             }

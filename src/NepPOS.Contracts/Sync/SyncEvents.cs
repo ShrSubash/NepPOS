@@ -14,6 +14,21 @@ public static class SyncEventTypes
 
     /// <summary>A product was added, edited or deactivated at a register. Payload: <see cref="ProductChangedV1"/>.</summary>
     public const string ProductChanged = "product.changed";
+
+    /// <summary>A customer was added or edited. Payload: <see cref="CustomerChangedV1"/>. Shared with every register.</summary>
+    public const string CustomerChanged = "customer.changed";
+
+    /// <summary>A gift card or store credit balance changed. Payload: <see cref="GiftCardMovedV1"/>. Shared with every register.</summary>
+    public const string GiftCardMoved = "giftcard.moved";
+
+    /// <summary>A line on a customer's account (charge, payment, credit). Payload: <see cref="AccountEntryV1"/>. Shared with every register.</summary>
+    public const string AccountEntry = "account.entry";
+
+    /// <summary>
+    /// Events Head Office passes on to the owner's other registers (GET /api/v1/sync/shared), so customers,
+    /// accounts and gift cards are the same at every store.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Shared = new[] { CustomerChanged, GiftCardMoved, AccountEntry };
 }
 
 /// <summary>
@@ -167,3 +182,72 @@ public sealed record RejectedEvent(Guid EventId, string Reason);
 /// and the key to check it with (registers activated before licences existed never got one at activation).
 /// </summary>
 public sealed record HeartbeatResponse(DateTime ServerTimeUtc, Licensing.SignedLicence? Licence = null, string? LicencePublicKey = null);
+
+/// <summary>Version 1 of <c>customer.changed</c>: the whole customer as it is now. The newest <c>UpdatedUtc</c> wins.</summary>
+public sealed record CustomerChangedV1(
+    Guid CustomerId,
+    string Code,
+    string Name,
+    string? Phone,
+    string? Email,
+    string? Company,
+    string? Abn,
+    string? Address,
+    string? Notes,
+    bool IsAccount,
+    decimal CreditLimit,
+    int TermsDays,
+    bool IsActive,
+    DateTime CreatedUtc,
+    DateTime UpdatedUtc)
+{
+    public const int Version = 1;
+}
+
+/// <summary>
+/// Version 1 of <c>giftcard.moved</c>: one change to a card's balance (positive = loaded, negative = spent).
+/// <c>Kind</c> is "GiftCard" or "StoreCredit". <c>Cancelled</c> = the card was cancelled (amount 0).
+/// </summary>
+public sealed record GiftCardMovedV1(
+    string Code,
+    string Kind,
+    decimal Amount,
+    Guid? SaleId,
+    long? InvoiceNumber,
+    DateTime AtUtc,
+    string Note,
+    bool Cancelled = false)
+{
+    public const int Version = 1;
+}
+
+/// <summary>
+/// Version 1 of <c>account.entry</c>: one line on a customer's account. <c>Kind</c> is Charge, Payment, Credit or
+/// Adjustment; positive amounts add to what they owe.
+/// </summary>
+public sealed record AccountEntryV1(
+    Guid EntryId,
+    Guid CustomerId,
+    string Kind,
+    decimal Amount,
+    Guid? SaleId,
+    long? InvoiceNumber,
+    DateTime AtUtc,
+    DateTime? DueUtc,
+    string? Reference,
+    string? Note)
+{
+    public const int Version = 1;
+}
+
+/// <summary>One event from another register, with Head Office's running number for it.</summary>
+public sealed record SharedEvent(long Id, SyncEvent Event);
+
+/// <summary>
+/// Answer to GET /api/v1/sync/shared?after=N: the owner's shared events from other registers after number N,
+/// oldest first. <c>LastId</c> is where to continue; <c>More</c> = ask again straight away.
+/// </summary>
+public sealed record SharedEventsResponse(IReadOnlyList<SharedEvent> Events, long LastId, bool More)
+{
+    public const int MaxEvents = 500;
+}

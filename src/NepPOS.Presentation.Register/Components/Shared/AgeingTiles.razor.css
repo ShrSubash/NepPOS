@@ -1,0 +1,11 @@
+.ag-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.5rem; }
+.ag-tile { background: #f4f5f9; border-radius: 10px; padding: 0.55rem 0.7rem; display: flex; flex-direction: column; gap: 0.1rem; }
+.ag-tile span { font-size: 0.78rem; color: #6b6f8a; }
+.ag-tile strong { font-size: 1.05rem; color: #14162b; }
+.ag-tile.total { background: #14162b; }
+.ag-tile.total span { color: #b9bcd6; }
+.ag-tile.total strong { color: #fff; }
+.ag-tile.late { background: #fff4e0; }
+.ag-tile.late strong { color: #8a4b00; }
+.ag-tile.bad { background: #fdecec; }
+.ag-tile.bad strong { color: #b42323; }

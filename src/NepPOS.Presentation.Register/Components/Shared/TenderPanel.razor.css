@@ -303,3 +303,4 @@ button:disabled {
 .code-entry { display: flex; gap: 8px; }
 .code-entry input { flex: 1; min-height: 52px; padding: 0 12px; border: 1px solid #d5d8e5; border-radius: 12px; font-size: 1.05rem; text-transform: uppercase; }
 .code-entry button { min-height: 52px; padding: 0 1rem; }
+.tender.account { background: linear-gradient(135deg, #f08a24, #f5c04a); }

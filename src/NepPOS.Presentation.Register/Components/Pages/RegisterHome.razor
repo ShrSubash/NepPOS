@@ -11,6 +11,7 @@
 @using NepPOS.Application.Hardware
 @using NepPOS.Presentation.Register.Components.Shared
 @using NepPOS.Application.Sales
+@using NepPOS.Application.Customers
 @inject NavigationManager Nav
 @inject IProductCatalogService Catalog
 @inject CurrentUserSession Session
@@ -31,6 +32,7 @@
             }
             <span class="employee-name">@Session.Employee?.FullName</span>
             <span class="employee-role-badge">@Session.Employee?.Role</span>
+            <button class="manage-link" @onclick="() => ShowCustomer = true" disabled="@Paying">Customer</button>
             <button class="manage-link" @onclick="() => OpenReturn(null)" disabled="@Paying">Return</button>
             @if (Settings.PaymentTypes.GiftCards)
             {
@@ -169,7 +171,22 @@
         </div>
 
         <div class="order-panel">
-            <div class="order-header">Current Order</div>
+            <div class="order-header">
+                <span>Current Order</span>
+                @if (SaleCustomer is { } onSale)
+                {
+                    <span class="customer-chip" title="@onSale.Code">
+                        <button class="chip-name" @onclick="() => ShowCustomer = true">
+                            @onSale.Name
+                            @if (onSale.IsAccount)
+                            {
+                                <small>owes @onSale.Balance.ToString("C")</small>
+                            }
+                        </button>
+                        <button class="chip-x" aria-label="Take the customer off" @onclick="RemoveCustomer" disabled="@Paying">✕</button>
+                    </span>
+                }
+            </div>
 
             <div class="order-lines">
                 @if (CartLines.Count == 0)
@@ -244,6 +261,7 @@
     @if (ActiveSale is not null)
     {
         <TenderPanel Sale="ActiveSale"
+                     Customer="SaleCustomer"
                      CompleteSale="CompleteSaleAsync"
                      OnFinished="FinishSale"
                      OnCancel="CancelCharge" />
@@ -252,6 +270,7 @@
     @if (ActiveRefund is not null)
     {
         <RefundPanel Sale="ActiveRefund"
+                     Customer="SaleCustomer"
                      Original="ReturnOfPayments"
                      CompleteRefund="CompleteRefundAsync"
                      OnFinished="FinishSale"
@@ -266,6 +285,15 @@
     @if (ShowGiftCard)
     {
         <GiftCardDialog OnAdd="AddGiftCard" OnClose="() => ShowGiftCard = false" />
+    }
+
+    @if (ShowCustomer)
+    {
+        <CustomerDialog CurrentId="SaleCustomer?.Id"
+                        IsManager="@(Session.Employee?.Role >= EmployeeRole.Manager)"
+                        OnSelect="SetCustomer"
+                        OnPayment="AddAccountPayment"
+                        OnClose="() => ShowCustomer = false" />
     }
 </div>
 
@@ -397,8 +425,10 @@
 
     private List<CartLine> CartLines = new();
 
-    /// <summary>Goods bought (not returns, not gift cards): what a surcharge is worked out on.</summary>
-    private decimal GoodsTotal => CartLines.Where(l => !l.IsReturn && l.GiftCardCode is null).Sum(l => l.Total);
+    /// <summary>Goods bought (not returns, gift cards or account payments): what a surcharge is worked out on.</summary>
+    private decimal GoodsTotal => CartLines.Where(IsGoods).Sum(l => l.Total);
+
+    private static bool IsGoods(CartLine l) => !l.IsReturn && l.GiftCardCode is null && l.Sku != AccountPayment.Sku;
 
     /// <summary>Negative when more comes back than is bought: a refund.</summary>
     private decimal GrandTotal => CartLines.Sum(l => l.Total) + SurchargeAmount;
@@ -410,7 +440,11 @@
     private bool ShowReturn;
     private string? ReturnCode;
     private bool ShowGiftCard;
+    private bool ShowCustomer;
     private string? ScanNote;
+
+    /// <summary>The customer on this sale (picked, scanned, or from the receipt being returned).</summary>
+    private Customer? SaleCustomer;
 
     /// <summary>The sale items are being returned from (one per transaction), and how it was paid.</summary>
     private (Guid SaleId, long Invoice)? ReturnOf;
@@ -423,6 +457,7 @@
     private decimal SurchargeAmount => SurchargeApplies ? SurchargeCalculator.Amount(GoodsTotal, SurchargeRule!.Value.Percent) : 0;
 
     [Inject] private IGiftCardService GiftCards { get; set; } = default!;
+    [Inject] private ICustomerService Customers { get; set; } = default!;
 
     [Inject] private ScanResolutionService ScanResolver { get; set; } = default!;
     [Inject] private OnScreenKeyboardService Keyboard { get; set; } = default!;
@@ -523,13 +558,14 @@
         if (SurchargeAmount > 0 && SurchargeRule is { } rule)
         {
             // GST on the surcharge follows the goods: GST-free only when everything surcharged is GST-free.
-            var gst = CartLines.Where(l => !l.IsReturn && l.GiftCardCode is null).All(l => l.GstRate == 0) ? 0m : GstRate;
+            var gst = CartLines.Where(IsGoods).All(l => l.GstRate == 0) ? 0m : GstRate;
             sale.AddLineItem(new SaleLineItem(SurchargeCalculator.Sku, SurchargeCalculator.Label(rule.Name, rule.Percent), 1,
                 SurchargeAmount, gst, SurchargeCalculator.Category));
         }
 
         if (ReturnOf is { } original)
             sale.MarkAsReturnOf(original.SaleId, original.Invoice);
+        sale.SetCustomer(SaleCustomer?.Id, SaleCustomer?.Name);
 
         if (sale.GrandTotal > 0)
             ActiveSale = sale;
@@ -553,7 +589,66 @@
         ScanNote = null;
         ClearReturn();
         (SurchargeOff, SurchargeOn) = (false, false);
+        SaleCustomer = null;
         Settings = SettingsStore.Load();
+    }
+
+    // ---- customers ----
+
+    private void SetCustomer(Customer customer)
+    {
+        if (CartLines.Any(l => l.Sku == AccountPayment.Sku) && SaleCustomer?.Id != customer.Id)
+        {
+            ScanError = "This order pays off another customer's account. Finish or void it first.";
+            ShowCustomer = false;
+            return;
+        }
+        SaleCustomer = customer;
+        ShowCustomer = false;
+        ScanError = null;
+        ScanNote = customer.IsAccount
+            ? $"{customer.Name} is on this sale (account: owes {customer.Balance:C})."
+            : $"{customer.Name} is on this sale.";
+    }
+
+    private void RemoveCustomer()
+    {
+        if (CartLines.Any(l => l.Sku == AccountPayment.Sku))
+        {
+            ScanError = "Take the account payment off the order first.";
+            return;
+        }
+        SaleCustomer = null;
+        ScanNote = null;
+    }
+
+    /// <summary>A payment off a customer's account: one line on the order, paid like any sale.</summary>
+    private void AddAccountPayment((Customer Customer, decimal Amount) payment)
+    {
+        if (CartLines.Count == 0 && !Licence.CanStartSale)
+        {
+            ScanError = Licence.Current.Headline;
+            ShowCustomer = false;
+            return;
+        }
+        if (SaleCustomer is { } current && current.Id != payment.Customer.Id && CartLines.Count > 0)
+        {
+            ScanError = $"{current.Name} is on this order. Finish or void it before taking another customer's payment.";
+            ShowCustomer = false;
+            return;
+        }
+
+        SaleCustomer = payment.Customer;
+        var key = $"A:{payment.Customer.Code}";
+        CartLines.RemoveAll(l => l.Key == key);
+        CartLines.Add(new CartLine
+        {
+            Key = key, Sku = AccountPayment.Sku, Name = $"{AccountPayment.Name} ({payment.Customer.Name})", UnitPrice = payment.Amount,
+            PackUnits = 1, Quantity = 1, GstRate = 0m, Category = AccountPayment.Category, MaxQuantity = 1
+        });
+        ShowCustomer = false;
+        ScanError = null;
+        ScanNote = $"{payment.Amount:C} comes off {payment.Customer.Name}'s account when this is paid.";
     }
 
     private void ClearReturn() => (ReturnOf, ReturnOfPayments) = (null, null);
@@ -567,8 +662,12 @@
     }
 
     /// <summary>The items chosen in the Return window go on the order as return lines (negative).</summary>
-    private void AddReturn(ReturnSelection selection)
+    private async Task AddReturn(ReturnSelection selection)
     {
+        // The customer from the original sale comes with it (so a refund can go back on their account).
+        if (SaleCustomer is null && selection.Sale.CustomerId is { } customerId)
+            SaleCustomer = await Customers.GetAsync(customerId);
+
         if (ReturnOf is { } current && current.SaleId != selection.Sale.Id)
         {
             ScanError = $"This order already returns items from invoice #{current.Invoice}. Finish it first.";
@@ -691,6 +790,7 @@
         var items = string.Join(", ", CartLines.Select(l => $"{(l.IsReturn ? "return " : "")}{l.Name} x{l.Quantity}"));
         CartLines.Clear();
         ClearReturn();
+        SaleCustomer = null;
         (SurchargeOff, SurchargeOn) = (false, false);
 
         await Journal.WriteAsync(JournalEventType.SaleVoided, $"Cart voided: {items}", amount: total);
@@ -731,6 +831,16 @@
                         break;
                 }
             }
+            else if (result.Type == ScanResultType.Customer)
+            {
+                var customer = await Customers.FindByCodeAsync((string)result.Payload!);
+                if (customer is null)
+                    ScanError = $"{result.Payload} isn't a customer here yet.";
+                else if (!customer.IsActive)
+                    ScanError = $"{customer.Name} is marked inactive.";
+                else
+                    SetCustomer(customer);
+            }
             else if (result.Type == ScanResultType.Receipt)
             {
                 OpenReturn((string)result.Payload!);
@@ -739,7 +849,7 @@
             {
                 var card = await GiftCards.GetAsync((string)result.Payload!);
                 ScanNote = card is null
-                    ? $"{result.Payload} isn't a gift card or store credit on this register."
+                    ? $"{result.Payload} isn't known here. If it was sold at another store, check Head Office is connected."
                     : $"{card.KindName} {card.Code}: {card.Balance:C} left{(card.IsActive ? "" : " (cancelled)")}. Use it on the payment screen.";
             }
             else if (result.Type == ScanResultType.NotFound)

@@ -17,6 +17,44 @@ public static class RegisterEndpoints
         var signedIn = app.MapGroup("/api/v1").RequireAuthorization().WithTags("Registers");
         signedIn.MapPost("/sync/events", ReceiveEventsAsync);
         signedIn.MapPost("/heartbeat", HeartbeatAsync);
+        signedIn.MapGet("/sync/shared", SharedAsync);
+    }
+
+    /// <summary>
+    /// The owner's shared events (customers, account lines, gift card movements) from their other registers,
+    /// after Head Office's number <paramref name="after"/>, oldest first. Each register keeps its own place.
+    /// </summary>
+    internal static async Task<IResult> SharedAsync(long? after, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var caller = RegisterIdentity.From(http.User);
+        var from = Math.Max(0, after ?? 0);
+        var types = SyncEventTypes.Shared.ToList();
+
+        // Read up to the newest number now, so an event arriving meanwhile is picked up next time, never skipped.
+        var newest = await db.ReceivedEvents.AsNoTracking().Where(e => e.TenantId == caller.TenantId).MaxAsync(e => (long?)e.Id, ct) ?? 0;
+
+        var rows = await db.ReceivedEvents.AsNoTracking()
+            .Where(e => e.TenantId == caller.TenantId && e.Id > from && e.Id <= newest
+                        && e.RegisterId != caller.RegisterId && types.Contains(e.Type))
+            .OrderBy(e => e.Id)
+            .Take(SharedEventsResponse.MaxEvents + 1)
+            .Join(db.Registers.AsNoTracking(), e => e.RegisterId, r => r.Id, (e, r) => new { Event = e, r.RegisterCode, r.StoreId })
+            .Join(db.Stores.AsNoTracking(), x => x.StoreId, s => s.Id, (x, s) => new { x.Event, x.RegisterCode, s.StoreCode })
+            .ToListAsync(ct);
+
+        var more = rows.Count > SharedEventsResponse.MaxEvents;
+        var page = rows.Take(SharedEventsResponse.MaxEvents).OrderBy(x => x.Event.Id).ToList();
+        var events = page
+            .Select(x => new SharedEvent(x.Event.Id, new SyncEvent(
+                x.Event.EventId, x.Event.Type, x.Event.Version, x.StoreCode, x.RegisterCode, x.Event.Sequence,
+                DateTime.SpecifyKind(x.Event.OccurredAtUtc, DateTimeKind.Utc),
+                System.Text.Json.JsonDocument.Parse(x.Event.Payload).RootElement.Clone())))
+            .ToList();
+
+        // When everything fitted, move the caller past events it doesn't need (its own, sales…) up to the newest.
+        var lastId = more ? events[^1].Id : newest;
+
+        return Results.Ok(new SharedEventsResponse(events, Math.Max(from, lastId), more));
     }
 
     /// <summary>

@@ -157,6 +157,26 @@ The website reads the catalog with `GET /api/v1/catalog/changes?storeId=…&afte
 
 Types: `NepPOS.Contracts.Catalog` (`CatalogChanges`, `CatalogProduct`).
 
+## Shared between registers: customers, accounts and gift cards
+
+Three event types are passed on to the owner's **other** registers (every store and register of the same business), so a customer, their account and a gift card are the same everywhere:
+
+| Type | Payload | How a register applies it |
+| --- | --- | --- |
+| `customer.changed` | `CustomerChangedV1`: the whole customer (`customerId`, `code`, `name`, phone, email, company, ABN, address, notes, `isAccount`, `creditLimit`, `termsDays`, `isActive`, `createdUtc`, `updatedUtc`) | Added, or replaced only if its `updatedUtc` is newer than the copy it holds (newest edit wins) |
+| `account.entry` | `AccountEntryV1`: one line on a customer's account (`entryId`, `customerId`, `kind` = Charge / Payment / Credit / Adjustment, `amount` (positive = owes more), `saleId`, `invoiceNumber`, `atUtc`, `dueUtc`, `reference`, `note`) | Added once by `entryId`; the balance is the sum of the lines |
+| `giftcard.moved` | `GiftCardMovedV1`: one change to a card (`code`, `kind` = GiftCard / StoreCredit, `amount` (positive = loaded), `saleId`, `invoiceNumber`, `atUtc`, `note`, `cancelled`) | Added once by the event's `eventId`; the balance is the sum of the movements |
+
+Lines are append-only and identified by GUIDs, so copies never clash, whatever order they arrive in. Customer and card numbers are random (`CUST-` + 8 digits, `GC-`/`SC-` + 10 digits), so two stores creating them offline practically never pick the same one; if they do, the copy is renumbered.
+
+A register reads them with `GET /api/v1/sync/shared?after=N` (register key), right after sending its own outbox:
+
+- returns `SharedEventsResponse`: the shared events from other registers after Head Office's number `N`, oldest first, up to 500 each with its number (`id`) and the original envelope (with the sender's store and register codes);
+- keep `lastId` and send it as `after` next time; while `more` is true, ask again straight away;
+- a register never gets its own events back, nor sales or journal lines, nor anything from another business.
+
+A register that is offline keeps selling with what it has: a card spent at two stores while both are offline can end up below zero, which shows on the card in Manage → Gift cards & credit.
+
 ## How Head Office answers
 
 `POST /api/v1/sync/events` takes up to 500 events (`{"events":[…]}`) and answers, per event:

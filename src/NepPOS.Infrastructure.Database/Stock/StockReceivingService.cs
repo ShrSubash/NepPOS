@@ -3,6 +3,7 @@ using NepPOS.Application.Stock;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
 using NepPOS.Infrastructure.Database.Scanning;
+using NepPOS.Infrastructure.Database.Suppliers;
 
 namespace NepPOS.Infrastructure.Database.Stock;
 
@@ -145,6 +146,19 @@ public sealed class StockReceivingService : IStockReceivingService
             // Another post of the same invoice got in first (the database rule caught it).
             throw new InvalidOperationException($"Invoice {receipt.InvoiceNumber} from {receipt.SupplierName} has already been received.");
         }
+
+        // The delivery's invoice goes on the supplier's account (creditors), GST included, due after their terms.
+        if (supplierId is { } billedId && await _dbContext.Suppliers.FindAsync(billedId) is { } billed)
+        {
+            var billTotal = receipt.Lines.Sum(l =>
+                l.LineCost * (products.TryGetValue(l.ProductId, out var p) && p.IsGstFree ? 1m : 1.1m));
+            if (billTotal > 0)
+            {
+                SupplierLedger.Add(_dbContext, billed, SupplierEntryKind.Bill, billTotal, receipt.InvoiceNumber,
+                    receipt.InvoiceDate, "Delivery received (incl. GST)", employeeName, receipt.Id);
+                await _dbContext.SaveChangesAsync();
+            }
+        }
         await transaction.CommitAsync();
 
         // Cost per single moved (by half a cent or more) since the last delivery. A product's first cost isn't a change.
@@ -239,6 +253,13 @@ public sealed class StockReceivingService : IStockReceivingService
         receipt.ReversedUtc = now;
         receipt.ReversedBy = employeeName;
         receipt.ReversalReason = reason.Length > 200 ? reason[..200] : reason;
+
+        // Its bill comes off the supplier's account again.
+        var bill = await _dbContext.SupplierAccountEntries.AsNoTracking()
+            .FirstOrDefaultAsync(e => e.StockReceiptId == receipt.Id && e.Kind == SupplierEntryKind.Bill);
+        if (bill is not null && await _dbContext.Suppliers.FindAsync(bill.SupplierId) is { } supplierToCredit)
+            SupplierLedger.Add(_dbContext, supplierToCredit, SupplierEntryKind.Credit, -bill.Amount, receipt.InvoiceNumber,
+                DateOnly.FromDateTime(now.ToLocalTime()), "Delivery reversed: " + receipt.ReversalReason, employeeName, receipt.Id);
 
         await _dbContext.SaveChangesAsync();
         await transaction.CommitAsync();

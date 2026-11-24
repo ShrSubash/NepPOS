@@ -52,6 +52,13 @@ public sealed class HeadOfficeClient : IHeadOfficeClient
         return await SendAsync<HeartbeatResponse>(Authorised(connection, HttpMethod.Post, "api/v1/heartbeat"), cancellationToken);
     }
 
+    public async Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, long afterId, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        return await SendAsync<SharedEventsResponse>(
+            Authorised(connection, HttpMethod.Get, $"api/v1/sync/shared?after={Math.Max(0, afterId)}"), cancellationToken);
+    }
+
     private static HttpRequestMessage Authorised(HeadOfficeConnection connection, HttpMethod method, string path)
     {
         var message = new HttpRequestMessage(method, Url(connection.BaseUrl, path));

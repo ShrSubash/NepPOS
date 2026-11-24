@@ -81,7 +81,7 @@
             _code = _code.Trim().ToUpperInvariant();
             if (!IGiftCardService.LooksLikeCode(_code))
             {
-                Show("Card numbers look like GC-123456 (gift card) or SC-123456 (store credit).", true);
+                Show("Card numbers look like GC-1234567890 (gift card) or SC-1234567890 (store credit).", true);
                 _balance = null;
                 return;
             }

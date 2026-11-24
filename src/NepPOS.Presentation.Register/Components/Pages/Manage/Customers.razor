@@ -1,0 +1,282 @@
+@page "/manage/customers"
+@layout ManageLayout
+@using NepPOS.Application.Customers
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@using NepPOS.Presentation.Register.Components.Shared
+@inject ICustomerService CustomerService
+@inject IJournal Journal
+@inject ILocalHardwareService Hardware
+@inject IRegisterSettingsStore SettingsStore
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Customers</span>
+            <button class="save-btn" @onclick="NewCustomer">+ New customer</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card @(Edit is null ? "wide" : "")">
+                <form class="pt-row" @onsubmit="LoadAsync">
+                    <input @bind="Search" placeholder="Name, phone, email, company or CUST- number" />
+                    <button class="chip" type="submit">Search</button>
+                </form>
+                <div class="pt-row">
+                    <label class="check"><input type="checkbox" @bind="AccountsOnly" @bind:after="LoadAsync" /> Account customers only</label>
+                </div>
+                @if (List.Count == 0)
+                {
+                    <p class="field-note">No customers yet. Add one here, or with the Customer button on the register. Customers are shared with every store connected to the same Head Office.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Customer</th><th>Phone</th><th class="num">Owes</th></tr></thead>
+                        <tbody>
+                            @foreach (var c in List)
+                            {
+                                <tr class="@(Edit?.Id == c.Id ? "on" : "") @(c.IsActive ? "" : "off")" @onclick="() => OpenAsync(c.Id)">
+                                    <td><strong>@c.Name</strong><div class="sub">@c.Code@(string.IsNullOrWhiteSpace(c.Company) ? "" : " · " + c.Company)</div></td>
+                                    <td>@c.Phone</td>
+                                    <td class="num">@(c.IsAccount ? c.Balance.ToString("C") : "")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+
+            @if (Edit is not null)
+            {
+                <section class="card">
+                    <h2>@(Edit.Id is null ? "New customer" : Edit.Name) <span class="hint">@Edit.Code</span></h2>
+                    <div class="cu-grid">
+                        <label>Name<input @bind="Edit.Name" /></label>
+                        <label>Company<input @bind="Edit.Company" /></label>
+                        <label>Phone<input @bind="Edit.Phone" inputmode="tel" /></label>
+                        <label>Email<input @bind="Edit.Email" type="email" /></label>
+                        <label>ABN<input @bind="Edit.Abn" inputmode="numeric" /></label>
+                        <label>Address<input @bind="Edit.Address" /></label>
+                    </div>
+                    <label>Notes<input @bind="Edit.Notes" /></label>
+
+                    <h3>Account</h3>
+                    <label class="check"><input type="checkbox" @bind="Edit.IsAccount" /> Can buy on account (pay later)</label>
+                    @if (Edit.IsAccount)
+                    {
+                        <div class="cu-grid">
+                            <label>Credit limit ($, 0 = none)<input type="number" min="0" step="50" @bind="Edit.CreditLimit" /></label>
+                            <label>Pay within (days)<input type="number" min="0" max="365" @bind="Edit.TermsDays" /></label>
+                        </div>
+                        <p class="field-note">A cashier can't charge over the limit, or while money is overdue (Manage → Payment types); a manager can.</p>
+                    }
+                    <label class="check"><input type="checkbox" @bind="Edit.IsActive" /> Active</label>
+                    <div class="test-row">
+                        <button class="save-btn" @onclick="SaveAsync" disabled="@Busy">Save</button>
+                        <button class="chip" @onclick="() => Edit = null">Close</button>
+                    </div>
+                </section>
+
+                @if (Statement is { } st && (st.Customer.IsAccount || st.Entries.Count > 0))
+                {
+                    <section class="card wide">
+                        <h2>Account <span class="hint">@st.Customer.TermsDays days · limit @(st.Customer.CreditLimit > 0 ? st.Customer.CreditLimit.ToString("C") : "none")</span></h2>
+                        <AgeingTiles Ageing="st.Ageing" />
+                        <div class="test-row">
+                            <button class="chip" @onclick="PrintStatementAsync" disabled="@Busy">Print statement</button>
+                            @if (!Adjusting)
+                            {
+                                <button class="chip" @onclick="() => Adjusting = true">Adjust balance…</button>
+                            }
+                        </div>
+                        @if (Adjusting)
+                        {
+                            <div class="pt-row">
+                                <input type="number" step="0.01" @bind="AdjustAmount" placeholder="+ owes more, − owes less" />
+                                <input @bind="AdjustReason" placeholder="Why (e.g. written off, opening balance)" />
+                                <button class="chip" @onclick="AdjustAsync" disabled="@Busy">Adjust</button>
+                                <button class="chip" @onclick="() => Adjusting = false">Cancel</button>
+                            </div>
+                        }
+                        @if (st.Entries.Count == 0)
+                        {
+                            <p class="field-note">Nothing on the account yet. Charge a sale with the ACCOUNT button on the payment screen.</p>
+                        }
+                        else
+                        {
+                            <table class="gc-table">
+                                <thead><tr><th>When</th><th>What</th><th>Where</th><th>Due</th><th class="num">Amount</th></tr></thead>
+                                <tbody>
+                                    @foreach (var e in st.Entries)
+                                    {
+                                        <tr>
+                                            <td>@e.AtUtc.ToLocalTime().ToString("d MMM yyyy")</td>
+                                            <td>@EntryLabel(e)</td>
+                                            <td class="sub">@e.Where</td>
+                                            <td>@(e.DueUtc?.ToLocalTime().ToString("d MMM") ?? "")</td>
+                                            <td class="num @(e.Amount < 0 ? "pos" : "")">@e.Amount.ToString("+$#,##0.00;-$#,##0.00")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [SupplyParameterFromQuery(Name = "id")] public Guid? OpenId { get; set; }
+
+    private string Search = "";
+    private bool AccountsOnly;
+    private IReadOnlyList<Customer> List = Array.Empty<Customer>();
+    private CustomerForm? Edit;
+    private CustomerStatement? Statement;
+    private bool Adjusting;
+    private decimal AdjustAmount;
+    private string AdjustReason = "";
+    private bool Busy;
+    private string? Message;
+    private bool IsError;
+
+    private sealed class CustomerForm
+    {
+        public Guid? Id { get; set; }
+        public string Code { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? Company { get; set; }
+        public string? Abn { get; set; }
+        public string? Address { get; set; }
+        public string? Notes { get; set; }
+        public bool IsAccount { get; set; }
+        public decimal CreditLimit { get; set; } = 500m;
+        public int TermsDays { get; set; } = 30;
+        public bool IsActive { get; set; } = true;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        if (OpenId is { } id)
+            await OpenAsync(id);
+    }
+
+    private async Task LoadAsync() => List = await CustomerService.SearchAsync(Search, AccountsOnly, take: 200);
+
+    private void NewCustomer()
+    {
+        (Edit, Statement, Adjusting, Message) = (new CustomerForm(), null, false, null);
+    }
+
+    private async Task OpenAsync(Guid id)
+    {
+        Statement = await CustomerService.StatementAsync(id);
+        if (Statement is null) return;
+        var c = Statement.Customer;
+        Edit = new CustomerForm
+        {
+            Id = c.Id, Code = c.Code, Name = c.Name, Phone = c.Phone, Email = c.Email, Company = c.Company, Abn = c.Abn,
+            Address = c.Address, Notes = c.Notes, IsAccount = c.IsAccount, CreditLimit = c.CreditLimit,
+            TermsDays = c.TermsDays, IsActive = c.IsActive
+        };
+        (Adjusting, AdjustAmount, AdjustReason) = (false, 0, "");
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Edit is null) return;
+        Busy = true;
+        try
+        {
+            var saved = await CustomerService.SaveAsync(new CustomerInput(Edit.Id, Edit.Name, Edit.Phone, Edit.Email, Edit.Company,
+                Edit.Abn, Edit.Address, Edit.Notes, Edit.IsAccount, Edit.CreditLimit, Edit.TermsDays, Edit.IsActive));
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Customer {saved.Name} ({saved.Code}) {(Edit.Id is null ? "added" : "updated")} by {Session.Employee?.FullName}");
+            (Message, IsError) = ($"{saved.Name} saved.", false);
+            await LoadAsync();
+            await OpenAsync(saved.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task AdjustAsync()
+    {
+        if (Edit?.Id is not { } id) return;
+        Busy = true;
+        try
+        {
+            await CustomerService.AdjustAsync(id, AdjustAmount, AdjustReason, Session.Employee?.FullName);
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Account of {Edit.Name} adjusted by {AdjustAmount:C} ({AdjustReason.Trim()}) by {Session.Employee?.FullName}", amount: AdjustAmount);
+            (Message, IsError) = ($"{Edit.Name}'s account adjusted by {AdjustAmount:C}.", false);
+            await LoadAsync();
+            await OpenAsync(id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task PrintStatementAsync()
+    {
+        if (Statement is null) return;
+        Busy = true;
+        try
+        {
+            var settings = SettingsStore.Load();
+            var document = ReceiptBuilder.BuildStatement(Statement, settings.Store, settings.Printer.LineWidth, DateTime.Now);
+            var result = await Hardware.PrintReceiptAsync(document);
+            (Message, IsError) = result.Succeeded
+                ? ($"Statement for {Statement.Customer.Name} printed.", false)
+                : (result.Message ?? "The statement didn't print.", true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private static string EntryLabel(CustomerAccountEntry e) => e.Kind switch
+    {
+        AccountEntryKind.Charge => e.InvoiceNumber is { } inv ? $"Sale #{inv}" : "Charge",
+        AccountEntryKind.Payment => e.InvoiceNumber is { } inv ? $"Payment #{inv}" : "Payment",
+        AccountEntryKind.Credit => e.InvoiceNumber is { } inv ? $"Refund #{inv}" : "Credit",
+        _ => "Adjustment: " + e.Note
+    };
+}

@@ -13,7 +13,7 @@ public interface IGiftCardService
     /// <summary>The card's balance, or null for an unknown code.</summary>
     Task<GiftCardBalance?> GetAsync(string code, CancellationToken cancellationToken = default);
 
-    /// <summary>A code not used yet: "GC-" or "SC-" and six digits.</summary>
+    /// <summary>A code not used yet: "GC-" or "SC-" and ten random digits (unique across all stores).</summary>
     Task<string> NewCodeAsync(GiftCardKind kind, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<GiftCardBalance>> ListAsync(string? search = null, int take = 200, CancellationToken cancellationToken = default);
@@ -23,7 +23,7 @@ public interface IGiftCardService
     /// <summary>Stops a lost or stolen card being spent.</summary>
     Task CancelAsync(string code, CancellationToken cancellationToken = default);
 
-    /// <summary>"GC-123456" / "SC-123456", any case.</summary>
+    /// <summary>"GC-1234567890" / "SC-1234567890" (older cards: six digits), any case.</summary>
     public static bool LooksLikeCode(string? code) =>
-        System.Text.RegularExpressions.Regex.IsMatch((code ?? "").Trim(), @"^(GC|SC)-\d{6}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        System.Text.RegularExpressions.Regex.IsMatch((code ?? "").Trim(), @"^(GC|SC)-\d{6,12}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 }
