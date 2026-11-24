@@ -5,6 +5,7 @@ using NepPOS.HeadOffice.Api.Accounts;
 using NepPOS.HeadOffice.Api.Catalog;
 using NepPOS.HeadOffice.Api.Data;
 using NepPOS.HeadOffice.Api.Licensing;
+using NepPOS.HeadOffice.Api.Orders;
 using NepPOS.HeadOffice.Api.Security;
 
 namespace NepPOS.HeadOffice.Api.Endpoints;
@@ -20,6 +21,7 @@ public static class RegisterEndpoints
         signedIn.MapPost("/sync/events", ReceiveEventsAsync);
         signedIn.MapPost("/heartbeat", HeartbeatAsync);
         signedIn.MapGet("/sync/shared", SharedAsync);
+        signedIn.MapGet("/sync/stores", StoresAsync);
     }
 
     /// <summary>
@@ -27,6 +29,18 @@ public static class RegisterEndpoints
     /// Head Office's number <paramref name="after"/>, and from their website after <paramref name="afterWeb"/>,
     /// oldest first. Each register keeps its own place.
     /// </summary>
+    /// <summary>The owner's stores (code and name), for sending stock to another store.</summary>
+    internal static async Task<IResult> StoresAsync(HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var caller = RegisterIdentity.From(http.User);
+        var stores = await db.Stores.AsNoTracking()
+            .Where(s => s.TenantId == caller.TenantId)
+            .OrderBy(s => s.StoreCode)
+            .Select(s => new NepPOS.Contracts.Orders.StoreRef(s.StoreCode, s.Name))
+            .ToListAsync(ct);
+        return Results.Ok(stores);
+    }
+
     internal static async Task<IResult> SharedAsync(long? after, long? afterWeb, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
     {
         var caller = RegisterIdentity.From(http.User);
@@ -146,6 +160,7 @@ public static class RegisterEndpoints
         var productChanges = new List<(ReceivedEvent Row, ProductChangedV1 Product)>();
         var sharedChanges = new List<SyncEvent>();
         var stockChanges = new List<(ReceivedEvent Row, StockChangedV1 Stock)>();
+        var orderChanges = new List<NepPOS.Contracts.Orders.WebOrderStatusV1>();
 
         var eventIds = events.Select(e => e.EventId).Distinct().ToList();
         var sequences = events.Select(e => e.Sequence).Distinct().ToList();
@@ -183,6 +198,7 @@ public static class RegisterEndpoints
                 if (stockProblem is null && (stock is null || stock.ProductId == Guid.Empty))
                     stockProblem = "A stock change needs a productId.";
             }
+            var orderProblem = WebOrderProjection.Read(e, out var orderStatus);
 
             var problem = e switch
             {
@@ -197,6 +213,7 @@ public static class RegisterEndpoints
                 _ when productProblem is not null => productProblem,
                 _ when sharedProblem is not null => sharedProblem,
                 _ when stockProblem is not null => stockProblem,
+                _ when orderProblem is not null => orderProblem,
                 _ => null
             };
             if (problem is not null)
@@ -224,6 +241,8 @@ public static class RegisterEndpoints
                 sharedChanges.Add(e);
             if (stock is not null)
                 stockChanges.Add((row, stock));
+            if (orderStatus is not null)
+                orderChanges.Add(orderStatus);
             usedSequences.Add(e.Sequence);
             known.Add(new { e.EventId, caller.RegisterId });
             accepted.Add(e.EventId);
@@ -253,6 +272,8 @@ public static class RegisterEndpoints
                 level.LastEventId = row.Id;
             }
         }
+        foreach (var status in orderChanges)
+            await WebOrderProjection.ApplyAsync(db, caller.TenantId, status, ct);
         foreach (var shared in sharedChanges)
             await SharedAccounts.ApplyAsync(db, caller.TenantId, shared.EventId, shared.Type, shared.Payload,
                 $"{caller.StoreCode} / {caller.RegisterCode}", ct);

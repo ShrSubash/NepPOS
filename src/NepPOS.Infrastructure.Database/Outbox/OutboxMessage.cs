@@ -175,6 +175,30 @@ public sealed class OutboxMessage
             storeId, registerId, entry.AtUtc, JsonSerializer.Serialize(payload, SyncJson.Options));
     }
 
+    /// <summary>The <c>order.status</c> event: a website order moved on (shared, and passed to the website).</summary>
+    public static OutboxMessage WebOrderStatus(NepPOS.Contracts.Orders.WebOrderStatusV1 status, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        return new OutboxMessage(SyncEventTypes.OrderStatus, NepPOS.Contracts.Orders.WebOrderStatusV1.Version,
+            storeId, registerId, status.AtUtc, JsonSerializer.Serialize(status, SyncJson.Options));
+    }
+
+    /// <summary>The <c>transfer.sent</c> event: stock on its way to another store.</summary>
+    public static OutboxMessage TransferSent(NepPOS.Contracts.Orders.TransferSentV1 transfer, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(transfer);
+        return new OutboxMessage(SyncEventTypes.TransferSent, NepPOS.Contracts.Orders.TransferSentV1.Version,
+            storeId, registerId, transfer.SentUtc, JsonSerializer.Serialize(transfer, SyncJson.Options));
+    }
+
+    /// <summary>The <c>transfer.received</c> event: what this store counted in from a transfer.</summary>
+    public static OutboxMessage TransferReceived(NepPOS.Contracts.Orders.TransferReceivedV1 received, string storeId, string registerId)
+    {
+        ArgumentNullException.ThrowIfNull(received);
+        return new OutboxMessage(SyncEventTypes.TransferReceived, NepPOS.Contracts.Orders.TransferReceivedV1.Version,
+            storeId, registerId, received.ReceivedUtc, JsonSerializer.Serialize(received, SyncJson.Options));
+    }
+
     /// <summary>The envelope Head Office receives (integration build step 3 sends it).</summary>
     public SyncEvent ToSyncEvent() => new(
         EventId, Type, Version, StoreId, RegisterId, Id,

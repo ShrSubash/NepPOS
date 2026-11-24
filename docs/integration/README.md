@@ -116,9 +116,12 @@ There is one versioned REST API (`/api/v1`) on Head Office. The store and the we
 | --- | --- | --- |
 | Store (Master) | `POST /api/v1/sync/events` | Push a batch of outbox events (sales, Z, stock, points) |
 | Store (Master) | `GET /api/v1/sync/changes?cursor=` | Pull what changed since the last pull: products, prices, members, new online orders. Returns `nextCursor` |
-| Store (Master) | `POST /api/v1/orders/{orderId}/status` | Accepted, rejected (reason), picking, ready, completed, with any item changes |
+| Store (Master) | `order.status` sync event | Picking, ready, completed (final total, invoice, refund due) or cancelled; see `events.md` |
+| Store (Master) | `GET /api/v1/sync/stores` | The owner's stores, for transfers |
 | Store (Master) | `POST /api/v1/stores/{storeId}/heartbeat` | Every minute; tells the website the store can take orders |
-| Website | `POST /api/v1/orders` | Send a paid order. `Idempotency-Key` header = the website's order GUID |
+| Website | `POST /api/v1/orders` | Send an order for a store to pick (prepaid, on account or pay at the store). Resending the same `orderId` is harmless. Types: `NepPOS.Contracts.Orders` |
+| Website | `GET /api/v1/orders/changes?after=` and `GET /api/v1/orders/{id}` | Where each order is up to (status, what was found, final total, refund due) |
+| Website | `POST /api/v1/orders/{id}/cancel` | Cancel before the store starts picking |
 | Website | `GET /api/v1/catalog/changes?storeId=&after=` | Products and prices changed after a change number (`after=0`: everything). Web content stays on the website. Types: `NepPOS.Contracts.Catalog`; see `events.md` |
 | Website | `GET /api/v1/stock/changes?storeId=&after=` | Stock on hand changed after a change number (`after=0`: every product). Types: `NepPOS.Contracts.Catalog`; see `events.md` |
 | Website | `GET /api/v1/stores` | The business's stores: online (heartbeat in the last 10 minutes), last seen, last sale |

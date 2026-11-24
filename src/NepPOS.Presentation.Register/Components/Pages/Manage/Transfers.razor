@@ -1,0 +1,279 @@
+@page "/manage/transfers"
+@layout ManageLayout
+@using NepPOS.Application.Orders
+@using NepPOS.Application.Stock
+@using NepPOS.Contracts.Orders
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IStockTransferService TransferService
+@inject IWastageService ProductFinder
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Transfers between stores</span>
+            <button class="save-btn" @onclick="NewTransferAsync">+ Send stock</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card @(Sending is null && Receiving is null ? "wide" : "")">
+                <h2>Transfers <span class="hint">stock moves at cost, out when sent and in when counted</span></h2>
+                @if (List.Count == 0)
+                {
+                    <p class="field-note">None yet. "+ Send stock" takes stock off here and sends it to another of your stores; they count it in when it arrives.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Transfer</th><th>From → To</th><th class="num">Value</th><th>Status</th></tr></thead>
+                        <tbody>
+                            @foreach (var t in List)
+                            {
+                                <tr class="@(Receiving?.Id == t.Id ? "on" : "")" @onclick="() => OpenAsync(t)">
+                                    <td><strong>@t.Number</strong><div class="sub">@t.SentUtc.ToLocalTime().ToString("d MMM h:mm tt") · @t.Lines.Count product@(t.Lines.Count == 1 ? "" : "s")</div></td>
+                                    <td>@t.FromStore → @t.ToStore</td>
+                                    <td class="num">@t.Value.ToString("C")</td>
+                                    <td>@StatusText(t)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+
+            @if (Sending is not null)
+            {
+                <section class="card wide">
+                    <h2>Send stock</h2>
+                    <label>To
+                        <select @bind="ToStore">
+                            <option value="">— choose a store —</option>
+                            @foreach (var s in Stores)
+                            {
+                                <option value="@s.StoreCode">@s.Name (@s.StoreCode)</option>
+                            }
+                        </select>
+                    </label>
+                    @if (Stores.Count == 0)
+                    {
+                        <label>Store code<input @bind="ToStore" placeholder="e.g. STORE-002" /></label>
+                        <p class="field-note">Head Office can't be reached right now, so type the other store's code.</p>
+                    }
+                    <form class="pt-row" @onsubmit="FindAsync">
+                        <input @bind="Term" placeholder="Scan or find a product" autocomplete="off" />
+                        <button class="chip" type="submit">Find</button>
+                    </form>
+                    @foreach (var f in Found)
+                    {
+                        <button class="chip" @onclick="() => Add(f)">+ @f.Name <span class="sub">(@f.StockOnHand.ToString("0.##") here)</span></button>
+                    }
+
+                    @if (Sending.Count > 0)
+                    {
+                        <table class="gc-table">
+                            <thead><tr><th>Product</th><th>Pack</th><th class="num">How many</th><th class="num">Singles</th><th class="num">At cost</th><th></th></tr></thead>
+                            <tbody>
+                                @foreach (var line in Sending)
+                                {
+                                    <tr>
+                                        <td><strong>@line.Product.Name</strong><div class="sub">@line.Product.StockOnHand.ToString("0.##") in stock</div></td>
+                                        <td>
+                                            @foreach (var pack in line.Product.Packs)
+                                            {
+                                                <button class="chip small @(line.Pack == pack ? "on" : "")" @onclick="() => line.Pack = pack">@(pack.Units == 1 ? "Singles" : $"{pack.Name} ({pack.Units})")</button>
+                                            }
+                                        </td>
+                                        <td class="num"><input class="st-qty" type="number" min="1" step="1" @bind="line.Count" /></td>
+                                        <td class="num @(line.Singles > line.Product.StockOnHand ? "neg" : "")">@line.Singles.ToString("0.##")</td>
+                                        <td class="num">@((line.Singles * line.Product.CostPerSingle).ToString("C"))</td>
+                                        <td><button class="chip small danger" @onclick="() => Sending.Remove(line)">✕</button></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                        <div class="gc-totals"><span>Value at cost: <strong>@Sending.Sum(l => l.Singles * l.Product.CostPerSingle).ToString("C")</strong></span></div>
+                    }
+                    <label>Note<input @bind="Note" placeholder="e.g. For the weekend, driver: Ram" /></label>
+                    <div class="test-row">
+                        @if (Confirming)
+                        {
+                            <span>Take @Sending.Count products off this store and send them to @ToStore?</span>
+                            <button class="save-btn" @onclick="SendAsync">Yes, send</button>
+                            <button class="chip" @onclick="() => Confirming = false">Not yet</button>
+                        }
+                        else
+                        {
+                            <button class="save-btn" disabled="@(Sending.Count == 0 || string.IsNullOrWhiteSpace(ToStore))" @onclick="() => Confirming = true">Send</button>
+                            <button class="chip" @onclick="() => Sending = null">Close</button>
+                        }
+                    </div>
+                </section>
+            }
+
+            @if (Receiving is { } transfer)
+            {
+                <section class="card wide">
+                    <h2>@transfer.Number <span class="hint">@transfer.FromStore → @transfer.ToStore · sent by @(transfer.SentBy ?? "?")</span></h2>
+                    @if (!string.IsNullOrEmpty(transfer.Note)) { <p class="field-note">“@transfer.Note”</p> }
+                    <table class="gc-table">
+                        <thead><tr><th>Product</th><th class="num">Sent</th><th class="num">@(CanReceive ? "Arrived" : "Received")</th><th>Here</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in Incoming)
+                            {
+                                var line = row.Line;
+                                <tr>
+                                    <td><strong>@line.ProductName</strong><div class="sub">@(line.Barcode ?? line.Sku)</div></td>
+                                    <td class="num">@line.Quantity.ToString("0.##")</td>
+                                    <td class="num">
+                                        @if (CanReceive && row.ProductId is not null)
+                                        {
+                                            <input class="st-qty" type="number" min="0" step="1" value="@ArrivedOf(line)" @onchange="e => SetArrived(line, e.Value)" />
+                                        }
+                                        else
+                                        {
+                                            <span class="@(line.Received < line.Quantity ? "neg" : "")">@(line.Received?.ToString("0.##") ?? "—")</span>
+                                        }
+                                    </td>
+                                    <td>@(row.ProductId is null ? "⚠ Not stocked here" : row.MatchedName)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    @if (CanReceive)
+                    {
+                        @if (Incoming.Any(r => r.ProductId is null))
+                        {
+                            <p class="field-note">Products marked ⚠ aren't in this store's catalog. Add them in Products & PLUs first (same barcode) if you want their stock counted in.</p>
+                        }
+                        <div class="test-row">
+                            <button class="save-btn" @onclick="ReceiveAsync">Count it in</button>
+                            <button class="chip" @onclick="() => Receiving = null">Close</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="test-row"><button class="chip" @onclick="() => Receiving = null">Close</button></div>
+                    }
+                </section>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private sealed class SendLine
+    {
+        public required WastageProduct Product { get; init; }
+        public required WastagePack Pack { get; set; }
+        public int Count { get; set; } = 1;
+        public decimal Singles => Math.Max(0, Count) * Pack.Units;
+    }
+
+    private IReadOnlyList<StockTransfer> List = Array.Empty<StockTransfer>();
+    private IReadOnlyList<StoreRef> Stores = Array.Empty<StoreRef>();
+    private List<SendLine>? Sending;
+    private string ToStore = "";
+    private string Note = "";
+    private string Term = "";
+    private bool Confirming;
+    private IReadOnlyList<WastageProduct> Found = Array.Empty<WastageProduct>();
+    private StockTransfer? Receiving;
+    private IReadOnlyList<IncomingLine> Incoming = Array.Empty<IncomingLine>();
+    private readonly Dictionary<int, decimal> Arrived = new();
+    private string? Message;
+    private bool IsError;
+
+    private bool CanReceive => Receiving is { Outgoing: false, Status: StockTransferStatus.InTransit };
+
+    protected override async Task OnInitializedAsync() => List = await TransferService.ListAsync();
+
+    private async Task NewTransferAsync()
+    {
+        (Sending, Receiving, ToStore, Note, Confirming, Message) = (new List<SendLine>(), null, "", "", false, null);
+        Stores = await TransferService.OtherStoresAsync();
+    }
+
+    private async Task FindAsync() => Found = (await ProductFinder.FindProductsAsync(Term)).Take(8).ToList();
+
+    private void Add(WastageProduct product)
+    {
+        if (Sending is null) return;
+        if (Sending.FirstOrDefault(l => l.Product.ProductId == product.ProductId) is { } existing)
+            existing.Count++;
+        else
+            Sending.Add(new SendLine { Product = product, Pack = product.Packs[0] });
+        (Term, Found) = ("", Array.Empty<WastageProduct>());
+    }
+
+    private async Task SendAsync()
+    {
+        if (Sending is null) return;
+        try
+        {
+            var sent = await TransferService.SendAsync(ToStore, Sending.Select(l => new TransferItem(l.Product.ProductId, l.Singles)).ToList(),
+                Note, Session.Employee?.FullName);
+            (Message, IsError, Sending, Confirming) = ($"{sent.Number} sent to {sent.ToStore}: {sent.Value:C} at cost. It reaches them with the next sync.", false, null, false);
+            List = await TransferService.ListAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError, Confirming) = (ex.Message, true, false);
+        }
+    }
+
+    private async Task OpenAsync(StockTransfer transfer)
+    {
+        (Sending, Message) = (null, null);
+        Receiving = await TransferService.GetAsync(transfer.Id);
+        Incoming = Receiving is null ? Array.Empty<IncomingLine>() : await TransferService.MatchAsync(transfer.Id);
+        Arrived.Clear();
+    }
+
+    private decimal ArrivedOf(StockTransferLine line) => Arrived.TryGetValue(line.Id, out var q) ? q : line.Quantity;
+
+    private void SetArrived(StockTransferLine line, object? value)
+    {
+        if (decimal.TryParse(value as string, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var q))
+            Arrived[line.Id] = q;
+    }
+
+    private async Task ReceiveAsync()
+    {
+        if (Receiving is null) return;
+        try
+        {
+            var received = await TransferService.ReceiveAsync(Receiving.Id, Arrived, Session.Employee?.FullName);
+            (Message, IsError) = ($"{received.Number} counted in. {received.FromStore} sees what arrived.", false);
+            List = await TransferService.ListAsync();
+            await OpenAsync(received);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+    }
+
+    private static string StatusText(StockTransfer t) => (t.Outgoing, t.Status) switch
+    {
+        (true, StockTransferStatus.InTransit) => "On its way",
+        (false, StockTransferStatus.InTransit) => "⬇ To count in",
+        (true, _) => t.Lines.Any(l => l.Received < l.Quantity) ? "Received (short)" : "Received",
+        _ => "Received"
+    };
+}

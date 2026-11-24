@@ -23,6 +23,8 @@ public sealed class HeadOfficeDbContext : DbContext
     public DbSet<CatalogItem> CatalogItems => Set<CatalogItem>();
     public DbSet<WebsiteEvent> WebsiteEvents => Set<WebsiteEvent>();
     public DbSet<StockLevelRow> StockLevels => Set<StockLevelRow>();
+    public DbSet<WebOrderRow> WebOrders => Set<WebOrderRow>();
+    public DbSet<WebOrderChange> WebOrderChanges => Set<WebOrderChange>();
     public DbSet<SharedCustomer> SharedCustomers => Set<SharedCustomer>();
     public DbSet<SharedAccountLine> SharedAccountLines => Set<SharedAccountLine>();
     public DbSet<SharedGiftCard> SharedGiftCards => Set<SharedGiftCard>();
@@ -102,6 +104,27 @@ public sealed class HeadOfficeDbContext : DbContext
             entity.Property(s => s.StockOnHand).HasPrecision(18, 3);
             entity.HasIndex(s => new { s.StoreId, s.LastEventId });
             entity.HasOne<Store>().WithMany().HasForeignKey(s => s.StoreId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WebOrderRow>(entity =>
+        {
+            entity.HasKey(o => o.OrderId);
+            entity.Property(o => o.OrderId).ValueGeneratedNever();
+            entity.Property(o => o.Reference).IsRequired().HasMaxLength(50);
+            entity.Property(o => o.Status).IsRequired().HasMaxLength(20);
+            entity.Property(o => o.Total).HasPrecision(18, 2);
+            entity.Property(o => o.OnAccount).HasPrecision(18, 2);
+            entity.Property(o => o.FinalTotal).HasPrecision(18, 2);
+            entity.Property(o => o.RefundDue).HasPrecision(18, 2);
+            entity.Property(o => o.Note).HasMaxLength(500);
+            entity.HasIndex(o => new { o.TenantId, o.StoreId, o.Status });
+            entity.HasOne<Store>().WithMany().HasForeignKey(o => o.StoreId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WebOrderChange>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.HasIndex(c => new { c.TenantId, c.Id });
         });
 
         modelBuilder.Entity<WebsiteEvent>(entity =>
@@ -326,6 +349,40 @@ public sealed class StockLevelRow
 
     /// <summary>The <see cref="ReceivedEvent"/> that last changed it: the website's change number.</summary>
     public long LastEventId { get; set; }
+}
+
+/// <summary>A website order as Head Office last heard it: what the website reads back for its order page.</summary>
+public sealed class WebOrderRow
+{
+    public Guid OrderId { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid StoreId { get; set; }
+    public string Reference { get; set; } = "";
+    public string Status { get; set; } = "";
+    public decimal Total { get; set; }
+
+    /// <summary>To go on the customer's account when the store completes it (counts against their credit limit until then).</summary>
+    public decimal OnAccount { get; set; }
+
+    public Guid? CustomerId { get; set; }
+    public decimal? FinalTotal { get; set; }
+    public decimal? RefundDue { get; set; }
+    public long? InvoiceNumber { get; set; }
+    public string? Note { get; set; }
+
+    /// <summary>What the store picked, as JSON (<c>WebOrderPickedV1[]</c>).</summary>
+    public string? PickedJson { get; set; }
+
+    public DateTime PlacedUtc { get; set; }
+    public DateTime UpdatedUtc { get; set; }
+}
+
+/// <summary>One change to a website order, numbered: the website's change number for <c>GET /api/v1/orders/changes</c>.</summary>
+public sealed class WebOrderChange
+{
+    public long Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid OrderId { get; set; }
 }
 
 /// <summary>

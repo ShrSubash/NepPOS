@@ -1,0 +1,286 @@
+@page "/orders"
+@layout EmptyLayout
+@using NepPOS.Application.Orders
+@using NepPOS.Application.Payments
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Components.Shared
+@using NepPOS.Presentation.Register.Services
+@inject IWebOrderService Orders
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null)
+{
+    <div class="settings-denied">
+        <p>Sign in first.</p>
+        <button @onclick='() => Nav.NavigateTo("/")'>Sign in</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <button class="chip" @onclick='() => Nav.NavigateTo("/register")'>← Register</button>
+            <span class="brand-text">Web orders</span>
+            <button class="chip wo-filter" @onclick="LoadAsync">↻ Refresh</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body wo-body">
+            <section class="card wo-list">
+                <div class="pt-row">
+                    <button class="chip @(!ShowFinished ? "on" : "")" @onclick="() => FilterAsync(false)">To do</button>
+                    <button class="chip @(ShowFinished ? "on" : "")" @onclick="() => FilterAsync(true)">With finished</button>
+                </div>
+                @if (List.Count == 0)
+                {
+                    <p class="field-note">No website orders waiting. New ones appear here within a minute of being placed.</p>
+                }
+                @foreach (var o in List)
+                {
+                    <button class="wo-item @(Selected?.Id == o.Id ? "on" : "") @StatusClass(o.Status)" @onclick="() => OpenAsync(o.Id)">
+                        <span class="wo-top">
+                            <strong>@o.CustomerName</strong>
+                            <span class="wo-status">@StatusText(o.Status)</span>
+                        </span>
+                        <span class="sub">
+                            #@o.Reference · @(o.Fulfilment == "Delivery" ? "🚚 Delivery" : "🛍 Pickup")
+                            @(o.WantedUtc is { } w ? $" · by {w.ToLocalTime():ddd h:mm tt}" : $" · {o.PlacedUtc.ToLocalTime():ddd h:mm tt}")
+                        </span>
+                        <span class="sub">@o.Lines.Sum(l => l.Quantity) items · @o.Total.ToString("C")</span>
+                    </button>
+                }
+            </section>
+
+            @if (Selected is { } order)
+            {
+                <section class="card wo-detail">
+                    <h2>@order.CustomerName <span class="hint">#@order.Reference</span></h2>
+                    <div class="wo-facts">
+                        @if (!string.IsNullOrEmpty(order.Phone)) { <span>📞 @order.Phone</span> }
+                        <span>@(order.Fulfilment == "Delivery" ? $"🚚 Deliver to {order.Address}" : "🛍 Pickup at the store")</span>
+                        @if (order.WantedUtc is { } wanted) { <span>⏰ @wanted.ToLocalTime().ToString("ddd d MMM h:mm tt")</span> }
+                        @if (!string.IsNullOrEmpty(order.PickedBy)) { <span>👤 @order.PickedBy</span> }
+                    </div>
+                    @if (!string.IsNullOrEmpty(order.Note))
+                    {
+                        <p class="wo-note">“@order.Note”</p>
+                    }
+
+                    <table class="gc-table wo-lines">
+                        <thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Found</th><th class="num">Price</th></tr></thead>
+                        <tbody>
+                            @foreach (var line in order.Lines.OrderBy(l => l.LineNumber))
+                            {
+                                var found = FoundOf(line);
+                                <tr class="@(found < line.Quantity ? "short" : "")">
+                                    <td><strong>@line.Name</strong>@if (line.ProductSyncId is null) { <div class="sub">not a stock item</div> }</td>
+                                    <td class="num">@line.Quantity</td>
+                                    <td class="num">
+                                        @if (CanPick && line.ProductSyncId is not null)
+                                        {
+                                            <span class="stepper">
+                                                <button @onclick="() => Step(line, -1)" disabled="@(found == 0)">−</button>
+                                                <b>@found</b>
+                                                <button @onclick="() => Step(line, 1)" disabled="@(found >= line.Quantity)">+</button>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            @found
+                                        }
+                                    </td>
+                                    <td class="num">@((line.UnitPrice * found).ToString("C"))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+
+                    <div class="gc-totals">
+                        <span>Total now: <strong>@PickedTotal.ToString("C")</strong>@if (PickedTotal != order.Total) { <span class="sub"> (ordered @order.Total.ToString("C"))</span> }</span>
+                        @if (order.Prepaid > 0) { <span>Paid online: <strong>@order.Prepaid.ToString("C")</strong></span> }
+                        @if (order.OnAccount > 0) { <span>On account: <strong>@order.OnAccount.ToString("C")</strong></span> }
+                        <span>To pay here: <strong>@order.DueAtStore(PickedTotal).ToString("C")</strong></span>
+                        @if (order.Prepaid > PickedTotal) { <span class="neg">Refund online: <strong>@((order.Prepaid - PickedTotal).ToString("C"))</strong></span> }
+                    </div>
+
+                    @switch (order.Status)
+                    {
+                        case WebOrderStatus.Placed:
+                            <div class="test-row">
+                                <button class="save-btn big" @onclick="StartAsync">Start picking</button>
+                                <button class="chip danger" @onclick="() => Cancelling = true">Cancel order</button>
+                            </div>
+                            break;
+                        case WebOrderStatus.Picking:
+                            <p class="field-note">Tap − for anything you can't find. The customer only pays for what's found.</p>
+                            <div class="test-row">
+                                <button class="save-btn big" @onclick="ReadyAsync">Packed — ready</button>
+                                <button class="chip" @onclick="SavePicksAsync">Save for later</button>
+                                <button class="chip danger" @onclick="() => Cancelling = true">Cancel order</button>
+                            </div>
+                            break;
+                        case WebOrderStatus.Ready:
+                            <div class="test-row">
+                                <button class="save-btn big" @onclick="CompleteAsync">@(order.Fulfilment == "Delivery" ? "Sent out — complete" : "Collected — complete")</button>
+                                <button class="chip danger" @onclick="() => Cancelling = true">Cancel order</button>
+                            </div>
+                            break;
+                        case WebOrderStatus.Completed:
+                            <p class="wo-done">✔ Completed · invoice #@order.InvoiceNumber · @order.FinalTotal?.ToString("C")
+                                @if (order.RefundDue > 0) { <span> · @order.RefundDue?.ToString("C") to be refunded online</span> }</p>
+                            break;
+                        default:
+                            <p class="wo-done cancelled">✖ Cancelled@(string.IsNullOrEmpty(order.CancelReason) ? "" : $": {order.CancelReason}")</p>
+                            break;
+                    }
+
+                    @if (Cancelling)
+                    {
+                        <div class="wo-cancel">
+                            <label>Why? (the customer sees this)<input @bind="CancelReason" placeholder="e.g. Out of stock, customer asked" /></label>
+                            <div class="test-row">
+                                <button class="save-btn danger" @onclick="CancelAsync">Cancel the order</button>
+                                <button class="chip" @onclick="() => Cancelling = false">Keep it</button>
+                            </div>
+                            @if (order.Prepaid > 0) { <p class="field-note">@order.Prepaid.ToString("C") paid online goes back to the customer from the website.</p> }
+                        </div>
+                    }
+                </section>
+            }
+        </div>
+    </div>
+
+    @if (Paying is { } paying)
+    {
+        <TenderPanel Sale="paying.Sale"
+                     CompleteSale="tender => Orders.CompleteAsync(Selected!.Id, paying, tender)"
+                     Prepay="tender => paying.Prepay(tender, Selected!.Reference)"
+                     Customer="paying.Customer"
+                     OnFinished="FinishedAsync"
+                     OnCancel="() => Paying = null" />
+    }
+}
+
+@code {
+    private IReadOnlyList<WebOrder> List = Array.Empty<WebOrder>();
+    private WebOrder? Selected;
+    private readonly Dictionary<int, int> Found = new();
+    private bool ShowFinished;
+    private bool Cancelling;
+    private string CancelReason = "";
+    private WebOrderSale? Paying;
+    private string? Message;
+    private bool IsError;
+
+    private bool CanPick => Selected?.Status is WebOrderStatus.Picking;
+
+    private decimal PickedTotal => Selected?.Lines.Sum(l => l.UnitPrice * FoundOf(l)) ?? 0;
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        List = await Orders.ListAsync(ShowFinished);
+        if (Selected is not null)
+            await OpenAsync(Selected.Id);
+        else if (List.FirstOrDefault(o => o.IsOpen) is { } first)
+            await OpenAsync(first.Id);
+    }
+
+    private async Task FilterAsync(bool finished)
+    {
+        ShowFinished = finished;
+        await LoadAsync();
+    }
+
+    private async Task OpenAsync(Guid id)
+    {
+        Selected = await Orders.GetAsync(id);
+        Found.Clear();
+        Cancelling = false;
+        if (Selected is not null)
+            foreach (var line in Selected.Lines)
+                Found[line.Id] = line.Supplied;
+    }
+
+    private int FoundOf(WebOrderLine line) => Found.TryGetValue(line.Id, out var found) ? found : line.Supplied;
+
+    private void Step(WebOrderLine line, int by) => Found[line.Id] = Math.Clamp(FoundOf(line) + by, 0, line.Quantity);
+
+    private Task StartAsync() => RunAsync(() => Orders.StartPickingAsync(Selected!.Id, Session.Employee?.FullName), "Picking. The website shows the customer it's being packed.");
+
+    private Task SavePicksAsync() => RunAsync(() => Orders.SavePickedAsync(Selected!.Id, Found), "Saved.");
+
+    private Task ReadyAsync() => RunAsync(async () =>
+    {
+        await Orders.SavePickedAsync(Selected!.Id, Found);
+        await Orders.MarkReadyAsync(Selected!.Id, Session.Employee?.FullName);
+    }, Selected?.Fulfilment == "Delivery" ? "Ready for the driver." : "Ready. The customer is told it's ready to collect.");
+
+    private Task CancelAsync() => RunAsync(() => Orders.CancelAsync(Selected!.Id, CancelReason, Session.Employee?.FullName), "Order cancelled. The website tells the customer.");
+
+    private async Task CompleteAsync()
+    {
+        if (Selected is null) return;
+        try
+        {
+            var prepared = await Orders.PrepareSaleAsync(Selected.Id, Session.Employee?.Id, Session.Employee?.FullName);
+            if (prepared.DueAtStore > 0)
+            {
+                Paying = prepared;   // the cashier takes the rest at the tender screen
+                return;
+            }
+
+            var tender = new TenderSession(prepared.Sale.Id, prepared.Sale.GrandTotal);
+            prepared.Prepay(tender, Selected.Reference);
+            var invoice = await Orders.CompleteAsync(Selected.Id, prepared, tender);
+            (Message, IsError) = ($"Completed: invoice #{invoice}." + (prepared.RefundDue > 0 ? $" {prepared.RefundDue:C} will be refunded online." : ""), false);
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+    }
+
+    private async Task FinishedAsync()
+    {
+        var refund = Paying?.RefundDue ?? 0;
+        Paying = null;
+        (Message, IsError) = ("Completed." + (refund > 0 ? $" {refund:C} will be refunded online." : ""), false);
+        await LoadAsync();
+    }
+
+    private async Task RunAsync(Func<Task> action, string done)
+    {
+        if (Selected is null) return;
+        try
+        {
+            await action();
+            (Message, IsError) = (done, false);
+            Cancelling = false;
+            await LoadAsync();
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+    }
+
+    private static string StatusText(WebOrderStatus status) => status switch
+    {
+        WebOrderStatus.Placed => "New",
+        WebOrderStatus.Picking => "Picking",
+        WebOrderStatus.Ready => "Ready",
+        WebOrderStatus.Completed => "Done",
+        _ => "Cancelled"
+    };
+
+    private static string StatusClass(WebOrderStatus status) => "st-" + status.ToString().ToLowerInvariant();
+}

@@ -38,6 +38,14 @@ public enum JournalEventType
     /// <summary>A stocktake posted: stock set to what was counted (Amount = the difference at cost).</summary>
     StocktakePosted,
 
+    /// <summary>A website order completed (Amount = what was rung up) or cancelled at the register.</summary>
+    WebOrderCompleted,
+    WebOrderCancelled,
+
+    /// <summary>Stock sent to (Amount = its value at cost) or received from another store.</summary>
+    TransferSent,
+    TransferReceived,
+
     /// <summary>X reading printed: running totals since the last Z, nothing reset.</summary>
     XReport,
 

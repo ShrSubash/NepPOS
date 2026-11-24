@@ -60,6 +60,12 @@ public sealed class HeadOfficeClient : IHeadOfficeClient
                 $"api/v1/sync/shared?after={Math.Max(0, after.Registers)}&afterWeb={Math.Max(0, after.Website)}"), cancellationToken);
     }
 
+    public async Task<IReadOnlyList<NepPOS.Contracts.Orders.StoreRef>> GetStoresAsync(HeadOfficeConnection connection, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        return await SendAsync<List<NepPOS.Contracts.Orders.StoreRef>>(Authorised(connection, HttpMethod.Get, "api/v1/sync/stores"), cancellationToken);
+    }
+
     private static HttpRequestMessage Authorised(HeadOfficeConnection connection, HttpMethod method, string path)
     {
         var message = new HttpRequestMessage(method, Url(connection.BaseUrl, path));

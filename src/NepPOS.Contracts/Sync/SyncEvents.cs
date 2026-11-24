@@ -27,11 +27,23 @@ public static class SyncEventTypes
     /// <summary>A line on a customer's account (charge, payment, credit). Payload: <see cref="AccountEntryV1"/>. Shared with every register.</summary>
     public const string AccountEntry = "account.entry";
 
+    /// <summary>An order placed on the business's website, for one store to pick. Payload: <see cref="Orders.WebOrderPlacedV1"/>. From the website only.</summary>
+    public const string OrderPlaced = "order.placed";
+
+    /// <summary>A website order moved on (picking, ready, completed, cancelled). Payload: <see cref="Orders.WebOrderStatusV1"/>. Shared with every register.</summary>
+    public const string OrderStatus = "order.status";
+
+    /// <summary>Stock sent from one store to another. Payload: <see cref="Orders.TransferSentV1"/>. Shared with every register.</summary>
+    public const string TransferSent = "transfer.sent";
+
+    /// <summary>A transfer arrived and was counted in. Payload: <see cref="Orders.TransferReceivedV1"/>. Shared with every register.</summary>
+    public const string TransferReceived = "transfer.received";
+
     /// <summary>
     /// Events Head Office passes on to the owner's other registers (GET /api/v1/sync/shared), so customers,
-    /// accounts and gift cards are the same at every store.
+    /// accounts, gift cards, website orders and transfers are the same at every store.
     /// </summary>
-    public static readonly IReadOnlyList<string> Shared = new[] { CustomerChanged, GiftCardMoved, AccountEntry };
+    public static readonly IReadOnlyList<string> Shared = new[] { CustomerChanged, GiftCardMoved, AccountEntry, OrderStatus, TransferSent, TransferReceived };
 }
 
 /// <summary>

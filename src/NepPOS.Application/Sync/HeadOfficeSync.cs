@@ -62,6 +62,10 @@ public interface IHeadOfficeClient
     /// </summary>
     Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, SharedCursor after, CancellationToken cancellationToken = default) =>
         Task.FromResult(new SharedEventsResponse(Array.Empty<SharedEvent>(), after.Registers, false, after.Website));
+
+    /// <summary>The owner's stores (GET /api/v1/sync/stores), for sending transfers.</summary>
+    Task<IReadOnlyList<NepPOS.Contracts.Orders.StoreRef>> GetStoresAsync(HeadOfficeConnection connection, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<NepPOS.Contracts.Orders.StoreRef>>(Array.Empty<NepPOS.Contracts.Orders.StoreRef>());
 }
 
 /// <summary>

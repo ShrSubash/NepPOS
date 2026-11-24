@@ -25,10 +25,12 @@ public static class ManageNav
             new ManageItem("Stocktake", "Count stock and correct what the system thinks you have", "manage/stocktake", "clipboard"),
             new ManageItem("Purchase orders", "Reorder points, suggested orders, receive what arrived", "manage/purchase-orders", "cart"),
             new ManageItem("Shelf labels", "Price labels with barcodes on A4 label sheets", "manage/labels", "barcode"),
+            new ManageItem("Transfers", "Send stock to your other stores and count it in", "manage/transfers", "swap"),
         }),
         new ManageSection("Sales", new[]
         {
             new ManageItem("Reports & End of Day", "Today's takings, X and Z reports, PDF and CSV", "manage/reports", "chart", "manage/end-of-day"),
+            new ManageItem("Web orders", "Website orders to pick, pack and hand over", "orders", "globe"),
             new ManageItem("Promotions", "Multi-buys, % and $ off, happy hours and discount limits", "manage/promotions", "gift"),
             new ManageItem("Journal", "Every sale, void, refund and drawer open", "manage/journal", "book"),
             new ManageItem("Payment types", "Tenders, gift cards, store credit and return rules", "manage/payment-types", "wallet"),
@@ -75,6 +77,8 @@ public static class ManageNav
             "cart" => "<circle cx=\"8\" cy=\"21\" r=\"1\"/><circle cx=\"19\" cy=\"21\" r=\"1\"/><path d=\"M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12\"/>",
             "barcode" => "<path d=\"M3 5v14\"/><path d=\"M8 5v14\"/><path d=\"M12 5v14\"/><path d=\"M17 5v14\"/><path d=\"M21 5v14\"/><path d=\"M6 5v14\" stroke-width=\"1\"/><path d=\"M15 5v14\" stroke-width=\"1\"/>",
             "gift" => "<rect x=\"3\" y=\"8\" width=\"18\" height=\"4\" rx=\"1\"/><path d=\"M12 8v13\"/><path d=\"M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7\"/><path d=\"M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5\"/>",
+            "swap" => "<path d=\"m16 3 4 4-4 4\"/><path d=\"M20 7H4\"/><path d=\"m8 21-4-4 4-4\"/><path d=\"M4 17h16\"/>",
+            "globe" => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M2 12h20\"/><path d=\"M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z\"/>",
             "back" => "<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
             _ => "<circle cx=\"12\" cy=\"12\" r=\"9\"/>"
         }

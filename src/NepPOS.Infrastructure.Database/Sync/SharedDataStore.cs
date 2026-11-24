@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using NepPOS.Application.Abstractions;
 using NepPOS.Application.Sync;
+using NepPOS.Contracts.Orders;
 using NepPOS.Contracts.Sync;
 using NepPOS.Domain.Entities;
 
@@ -17,8 +19,14 @@ public sealed class SharedDataStore : ISharedDataStore
     public const string WebsiteCursorName = "shared-web";
 
     private readonly NepPosDbContext _db;
+    private readonly RegisterTerminal? _terminal;
 
-    public SharedDataStore(NepPosDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
+    /// <param name="terminal">This register's store, so website orders and transfers for other stores are left alone.</param>
+    public SharedDataStore(NepPosDbContext db, RegisterTerminal? terminal = null)
+    {
+        _db = db ?? throw new ArgumentNullException(nameof(db));
+        _terminal = terminal;
+    }
 
     public async Task<SharedCursor> GetCursorAsync(CancellationToken cancellationToken = default)
     {
@@ -44,6 +52,10 @@ public sealed class SharedDataStore : ISharedDataStore
                     SyncEventTypes.CustomerChanged => await ApplyCustomerAsync(Read<CustomerChangedV1>(e), cancellationToken) ? 1 : 0,
                     SyncEventTypes.AccountEntry => await ApplyAccountEntryAsync(Read<AccountEntryV1>(e), where, cancellationToken) ? 1 : 0,
                     SyncEventTypes.GiftCardMoved => await ApplyGiftCardAsync(e.EventId, Read<GiftCardMovedV1>(e), where, cancellationToken) ? 1 : 0,
+                    SyncEventTypes.OrderPlaced => await ApplyOrderPlacedAsync(Read<WebOrderPlacedV1>(e), cancellationToken) ? 1 : 0,
+                    SyncEventTypes.OrderStatus => await ApplyOrderStatusAsync(Read<WebOrderStatusV1>(e), cancellationToken) ? 1 : 0,
+                    SyncEventTypes.TransferSent => await ApplyTransferSentAsync(Read<TransferSentV1>(e), cancellationToken) ? 1 : 0,
+                    SyncEventTypes.TransferReceived => await ApplyTransferReceivedAsync(Read<TransferReceivedV1>(e), cancellationToken) ? 1 : 0,
                     _ => 0   // a newer kind of event this version doesn't know: skip it
                 };
             }
@@ -183,6 +195,137 @@ public sealed class SharedDataStore : ISharedDataStore
             Where = where.Length > 100 ? where[..100] : where
         });
         return true;
+    }
+
+    private bool IsThisStore(string? storeCode) =>
+        _terminal is not null && string.Equals(storeCode?.Trim(), _terminal.StoreId, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A website order for this store arrives once; for another store it's ignored.</summary>
+    private async Task<bool> ApplyOrderPlacedAsync(WebOrderPlacedV1 o, CancellationToken cancellationToken)
+    {
+        if (!IsThisStore(o.StoreCode) || o.OrderId == Guid.Empty || o.Lines is not { Count: > 0 })
+            return false;
+        if (_db.WebOrders.Local.Any(w => w.Id == o.OrderId) || await _db.WebOrders.AnyAsync(w => w.Id == o.OrderId, cancellationToken))
+            return false;
+
+        var order = new WebOrder
+        {
+            Id = o.OrderId,
+            Reference = Cut(o.Reference, 50) ?? o.OrderId.ToString("N")[..8],
+            CustomerName = Cut(o.CustomerName, 200) ?? "Website customer",
+            Phone = Cut(o.Phone, 50),
+            Email = Cut(o.Email, 200),
+            CustomerId = o.CustomerId,
+            Fulfilment = string.Equals(o.Fulfilment, Fulfilment.Delivery, StringComparison.OrdinalIgnoreCase) ? Fulfilment.Delivery : Fulfilment.Pickup,
+            Address = Cut(o.Address, 500),
+            Note = Cut(o.Note, 1000),
+            PlacedUtc = DateTime.SpecifyKind(o.PlacedUtc, DateTimeKind.Utc),
+            WantedUtc = o.WantedUtc is { } w ? DateTime.SpecifyKind(w, DateTimeKind.Utc) : null,
+            Total = o.Total,
+            Prepaid = Math.Max(0, o.Prepaid),
+            OnAccount = Math.Max(0, o.OnAccount),
+            Status = WebOrderStatus.Placed,
+            UpdatedUtc = DateTime.UtcNow
+        };
+        for (var i = 0; i < o.Lines.Count; i++)
+        {
+            var line = o.Lines[i];
+            order.Lines.Add(new WebOrderLine
+            {
+                LineNumber = i,
+                ProductSyncId = line.ProductId,
+                Name = Cut(line.Name, 200) ?? "Item",
+                Sku = Cut(line.Sku, 50),
+                Quantity = Math.Max(0, line.Quantity),
+                UnitPrice = line.UnitPrice
+            });
+        }
+        _db.WebOrders.Add(order);
+        return true;
+    }
+
+    /// <summary>Another register (or the website, for a cancel) moved an order on. A finished order never reopens.</summary>
+    private async Task<bool> ApplyOrderStatusAsync(WebOrderStatusV1 s, CancellationToken cancellationToken)
+    {
+        var order = _db.WebOrders.Local.FirstOrDefault(w => w.Id == s.OrderId)
+                    ?? await _db.WebOrders.Include(w => w.Lines).FirstOrDefaultAsync(w => w.Id == s.OrderId, cancellationToken);
+        if (order is null || !order.IsOpen || !Enum.TryParse<WebOrderStatus>(s.Status, ignoreCase: true, out var status) || status == order.Status)
+            return false;
+
+        order.Status = status;
+        order.UpdatedUtc = DateTime.UtcNow;
+        if (!string.IsNullOrWhiteSpace(s.By) && status is WebOrderStatus.Picking or WebOrderStatus.Ready)
+            order.PickedBy = Cut(s.By, 200);
+        if (status == WebOrderStatus.Cancelled)
+            order.CancelReason = Cut(s.Note, 500);
+        if (status == WebOrderStatus.Completed)
+            (order.FinalTotal, order.RefundDue, order.InvoiceNumber) = (s.FinalTotal, s.RefundDue, s.InvoiceNumber);
+        foreach (var picked in s.Picked ?? Array.Empty<WebOrderPickedV1>())
+            if (order.Lines.FirstOrDefault(l => l.LineNumber == picked.Line) is { } line)
+                line.Picked = Math.Clamp(picked.Quantity, 0, line.Quantity);
+        return true;
+    }
+
+    /// <summary>Stock on its way to this store: waits here to be counted in.</summary>
+    private async Task<bool> ApplyTransferSentAsync(TransferSentV1 t, CancellationToken cancellationToken)
+    {
+        if (!IsThisStore(t.ToStore) || t.TransferId == Guid.Empty || t.Lines is not { Count: > 0 })
+            return false;
+        if (_db.StockTransfers.Local.Any(x => x.Id == t.TransferId) || await _db.StockTransfers.AnyAsync(x => x.Id == t.TransferId, cancellationToken))
+            return false;
+
+        var transfer = new StockTransfer
+        {
+            Id = t.TransferId,
+            Number = Cut(t.Number, 50) ?? "TR",
+            FromStore = Cut(t.FromStore, 50) ?? "?",
+            ToStore = Cut(t.ToStore, 50)!,
+            Outgoing = false,
+            SentUtc = DateTime.SpecifyKind(t.SentUtc, DateTimeKind.Utc),
+            SentBy = Cut(t.By, 200),
+            Note = Cut(t.Note, 500)
+        };
+        for (var i = 0; i < t.Lines.Count; i++)
+        {
+            var line = t.Lines[i];
+            transfer.Lines.Add(new StockTransferLine
+            {
+                LineNumber = i,
+                ProductSyncId = line.ProductId,
+                ProductName = Cut(line.Name, 200) ?? "Item",
+                Barcode = Cut(line.Barcode, 50),
+                Sku = Cut(line.Sku, 50),
+                Quantity = line.Quantity,
+                UnitCost = line.UnitCost
+            });
+        }
+        _db.StockTransfers.Add(transfer);
+        return true;
+    }
+
+    /// <summary>
+    /// The other store counted a transfer in: the sender sees what arrived; another register of the receiving
+    /// store just stops showing it as waiting.
+    /// </summary>
+    private async Task<bool> ApplyTransferReceivedAsync(TransferReceivedV1 r, CancellationToken cancellationToken)
+    {
+        var transfer = _db.StockTransfers.Local.FirstOrDefault(x => x.Id == r.TransferId)
+                       ?? await _db.StockTransfers.Include(x => x.Lines).FirstOrDefaultAsync(x => x.Id == r.TransferId, cancellationToken);
+        if (transfer is null || transfer.Status == StockTransferStatus.Received)
+            return false;
+
+        transfer.Status = StockTransferStatus.Received;
+        transfer.ReceivedUtc = DateTime.SpecifyKind(r.ReceivedUtc, DateTimeKind.Utc);
+        transfer.ReceivedBy = Cut(r.By, 200);
+        foreach (var line in transfer.Lines)
+            line.Received = r.Lines?.FirstOrDefault(l => l.Line == line.LineNumber)?.Quantity ?? 0m;
+        return true;
+    }
+
+    private static string? Cut(string? value, int max)
+    {
+        var trimmed = value?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed.Length > max ? trimmed[..max] : trimmed;
     }
 
     private async Task<Customer?> FindCustomerAsync(Guid id, CancellationToken cancellationToken) =>
