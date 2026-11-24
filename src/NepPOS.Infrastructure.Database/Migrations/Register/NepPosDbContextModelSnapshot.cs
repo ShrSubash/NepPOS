@@ -221,6 +221,39 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("GiftCardMovements");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.HeldSale", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CartJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EmployeeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("HeldUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ItemCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("HeldSales");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.JournalEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -327,7 +360,19 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<string>("ProductUrl")
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("ReorderPoint")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("ReorderQuantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal>("StockOnHand")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("StockSent")
+                        .HasPrecision(18, 3)
                         .HasColumnType("TEXT");
 
                     b.Property<int?>("SupplierId")
@@ -452,6 +497,165 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("ProductVariants");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.Promotion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("BuyQuantity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Days")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly?>("FromTime")
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Percent")
+                        .HasPrecision(5, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Price")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProductIds")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("StartDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<TimeOnly?>("ToTime")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Promotions");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.PurchaseOrder", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("EmployeeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReceivedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("SentUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("StockReceiptId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("SupplierId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SupplierName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Number")
+                        .IsUnique();
+
+                    b.HasIndex("SupplierId");
+
+                    b.ToTable("PurchaseOrders");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.PurchaseOrderLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("CostPerPack")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PackName")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PackUnits")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("PurchaseOrderId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PurchaseOrderId");
+
+                    b.ToTable("PurchaseOrderLines");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleLineItem", b =>
                 {
                     b.Property<Guid>("Id")
@@ -459,6 +663,14 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Discount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DiscountReason")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
@@ -786,6 +998,77 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("StockReceiptLines");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.Stocktake", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("EmployeeName")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("FinishedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("StartedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Stocktakes");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.StocktakeLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Counted")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("CountedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("Expected")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ProductId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("StocktakeId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("UnitCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StocktakeId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("StocktakeLines");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.Supplier", b =>
                 {
                     b.Property<int>("Id")
@@ -1066,6 +1349,24 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Navigation("Product");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.PurchaseOrder", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.Supplier", null)
+                        .WithMany()
+                        .HasForeignKey("SupplierId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.PurchaseOrderLine", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.PurchaseOrder", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("PurchaseOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleLineItem", b =>
                 {
                     b.HasOne("NepPOS.Domain.Entities.SaleTransaction", null)
@@ -1110,6 +1411,15 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.StocktakeLine", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.Stocktake", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("StocktakeId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SupplierAccountEntry", b =>
                 {
                     b.HasOne("NepPOS.Domain.Entities.Supplier", null)
@@ -1133,6 +1443,11 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Navigation("Movements");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.PurchaseOrder", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleTransaction", b =>
                 {
                     b.Navigation("LineItems");
@@ -1141,6 +1456,11 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                 });
 
             modelBuilder.Entity("NepPOS.Domain.Entities.StockReceipt", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.Stocktake", b =>
                 {
                     b.Navigation("Lines");
                 });
