@@ -998,6 +998,104 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("StockReceiptLines");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockTransfer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FromStore")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Number")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("Outgoing")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ReceivedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReceivedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SentBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("SentUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ToStore")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("StockTransfers");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockTransferLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Barcode")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("ProductSyncId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("Received")
+                        .HasPrecision(18, 3)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sku")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("StockTransferId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StockTransferId");
+
+                    b.ToTable("StockTransferLines");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.Stocktake", b =>
                 {
                     b.Property<int>("Id")
@@ -1209,6 +1307,141 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("SupplierSkippedItems");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.WebOrder", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CancelReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("CustomerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("FinalTotal")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Fulfilment")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("InvoiceNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("OnAccount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PickedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("PlacedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Prepaid")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Reference")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("RefundDue")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SaleId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("Total")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("UpdatedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("WantedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("WebOrders");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.WebOrderLine", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LineNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("Picked")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("ProductSyncId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Quantity")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Sku")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("WebOrderId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WebOrderId");
+
+                    b.ToTable("WebOrderLines");
+                });
+
             modelBuilder.Entity("NepPOS.Infrastructure.Database.Outbox.OutboxMessage", b =>
                 {
                     b.Property<long>("Id")
@@ -1411,6 +1644,15 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockTransferLine", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.StockTransfer", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("StockTransferId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.StocktakeLine", b =>
                 {
                     b.HasOne("NepPOS.Domain.Entities.Stocktake", null)
@@ -1438,6 +1680,15 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.WebOrderLine", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.WebOrder", null)
+                        .WithMany("Lines")
+                        .HasForeignKey("WebOrderId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.GiftCard", b =>
                 {
                     b.Navigation("Movements");
@@ -1460,7 +1711,17 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Navigation("Lines");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.StockTransfer", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.Stocktake", b =>
+                {
+                    b.Navigation("Lines");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.WebOrder", b =>
                 {
                     b.Navigation("Lines");
                 });

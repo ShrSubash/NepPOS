@@ -208,6 +208,28 @@ Types: `NepPOS.Contracts.Accounts`.
 
 A register that is offline keeps selling with what it has: a card spent at two stores while both are offline can end up below zero, which shows on the card in Manage → Gift cards & credit.
 
+## Website orders: `order.placed` and `order.status` (version 1)
+
+The website sends an order with `POST /api/v1/orders` (website key, `PlaceWebOrderRequest`): the store, the lines at the website's prices (fees are lines too; a line with no `productId` is rung up as a non-stock item), the total, and how it's paid: `prepaid` (card, gift card), `onAccount` (the customer's NepPOS account) and the rest at the store. Sending the same `orderId` again is harmless. An order on account is refused when it's over the customer's credit limit, counting their other open orders.
+
+Head Office stores it as an `order.placed` website event; every register gets it with the shared events and keeps it only if `storeCode` is its own store.
+
+```json
+{ "orderId": "…", "storeCode": "STORE-001", "reference": "ORD20261125…", "customerName": "Sita", "fulfilment": "Pickup",
+  "lines": [ { "productId": "6f1c…", "name": "Basmati Rice 5kg", "quantity": 2, "unitPrice": 14.99 } ],
+  "total": 29.98, "prepaid": 29.98, "onAccount": 0 }
+```
+
+The register's **Web orders** screen moves it on, and every step is an `order.status` event (shared with the store's other registers, and applied to Head Office's copy): `Picking`, `Ready` (with what was found per line), `Completed` (with the final total, the invoice number and `refundDue`: prepaid money for items not supplied) or `Cancelled` (with the reason; everything prepaid is `refundDue`). Completing rings the order up as a normal sale (stock comes off; prepaid money is the tender "Paid online", the account part goes on the account).
+
+The website follows its orders with `GET /api/v1/orders/changes?after=N` (`WebOrderChanges`: each changed order once, with its latest state) or `GET /api/v1/orders/{id}`. `POST /api/v1/orders/{id}/cancel` cancels an order the store hasn't started on (409 once it's being picked); the cancel reaches the registers as an `order.status` from the website. A completed or cancelled order never changes again.
+
+Types: `NepPOS.Contracts.Orders`.
+
+## Transfers between stores: `transfer.sent` and `transfer.received` (version 1)
+
+Manage → Transfers sends stock to another of the owner's stores (`GET /api/v1/sync/stores` lists them). Sending takes the stock off at cost (`TransferOut`) and queues `transfer.sent` with each line's product id, barcode, PLU, quantity in singles and unit cost. The receiving store's registers keep it (if `toStore` is theirs) until someone counts it in: each line is matched to the product with the same id, else the same barcode, else the same PLU, and what arrived is added at the sender's cost (`TransferIn`). `transfer.received` goes back with the counted quantities, so the sender sees what arrived. Lines for products the receiving store doesn't stock are left out.
+
 ## How Head Office answers
 
 `POST /api/v1/sync/events` takes up to 500 events (`{"events":[…]}`) and answers, per event:
@@ -220,4 +242,4 @@ A register that is offline keeps selling with what it has: a card spent at two s
 
 ## Coming in later build steps
 
-`points.changed`, online order status, and the webhooks Head Office sends to the website are added here as they are built.
+`points.changed` and the webhooks Head Office sends to the website are added here as they are built.

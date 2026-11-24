@@ -14,7 +14,10 @@
 @using NepPOS.Application.Customers
 @using NepPOS.Application.Promotions
 @using System.Text.Json
+@using Microsoft.Extensions.DependencyInjection
+@implements IDisposable
 @inject NavigationManager Nav
+@inject IServiceScopeFactory Scopes
 @inject IProductCatalogService Catalog
 @inject CurrentUserSession Session
 @inject NepPOS.Application.Licensing.LicenceGuard Licence
@@ -34,6 +37,9 @@
             }
             <span class="employee-name">@Session.Employee?.FullName</span>
             <span class="employee-role-badge">@Session.Employee?.Role</span>
+            <button class="manage-link @(WebOrdersWaiting > 0 ? "attention" : "")" @onclick='() => Nav.NavigateTo("/orders")' disabled="@Paying">
+                Web orders@(WebOrdersWaiting > 0 ? $" ({WebOrdersWaiting})" : "")
+            </button>
             <button class="manage-link" @onclick="() => ShowCustomer = true" disabled="@Paying">Customer</button>
             <button class="manage-link" @onclick="() => OpenReturn(null)" disabled="@Paying">Return</button>
             @if (Settings.PaymentTypes.GiftCards)
@@ -647,6 +653,43 @@
         await LoadHomeAsync();
         ActivePromotions = await PromotionService.ActiveAsync();
         HeldCount = (await HeldSales.ListAsync()).Count;
+        _ = WatchWebOrdersAsync(_stop.Token);
+    }
+
+    private readonly CancellationTokenSource _stop = new();
+    private int WebOrdersWaiting;
+
+    /// <summary>Website orders arrive with the sync; the button shows how many are waiting (checked every 20 seconds).</summary>
+    private async Task WatchWebOrdersAsync(CancellationToken stop)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
+            do
+            {
+                // Its own scope, so it never shares the page's database connection mid-sale.
+                using var scope = Scopes.CreateScope();
+                var waiting = await scope.ServiceProvider.GetRequiredService<NepPOS.Application.Orders.IWebOrderService>().WaitingCountAsync(stop);
+                if (waiting != WebOrdersWaiting)
+                {
+                    WebOrdersWaiting = waiting;
+                    await InvokeAsync(StateHasChanged);
+                }
+            } while (await timer.WaitForNextTickAsync(stop));
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception)
+        {
+            // The count is a convenience; never let it break the register.
+        }
+    }
+
+    public void Dispose()
+    {
+        _stop.Cancel();
+        _stop.Dispose();
     }
 
     private async Task ClearSearchAsync()

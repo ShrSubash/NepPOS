@@ -172,7 +172,7 @@
                 else
                 {
                     @* Once any payment is taken, backing out would need a refund — not allowed here. *@
-                    <button class="btn-back" disabled="@(IsBusy || _session.Payments.Count > 0)" @onclick="() => OnCancel.InvokeAsync()">
+                    <button class="btn-back" disabled="@(IsBusy || _session.Payments.Count > _prepaidCount)" @onclick="() => OnCancel.InvokeAsync()">
                         Back to Order
                     </button>
                 }
@@ -211,7 +211,11 @@
     /// <summary>The customer on the sale. An account customer gets an ACCOUNT button to charge it.</summary>
     [Parameter] public Customer? Customer { get; set; }
 
+    /// <summary>Payments already settled elsewhere (a website order's online payment), added before the cashier takes the rest.</summary>
+    [Parameter] public Action<TenderSession>? Prepay { get; set; }
+
     private TenderSession _session = default!;
+    private int _prepaidCount;
     private Stage _stage = Stage.Tendering;
     private string _entryDigits = string.Empty;   // cents-style entry like the legacy keypad: "2000" => $20.00
     private string? _message;
@@ -289,6 +293,8 @@
     protected override void OnInitialized()
     {
         _session = new TenderSession(Sale.Id, Sale.GrandTotal);
+        Prepay?.Invoke(_session);
+        _prepaidCount = _session.Payments.Count;
         var settings = SettingsStore.Load();
         _printerMode = settings.Printer.Mode;
         _printThisSale = settings.Printer.AutoPrint;

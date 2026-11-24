@@ -620,3 +620,8 @@
 .line-info.can-discount { cursor: pointer; }
 .line-discount { font-size: 0.75rem; font-weight: 700; color: #17734a; }
 .summary-row.saving { font-size: 0.9rem; color: #17734a; }
+
+.manage-link.attention {
+    background: #f59e0b;
+    color: #1f1300;
+}
