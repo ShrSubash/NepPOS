@@ -11,6 +11,8 @@
 @inject ILocalHardwareService Hardware
 @inject IRegisterSettingsStore SettingsStore
 @inject NepPOS.Application.Sales.IGiftCardService GiftCards
+@inject NepPOS.Application.Customers.ICustomerService Customers
+@inject NepPOS.Presentation.Register.Services.CurrentUserSession Session
 
 @* Full-screen tender overlay opened by the Charge button. It only closes itself once the sale is saved. *@
 <div class="tender-overlay">
@@ -147,6 +149,13 @@
                             <span class="t-sub">or store credit</span>
                         </button>
                     }
+                    @if (CanChargeAccount)
+                    {
+                        <button class="tender account" disabled="@IsBusy" @onclick="PayAccountAsync">
+                            <span class="t-title">ACCOUNT</span>
+                            <span class="t-sub">@Customer!.Name · @EntryOrRemaining.ToString("C")</span>
+                        </button>
+                    }
                     @foreach (var other in _paymentTypes.Others)
                     {
                         <button class="tender other" disabled="@IsBusy" @onclick="() => PayOtherAsync(other)">
@@ -199,6 +208,9 @@
     /// <summary>Raised on Back to Order (only possible before any payment is taken).</summary>
     [Parameter] public EventCallback OnCancel { get; set; }
 
+    /// <summary>The customer on the sale. An account customer gets an ACCOUNT button to charge it.</summary>
+    [Parameter] public Customer? Customer { get; set; }
+
     private TenderSession _session = default!;
     private Stage _stage = Stage.Tendering;
     private string _entryDigits = string.Empty;   // cents-style entry like the legacy keypad: "2000" => $20.00
@@ -227,7 +239,51 @@
     private ElementReference _codeInput;
     private bool _focusCode;
 
-    private bool MoreTenders => _paymentTypes.GiftCards || _paymentTypes.StoreCredit || _paymentTypes.Others.Count > 0;
+    private bool MoreTenders => _paymentTypes.GiftCards || _paymentTypes.StoreCredit || _paymentTypes.Others.Count > 0 || CanChargeAccount;
+
+    // Paying an account off can't itself go on the account.
+    private bool CanChargeAccount => _paymentTypes.Accounts && Customer is { IsAccount: true, IsActive: true }
+                                     && !Sale.LineItems.Any(NepPOS.Application.Customers.AccountPayment.IsAccountPayment);
+
+    private bool IsManager => Session.Employee?.Role >= EmployeeRole.Manager;
+
+    /// <summary>
+    /// Charges the amount (or all that's due) to the customer's account. Over their credit limit, or while they have
+    /// overdue money, a manager has to do it.
+    /// </summary>
+    private async Task PayAccountAsync()
+    {
+        if (IsBusy || Customer is null) return;
+        var statement = await Customers.StatementAsync(Customer.Id);
+        if (statement is null) { ShowError("That customer isn't on this register any more."); return; }
+
+        var customer = statement.Customer;
+        var amount = EntryOrRemaining;
+        if (customer.WouldExceedLimit(amount) && !IsManager)
+        {
+            ShowError($"{customer.Name} owes {customer.Balance:C}; this takes them over their {customer.CreditLimit:C} limit. A manager has to charge it.");
+            return;
+        }
+        if (_paymentTypes.OverdueAccountsNeedManager && statement.Ageing.Overdue > 0 && !IsManager)
+        {
+            ShowError($"{customer.Name} has {statement.Ageing.Overdue:C} overdue. A manager has to charge more to the account.");
+            return;
+        }
+
+        try
+        {
+            var taken = _session.AddAccount(customer.Code, customer.Name, amount);
+            _entryDigits = string.Empty;
+            if (_session.IsComplete)
+                await SaveAsync();
+            else
+                ShowInfo($"{taken:C} charged to {customer.Name}'s account. {_session.Remaining:C} still due.");
+        }
+        catch (InvalidOperationException ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
     private decimal EntryOrRemaining => EntryAmount > 0 ? EntryAmount : _session.Remaining;
 
     protected override void OnInitialized()
@@ -269,12 +325,12 @@
         var code = _code.Trim().ToUpperInvariant();
         if (!NepPOS.Application.Sales.IGiftCardService.LooksLikeCode(code))
         {
-            ShowError("Card numbers look like GC-123456 (gift card) or SC-123456 (store credit).");
+            ShowError("Card numbers look like GC-1234567890 (gift card) or SC-1234567890 (store credit).");
             return;
         }
 
         var card = await GiftCards.GetAsync(code);
-        if (card is null) { ShowError($"{code} isn't a gift card or store credit on this register."); return; }
+        if (card is null) { ShowError($"{code} isn't known here. If it was sold at another store, check Head Office is connected."); return; }
         if (!card.IsActive) { ShowError($"{code} has been cancelled."); return; }
         var type = card.Kind == GiftCardKind.StoreCredit ? TenderType.StoreCredit : TenderType.GiftCard;
         if ((type == TenderType.GiftCard && !_paymentTypes.GiftCards) || (type == TenderType.StoreCredit && !_paymentTypes.StoreCredit))

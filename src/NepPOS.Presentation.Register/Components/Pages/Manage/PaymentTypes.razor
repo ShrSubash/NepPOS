@@ -36,6 +36,11 @@ else
                 <p class="field-note">Cash and EFTPOS are always there.</p>
                 <label class="check"><input type="checkbox" @bind="GiftCards" /> Gift cards (sold with the Gift card button, spent on the payment screen)</label>
                 <label class="check"><input type="checkbox" @bind="StoreCredit" /> Store credit (given on returns, spent like a gift card)</label>
+                <label class="check"><input type="checkbox" @bind="Accounts" /> Customer accounts (ACCOUNT button for account customers: buy now, pay later)</label>
+                @if (Accounts)
+                {
+                    <label class="check"><input type="checkbox" @bind="OverdueNeedsManager" /> A manager must charge an account that has overdue money</label>
+                }
 
                 <h3>Your own payment types</h3>
                 <p class="field-note">For example Account, Cheque or Afterpay (taken on its own device). Each gets a button on the payment screen.</p>
@@ -69,6 +74,8 @@ else
 @code {
     private bool GiftCards;
     private bool StoreCredit;
+    private bool Accounts;
+    private bool OverdueNeedsManager;
     private List<OtherRow> Others = new();
     private int ReturnDays;
     private decimal RefundLimit;
@@ -80,6 +87,7 @@ else
     {
         var settings = SettingsStore.Load();
         (GiftCards, StoreCredit) = (settings.PaymentTypes.GiftCards, settings.PaymentTypes.StoreCredit);
+        (Accounts, OverdueNeedsManager) = (settings.PaymentTypes.Accounts, settings.PaymentTypes.OverdueAccountsNeedManager);
         Others = settings.PaymentTypes.Others.Select(o => new OtherRow { Name = o.Name, OpensDrawer = o.OpensDrawer, NeedsReference = o.NeedsReference }).ToList();
         (ReturnDays, RefundLimit, ReceiptNote) = (settings.Returns.ReturnDays, settings.Returns.CashierRefundLimit, settings.Returns.ReceiptNote);
     }
@@ -102,6 +110,8 @@ else
                 {
                     GiftCards = GiftCards,
                     StoreCredit = StoreCredit,
+                    Accounts = Accounts,
+                    OverdueAccountsNeedManager = OverdueNeedsManager,
                     Others = Others.Select(o => new OtherTender(o.Name.Trim(), o.OpensDrawer, o.NeedsReference)).ToList()
                 },
                 Returns = new ReturnSettings { ReturnDays = ReturnDays, CashierRefundLimit = RefundLimit, ReceiptNote = ReceiptNote.Trim() }

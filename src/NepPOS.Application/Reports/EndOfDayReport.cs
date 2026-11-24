@@ -96,6 +96,7 @@ public sealed record TenderTotal(TenderType Tender, int Count, decimal Amount, s
         TenderType.Eftpos => "EFTPOS",
         TenderType.GiftCard => "Gift cards",
         TenderType.StoreCredit => "Store credit",
+        TenderType.Account => "On account",
         TenderType.Other => "Other",
         _ => Tender.ToString()
     };

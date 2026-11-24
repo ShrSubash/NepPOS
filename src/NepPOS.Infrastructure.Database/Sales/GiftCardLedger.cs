@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
+using NepPOS.Infrastructure.Database.Outbox;
 
 namespace NepPOS.Infrastructure.Database.Sales;
 
@@ -8,6 +9,7 @@ namespace NepPOS.Infrastructure.Database.Sales;
 /// Changes gift card and store credit balances for a sale being saved, in the same save as the sale:
 /// spent cards go down, refunds to a card or new store credit go up, gift cards sold are loaded.
 /// Refuses (throws) if a card would go below zero or is cancelled, so a sale can never overspend one.
+/// Each movement also goes in the outbox, so Head Office passes it to the owner's other registers.
 /// </summary>
 internal sealed class GiftCardLedger
 {
@@ -40,7 +42,8 @@ internal sealed class GiftCardLedger
             if (!cards.TryGetValue(code, out var card))
             {
                 if (change.Amount < 0)
-                    throw new InvalidOperationException($"{code} isn't a gift card or store credit on this register.");
+                    throw new InvalidOperationException(
+                        $"{code} isn't known here. If it was sold at another store, check this register is connected to Head Office.");
                 card = new GiftCard { Code = code, Kind = change.Kind, IssuedUtc = now };
                 _db.GiftCards.Add(card);
                 cards[code] = card;
@@ -52,14 +55,16 @@ internal sealed class GiftCardLedger
 
             card.Balance += change.Amount;
             card.LastUsedUtc = now;
-            card.Movements.Add(new GiftCardMovement
+            var movement = new GiftCardMovement
             {
                 Amount = change.Amount,
                 SaleId = sale.Id,
                 InvoiceNumber = sale.InvoiceNumber,
                 AtUtc = now,
                 Note = change.Note
-            });
+            };
+            card.Movements.Add(movement);
+            _db.OutboxMessages.Add(OutboxMessage.GiftCardMoved(card, movement, sale.StoreId, sale.RegisterId));
         }
     }
 }

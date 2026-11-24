@@ -1,0 +1,252 @@
+@using NepPOS.Application.Customers
+@using NepPOS.Domain.Entities
+@inject ICustomerService Customers
+
+@*
+    Find or add a customer and put them on the sale (their name prints on the receipt, the sale goes in their history,
+    and an account customer can charge it). For account customers it also takes a payment off their account.
+*@
+<div class="rd-overlay">
+    <div class="rd-shell cu-shell">
+        <div class="rd-head">
+            <h2>@(_adding ? "New customer" : "Customer")</h2>
+            <button class="rd-close" @onclick="() => OnClose.InvokeAsync()">Close</button>
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="rd-msg @(_isError ? "error" : "")">@_message</div>
+        }
+
+        @if (_adding)
+        {
+            <div class="cu-form">
+                <label>Name<input @bind="_new.Name" placeholder="First and last name, or the business" autocomplete="off" /></label>
+                <label>Phone<input @bind="_new.Phone" inputmode="tel" autocomplete="off" /></label>
+                <label>Email<input @bind="_new.Email" type="email" autocomplete="off" /></label>
+                <label>Company<input @bind="_new.Company" autocomplete="off" /></label>
+            </div>
+            @if (IsManager)
+            {
+                <label class="cu-check"><input type="checkbox" @bind="_new.IsAccount" /> Account customer (can buy now, pay later)</label>
+                @if (_new.IsAccount)
+                {
+                    <div class="cu-form">
+                        <label>Credit limit ($)<input type="number" min="0" step="50" @bind="_new.CreditLimit" /></label>
+                        <label>Pay within (days)<input type="number" min="0" max="365" @bind="_new.TermsDays" /></label>
+                    </div>
+                }
+            }
+            else
+            {
+                <p class="rd-muted">A manager can turn on an account for them in Manage → Customers.</p>
+            }
+            <div class="rd-foot">
+                <button class="rd-btn" @onclick="() => _adding = false">Back</button>
+                <button class="rd-btn primary" disabled="@(_busy || string.IsNullOrWhiteSpace(_new.Name))" @onclick="SaveNewAsync">Save and put on sale</button>
+            </div>
+        }
+        else
+        {
+            <form class="rd-find" @onsubmit="SearchAsync">
+                <input @ref="_searchInput" @bind="_term" placeholder="Name, phone, email or CUST- number" autocomplete="off" class="cu-search" />
+                <button type="submit" class="rd-btn" disabled="@_busy">Search</button>
+                <button type="button" class="rd-btn" @onclick="StartAdding">New customer</button>
+            </form>
+
+            @if (_selected is { } c)
+            {
+                <div class="cu-card">
+                    <div class="cu-card-head">
+                        <div>
+                            <div class="cu-name">@c.Name</div>
+                            <div class="rd-muted">@c.Code@(string.IsNullOrWhiteSpace(c.Company) ? "" : " · " + c.Company)@(string.IsNullOrWhiteSpace(c.Phone) ? "" : " · " + c.Phone)</div>
+                        </div>
+                        @if (!c.IsActive)
+                        {
+                            <span class="gc-bad">Inactive</span>
+                        }
+                    </div>
+
+                    @if (c.IsAccount)
+                    {
+                        <div class="cu-stats">
+                            <div><span>Owes</span><strong class="@(c.Balance > 0 ? "owing" : "")">@c.Balance.ToString("C")</strong></div>
+                            <div><span>Overdue</span><strong class="@(_overdue > 0 ? "bad" : "")">@_overdue.ToString("C")</strong></div>
+                            <div><span>Credit limit</span><strong>@(c.CreditLimit > 0 ? c.CreditLimit.ToString("C") : "None")</strong></div>
+                            <div><span>Terms</span><strong>@c.TermsDays days</strong></div>
+                        </div>
+
+                        @if (c.Balance > 0)
+                        {
+                            <label class="gc-label">Take a payment off their account</label>
+                            <div class="gc-amounts">
+                                <button class="rd-chip @(_payment == c.Balance ? "on" : "")" @onclick="() => _payment = c.Balance">All @c.Balance.ToString("C")</button>
+                                @if (_overdue > 0 && _overdue < c.Balance)
+                                {
+                                    <button class="rd-chip @(_payment == _overdue ? "on" : "")" @onclick="() => _payment = _overdue">Overdue @_overdue.ToString("C")</button>
+                                }
+                                <input class="gc-other" type="number" min="0.01" step="0.01" @bind="_payment" @bind:event="oninput" />
+                                <button class="rd-btn" disabled="@(_payment <= 0 || _payment > c.Balance)" @onclick="TakePaymentAsync">Take @(_payment > 0 ? _payment.ToString("C") : "payment")</button>
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <p class="rd-muted">Not an account customer: they pay at the counter.</p>
+                    }
+
+                    <div class="rd-foot">
+                        <span class="rd-muted">@(CurrentId == c.Id ? "Already on this sale." : "")</span>
+                        <button class="rd-btn primary" disabled="@(!c.IsActive)" @onclick="() => OnSelect.InvokeAsync(c)">Put on this sale</button>
+                    </div>
+                </div>
+            }
+
+            <div class="cu-list">
+                @foreach (var row in _results)
+                {
+                    <button class="cu-row @(_selected?.Id == row.Id ? "on" : "")" @onclick="() => SelectAsync(row)">
+                        <span class="cu-row-name">@row.Name<small>@row.Code@(string.IsNullOrWhiteSpace(row.Phone) ? "" : " · " + row.Phone)</small></span>
+                        @if (row.IsAccount)
+                        {
+                            <span class="cu-tag">Account @row.Balance.ToString("C")</span>
+                        }
+                    </button>
+                }
+                @if (_searched && _results.Count == 0)
+                {
+                    <p class="rd-muted">No customers match. Tap New customer to add them.</p>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>The customer already on the sale, if any.</summary>
+    [Parameter] public Guid? CurrentId { get; set; }
+
+    /// <summary>Managers can open accounts straight away; cashiers add plain customers.</summary>
+    [Parameter] public bool IsManager { get; set; }
+
+    [Parameter] public EventCallback<Customer> OnSelect { get; set; }
+
+    /// <summary>A payment off the account: goes on the order as a "Payment on account" line.</summary>
+    [Parameter] public EventCallback<(Customer Customer, decimal Amount)> OnPayment { get; set; }
+
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private ElementReference _searchInput;
+    private string _term = "";
+    private IReadOnlyList<Customer> _results = Array.Empty<Customer>();
+    private bool _searched;
+    private Customer? _selected;
+    private decimal _overdue;
+    private decimal _payment;
+    private bool _adding;
+    private NewCustomer _new = new();
+    private string? _message;
+    private bool _isError;
+    private bool _busy;
+
+    private sealed class NewCustomer
+    {
+        public string Name { get; set; } = "";
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? Company { get; set; }
+        public bool IsAccount { get; set; }
+        public decimal CreditLimit { get; set; } = 500m;
+        public int TermsDays { get; set; } = 30;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _results = await Customers.SearchAsync(null, take: 12);
+        if (CurrentId is { } id && await Customers.GetAsync(id) is { } current)
+            await SelectAsync(current);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { await _searchInput.FocusAsync(); } catch (InvalidOperationException) { }
+        }
+    }
+
+    private async Task SearchAsync()
+    {
+        _busy = true;
+        try
+        {
+            var term = _term.Trim();
+            if (CustomerCode.Looks(term) && await Customers.FindByCodeAsync(term) is { } exact)
+            {
+                _results = new[] { exact };
+                await SelectAsync(exact);
+            }
+            else
+            {
+                _results = await Customers.SearchAsync(term, take: 30);
+            }
+            _searched = true;
+            Show(null, false);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SelectAsync(Customer customer)
+    {
+        _selected = customer;
+        _payment = 0;
+        _overdue = 0;
+        if (customer.IsAccount && await Customers.StatementAsync(customer.Id) is { } statement)
+        {
+            _selected = statement.Customer;
+            _overdue = Math.Max(0, statement.Ageing.Overdue);
+        }
+    }
+
+    private void StartAdding()
+    {
+        // Typed a name or phone first? Start the form with it.
+        var term = _term.Trim();
+        _new = new NewCustomer();
+        if (term.Any(char.IsLetter) && !CustomerCode.Looks(term)) _new.Name = term;
+        else if (term.Count(char.IsDigit) >= 6) _new.Phone = term;
+        _adding = true;
+        Show(null, false);
+    }
+
+    private async Task SaveNewAsync()
+    {
+        _busy = true;
+        try
+        {
+            var saved = await Customers.SaveAsync(new CustomerInput(null, _new.Name, _new.Phone, _new.Email, _new.Company,
+                null, null, null, IsManager && _new.IsAccount, _new.CreditLimit, _new.TermsDays));
+            await OnSelect.InvokeAsync(saved);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Show(ex.Message, true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task TakePaymentAsync()
+    {
+        if (_selected is not { } c || _payment <= 0 || _payment > c.Balance) return;
+        await OnPayment.InvokeAsync((c, decimal.Round(_payment, 2)));
+    }
+
+    private void Show(string? text, bool error) => (_message, _isError) = (text, error);
+}

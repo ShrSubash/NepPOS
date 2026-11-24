@@ -12,7 +12,63 @@ public sealed class Supplier
     /// <summary>The shop's customer number with this supplier (on their e-invoices), used to recognise them on import.</summary>
     public string? AccountNumber { get; set; }
 
+    public string? ContactName { get; set; }
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+    public string? Abn { get; set; }
+    public string? Address { get; set; }
+
+    /// <summary>Days the shop has to pay this supplier's invoices (e.g. 30 = 30 days from the invoice date).</summary>
+    public int TermsDays { get; set; } = 30;
+
+    public string? Notes { get; set; }
+
+    /// <summary>What the shop owes this supplier now: bills less payments and credits (see <see cref="SupplierAccountEntry"/>).</summary>
+    public decimal Balance { get; set; }
+
     public bool IsActive { get; set; } = true;
+}
+
+public enum SupplierEntryKind
+{
+    /// <summary>An invoice to pay (from a received delivery or keyed in).</summary>
+    Bill = 1,
+
+    /// <summary>Money paid to the supplier.</summary>
+    Payment = 2,
+
+    /// <summary>A credit note or reversed delivery.</summary>
+    Credit = 3
+}
+
+/// <summary>
+/// One line on a supplier's account (creditors): bills add to what the shop owes, payments and credits take it off.
+/// Never edited or deleted; a mistake is put right with a credit.
+/// </summary>
+public sealed class SupplierAccountEntry
+{
+    public long Id { get; set; }
+    public int SupplierId { get; set; }
+    public SupplierEntryKind Kind { get; set; }
+
+    /// <summary>Positive = the shop owes more (bill); negative = owes less (payment, credit).</summary>
+    public decimal Amount { get; set; }
+
+    /// <summary>The supplier's invoice number, or the payment reference (EFT, cheque number).</summary>
+    public string? Reference { get; set; }
+
+    /// <summary>The delivery this bill came from, when it came from Receive stock.</summary>
+    public int? StockReceiptId { get; set; }
+
+    /// <summary>The invoice date (bills) or the day it was paid.</summary>
+    public DateOnly Date { get; set; }
+
+    /// <summary>When a bill must be paid (invoice date + the supplier's terms). Null for payments and credits.</summary>
+    public DateOnly? DueDate { get; set; }
+
+    public string? Note { get; set; }
+    public string? EmployeeName { get; set; }
+    public DateTime RecordedUtc { get; set; }
 }
 
 /// <summary>A supplier's own item code for a product, as on their invoices and price files.</summary>

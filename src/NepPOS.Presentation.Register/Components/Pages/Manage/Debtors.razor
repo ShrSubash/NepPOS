@@ -1,0 +1,78 @@
+@page "/manage/debtors"
+@layout ManageLayout
+@using NepPOS.Application.Accounts
+@using NepPOS.Application.Customers
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@using NepPOS.Presentation.Register.Components.Shared
+@inject ICustomerService CustomerService
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Debtors</span>
+            <span class="hint-light">What account customers owe, at every store</span>
+        </div>
+
+        <div class="settings-body">
+            <section class="card wide">
+                <h2>All accounts <span class="hint">@Rows.Count @(Rows.Count == 1 ? "customer" : "customers")</span></h2>
+                <AgeingTiles Ageing="Total" TotalLabel="Owed to you" />
+                @if (Rows.Count == 0)
+                {
+                    <p class="field-note">No one owes anything. Turn on an account for a customer in Customers, then charge sales with the ACCOUNT button.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead>
+                            <tr><th>Customer</th><th>Last paid</th><th class="num">Not due</th><th class="num">1–30</th><th class="num">31–60</th><th class="num">61–90</th><th class="num">90+</th><th class="num">Total</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in Rows)
+                            {
+                                <tr @onclick='() => Nav.NavigateTo($"/manage/customers?id={r.Customer.Id}")'>
+                                    <td>
+                                        <strong>@r.Customer.Name</strong>
+                                        <div class="sub">@r.Customer.Code@(r.Customer.CreditLimit > 0 && r.Ageing.Total > r.Customer.CreditLimit ? " · over limit" : "")</div>
+                                    </td>
+                                    <td>@(r.LastPaymentUtc?.ToLocalTime().ToString("d MMM yyyy") ?? "Never")</td>
+                                    <td class="num">@Cell(r.Ageing.Current)</td>
+                                    <td class="num late">@Cell(r.Ageing.Days1To30)</td>
+                                    <td class="num late">@Cell(r.Ageing.Days31To60)</td>
+                                    <td class="num neg">@Cell(r.Ageing.Days61To90)</td>
+                                    <td class="num neg">@Cell(r.Ageing.Over90)</td>
+                                    <td class="num"><strong>@r.Ageing.Total.ToString("C")</strong></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                    <p class="field-note">Tap a customer for their account lines and to print a statement. Payments are taken on the register: Customer → Take payment.</p>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private IReadOnlyList<DebtorRow> Rows = Array.Empty<DebtorRow>();
+    private Ageing Total = Ageing.Zero;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Rows = await CustomerService.DebtorsAsync();
+        Total = Rows.Aggregate(Ageing.Zero, (sum, r) => sum.Add(r.Ageing));
+    }
+
+    private static string Cell(decimal amount) => amount == 0 ? "" : amount.ToString("C");
+}

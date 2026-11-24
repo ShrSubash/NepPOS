@@ -16,5 +16,8 @@ public enum TenderType
     StoreCredit = 4,
 
     /// <summary>A tender the owner added (Account, Cheque…). <see cref="Entities.SalePayment.TenderName"/> holds its name.</summary>
-    Other = 5
+    Other = 5,
+
+    /// <summary>Charged to a customer's account (they pay later). <see cref="Entities.SalePayment.Reference"/> holds the customer code.</summary>
+    Account = 6
 }

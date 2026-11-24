@@ -1,0 +1,16 @@
+@using NepPOS.Application.Accounts
+
+@* An account's balance split by how overdue it is: the same tiles for customers (debtors) and suppliers (creditors). *@
+<div class="ag-tiles">
+    <div class="ag-tile total"><span>@TotalLabel</span><strong>@Ageing.Total.ToString("C")</strong></div>
+    <div class="ag-tile"><span>Not yet due</span><strong>@Ageing.Current.ToString("C")</strong></div>
+    <div class="ag-tile @(Ageing.Days1To30 > 0 ? "late" : "")"><span>1–30 days</span><strong>@Ageing.Days1To30.ToString("C")</strong></div>
+    <div class="ag-tile @(Ageing.Days31To60 > 0 ? "late" : "")"><span>31–60 days</span><strong>@Ageing.Days31To60.ToString("C")</strong></div>
+    <div class="ag-tile @(Ageing.Days61To90 > 0 ? "bad" : "")"><span>61–90 days</span><strong>@Ageing.Days61To90.ToString("C")</strong></div>
+    <div class="ag-tile @(Ageing.Over90 > 0 ? "bad" : "")"><span>Over 90</span><strong>@Ageing.Over90.ToString("C")</strong></div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public Ageing Ageing { get; set; } = Ageing.Zero;
+    [Parameter] public string TotalLabel { get; set; } = "Owes";
+}

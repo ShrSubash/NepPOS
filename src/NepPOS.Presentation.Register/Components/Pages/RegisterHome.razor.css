@@ -170,6 +170,54 @@
     font-size: 0.95rem;
     color: #14162b;
     border-bottom: 1px solid #f0f1f8;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-height: 3.5rem;
+}
+
+/* The customer on the sale: tap the name to change, ✕ to take them off. */
+.customer-chip {
+    display: inline-flex;
+    align-items: stretch;
+    border-radius: 999px;
+    background: #f1efff;
+    border: 1px solid #d9d4ff;
+    overflow: hidden;
+    max-width: 65%;
+}
+
+.customer-chip .chip-name {
+    border: 0;
+    background: transparent;
+    padding: 0.35rem 0.4rem 0.35rem 0.85rem;
+    font-weight: 700;
+    color: #3d2fd6;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    line-height: 1.15;
+    text-align: left;
+    min-height: 44px;
+    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.customer-chip .chip-name small {
+    font-weight: 600;
+    color: #8a4b00;
+}
+
+.customer-chip .chip-x {
+    border: 0;
+    background: transparent;
+    padding: 0 0.85rem;
+    color: #3d2fd6;
+    font-size: 1rem;
+    min-width: 44px;
 }
 
 .order-lines {

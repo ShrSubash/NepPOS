@@ -1,6 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using NepPOS.Domain.Entities;
 using NepPOS.Infrastructure.Database.Outbox;
+using NepPOS.Infrastructure.Database.Sync;
 
 namespace NepPOS.Infrastructure.Database;
 
@@ -27,6 +28,10 @@ public sealed class NepPosDbContext : DbContext
     public DbSet<GiftCard> GiftCards => Set<GiftCard>();
     public DbSet<GiftCardMovement> GiftCardMovements => Set<GiftCardMovement>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<Customer> Customers => Set<Customer>();
+    public DbSet<CustomerAccountEntry> CustomerAccountEntries => Set<CustomerAccountEntry>();
+    public DbSet<SupplierAccountEntry> SupplierAccountEntries => Set<SupplierAccountEntry>();
+    public DbSet<SyncCursor> SyncCursors => Set<SyncCursor>();
 
     public NepPosDbContext(DbContextOptions<NepPosDbContext> options) : base(options)
     {
@@ -40,6 +45,8 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(st => st.StoreId).IsRequired().HasMaxLength(50);
             entity.Property(st => st.RegisterId).IsRequired().HasMaxLength(50);
             entity.Property(st => st.Status).HasConversion<string>().HasMaxLength(20);
+            entity.Property(st => st.CustomerName).HasMaxLength(200);
+            entity.HasIndex(st => st.CustomerId);
 
             // Invoice numbers must be gapless and unique per store (Section 6) — enforce
             // at the database level, not just in application code, since this is a
@@ -117,7 +124,70 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(m => m.Id).ValueGeneratedOnAdd();
             entity.Property(m => m.Amount).HasPrecision(18, 2);
             entity.Property(m => m.Note).IsRequired().HasMaxLength(200);
+            entity.Property(m => m.Where).HasMaxLength(100);
             entity.Property(m => m.AtUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+
+            // A movement copied from another register (or resent) can never be added twice. Movements from before
+            // cards were shared have no event id (all zeros), so they're left out of the rule.
+            entity.HasIndex(m => m.EventId).IsUnique().HasFilter("[EventId] <> '00000000-0000-0000-0000-000000000000'");
+        });
+
+        modelBuilder.Entity<Customer>(entity =>
+        {
+            entity.HasKey(c => c.Id);
+            entity.Property(c => c.Id).ValueGeneratedNever();
+            entity.Property(c => c.Code).IsRequired().HasMaxLength(20);
+            entity.HasIndex(c => c.Code).IsUnique();
+            entity.Property(c => c.Name).IsRequired().HasMaxLength(200);
+            entity.HasIndex(c => c.Name);
+            entity.Property(c => c.Phone).HasMaxLength(30);
+            entity.HasIndex(c => c.Phone);
+            entity.Property(c => c.Email).HasMaxLength(200);
+            entity.Property(c => c.Company).HasMaxLength(200);
+            entity.Property(c => c.Abn).HasMaxLength(20);
+            entity.Property(c => c.Address).HasMaxLength(300);
+            entity.Property(c => c.Notes).HasMaxLength(1000);
+            entity.Property(c => c.CreditLimit).HasPrecision(18, 2);
+            entity.Property(c => c.Balance).HasPrecision(18, 2);
+            entity.Ignore(c => c.AvailableCredit);
+            entity.Property(c => c.CreatedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.Property(c => c.UpdatedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+        });
+
+        modelBuilder.Entity<CustomerAccountEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedNever();
+            entity.Property(e => e.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.Amount).HasPrecision(18, 2);
+            entity.Property(e => e.Where).HasMaxLength(100);
+            entity.Property(e => e.Reference).HasMaxLength(100);
+            entity.Property(e => e.Note).HasMaxLength(300);
+            entity.Property(e => e.AtUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.Property(e => e.DueUtc).HasConversion(v => v, v => v.HasValue ? DateTime.SpecifyKind(v.Value, DateTimeKind.Utc) : null);
+            entity.HasOne<Customer>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.CustomerId, e.AtUtc });
+        });
+
+        modelBuilder.Entity<SupplierAccountEntry>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).ValueGeneratedOnAdd();
+            entity.Property(e => e.Kind).HasConversion<string>().HasMaxLength(20);
+            entity.Property(e => e.Amount).HasPrecision(18, 2);
+            entity.Property(e => e.Reference).HasMaxLength(100);
+            entity.Property(e => e.Note).HasMaxLength(300);
+            entity.Property(e => e.EmployeeName).HasMaxLength(200);
+            entity.Property(e => e.RecordedUtc).HasConversion(v => v, v => DateTime.SpecifyKind(v, DateTimeKind.Utc));
+            entity.HasOne<Supplier>().WithMany().HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(e => new { e.SupplierId, e.Date });
+            entity.HasIndex(e => e.StockReceiptId);
+        });
+
+        modelBuilder.Entity<SyncCursor>(entity =>
+        {
+            entity.HasKey(c => c.Name);
+            entity.Property(c => c.Name).HasMaxLength(50);
         });
 
         modelBuilder.Entity<JournalEntry>(entity =>
@@ -216,6 +286,15 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(s => s.Name).IsRequired().HasMaxLength(200);
             entity.Property(s => s.LegacyNumber).HasMaxLength(50);
             entity.Property(s => s.AccountNumber).HasMaxLength(50);
+            entity.Property(s => s.ContactName).HasMaxLength(200);
+            entity.Property(s => s.Phone).HasMaxLength(30);
+            entity.Property(s => s.Email).HasMaxLength(200);
+            entity.Property(s => s.Abn).HasMaxLength(20);
+            entity.Property(s => s.Address).HasMaxLength(300);
+            entity.Property(s => s.Notes).HasMaxLength(1000);
+            entity.Property(s => s.Balance).HasPrecision(18, 2);
+            // Existing suppliers get 30 days; -1 as the "not set" marker so a real 0 (due on the invoice date) is kept.
+            entity.Property(s => s.TermsDays).HasDefaultValue(30).HasSentinel(-1);
             entity.HasIndex(s => s.Name);
         });
 

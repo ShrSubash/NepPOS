@@ -20,6 +20,7 @@ public static class ManageNav
         {
             new ManageItem("Products & PLUs", "Add products, prices, barcodes and pack sizes", "manage/plu", "tag"),
             new ManageItem("Receive stock", "Supplier deliveries: stock in, costs and margins", "manage/receiving", "truck"),
+            new ManageItem("Suppliers", "Contacts, payment terms and what you owe them", "manage/suppliers", "building"),
         }),
         new ManageSection("Sales", new[]
         {
@@ -30,8 +31,8 @@ public static class ManageNav
         }),
         new ManageSection("Customers", new[]
         {
-            new ManageItem("Customers", "Members and loyalty points", null, "users"),
-            new ManageItem("Debtors", "Accounts customers pay later", null, "card"),
+            new ManageItem("Customers", "Customers and accounts, shared by all your stores", "manage/customers", "users"),
+            new ManageItem("Debtors", "Who owes you, and how overdue", "manage/debtors", "receipt"),
         }),
         new ManageSection("Store setup", new[]
         {
@@ -62,6 +63,8 @@ public static class ManageNav
             "printer" => "<path d=\"M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2\"/><path d=\"M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6\"/><rect x=\"6\" y=\"14\" width=\"12\" height=\"8\" rx=\"1\"/>",
             "mail" => "<rect width=\"20\" height=\"16\" x=\"2\" y=\"4\" rx=\"2\"/><path d=\"m22 7-9 5.7a2 2 0 0 1-2 0L2 7\"/>",
             "cloud" => "<path d=\"M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z\"/>",
+            "building" => "<rect x=\"4\" y=\"2\" width=\"16\" height=\"20\" rx=\"2\"/><path d=\"M9 22v-4h6v4\"/><path d=\"M8 6h.01\"/><path d=\"M12 6h.01\"/><path d=\"M16 6h.01\"/><path d=\"M8 10h.01\"/><path d=\"M12 10h.01\"/><path d=\"M16 10h.01\"/><path d=\"M8 14h.01\"/><path d=\"M12 14h.01\"/><path d=\"M16 14h.01\"/>",
+            "receipt" => "<path d=\"M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z\"/><path d=\"M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8\"/><path d=\"M12 17.5v-11\"/>",
             "back" => "<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
             _ => "<circle cx=\"12\" cy=\"12\" r=\"9\"/>"
         }

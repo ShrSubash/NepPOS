@@ -126,6 +126,10 @@
                     {
                         <button class="tender other" disabled="@Busy" @onclick="() => BackToCardAsync(gift)"><span class="t-title">BACK TO CARD</span><span class="t-sub">@gift.Reference</span></button>
                     }
+                    @if (Customer is { IsAccount: true } account && Settings.PaymentTypes.Accounts)
+                    {
+                        <button class="tender account" disabled="@Busy" @onclick="AccountAsync"><span class="t-title">TO ACCOUNT</span><span class="t-sub">off what @account.Name owes</span></button>
+                    }
                     @if (Settings.PaymentTypes.StoreCredit)
                     {
                         <button class="tender credit" disabled="@Busy" @onclick="StoreCreditAsync"><span class="t-title">STORE CREDIT</span><span class="t-sub">printed with a barcode</span></button>
@@ -151,6 +155,9 @@
     [Parameter, EditorRequired] public Func<RefundSession, Task<long>> CompleteRefund { get; set; } = default!;
     [Parameter] public EventCallback OnFinished { get; set; }
     [Parameter] public EventCallback OnCancel { get; set; }
+
+    /// <summary>The customer on the sale; an account customer can have the refund taken off what they owe.</summary>
+    [Parameter] public Customer? Customer { get; set; }
 
     private RefundSession _session = default!;
     private RegisterSettings Settings = new();
@@ -192,9 +199,10 @@
     {
         if (IsManager) return null;
         var limit = Settings.Returns.CashierRefundLimit;
-        if (limit > 0 && _session.RefundTotal > limit && type != TenderType.StoreCredit)
+        // Store credit and the customer's own account keep the money in the business, so a cashier can always use them.
+        if (limit > 0 && _session.RefundTotal > limit && type is not (TenderType.StoreCredit or TenderType.Account))
             return $"Refunds over {limit:C} need a manager. Store credit is fine.";
-        if (Original is null && type != TenderType.StoreCredit)
+        if (Original is null && type is not (TenderType.StoreCredit or TenderType.Account))
             return "Without a receipt, a refund is store credit unless a manager agrees.";
         if (type == TenderType.Cash && Original is not null && Original.All(p => p.TenderType != TenderType.Cash))
             return "This sale wasn't paid in cash: refund to the card, or ask a manager.";
@@ -259,6 +267,17 @@
         {
             var code = await GiftCards.NewCodeAsync(GiftCardKind.StoreCredit);
             _session.RefundToVoucher(TenderType.StoreCredit, code, AmountFor(cash: false));
+            await AfterTenderAsync();
+        }
+        catch (InvalidOperationException ex) { ShowError(ex.Message); }
+    }
+
+    private async Task AccountAsync()
+    {
+        if (Customer is null || Refuse(TenderType.Account)) return;
+        try
+        {
+            _session.RefundToAccount(Customer.Code, Customer.Name, AmountFor(cash: false));
             await AfterTenderAsync();
         }
         catch (InvalidOperationException ex) { ShowError(ex.Message); }

@@ -1,6 +1,7 @@
 ﻿using System.Globalization;
 using System.Text.RegularExpressions;
 using NepPOS.Domain.Entities;
+using NepPOS.Application.Customers;
 using NepPOS.Application.Reports;
 using NepPOS.Application.Sales;
 using NepPOS.Domain.Enums;
@@ -55,15 +56,19 @@ public static class ReceiptBuilder
             ? $"Register {sale.RegisterId}"
             : $"Register {sale.RegisterId} - {sale.EmployeeName}";
         lines.Add(new ReceiptLine(registerLine.Length > lineWidth ? registerLine[..lineWidth] : registerLine));
+        if (!string.IsNullOrWhiteSpace(sale.CustomerName))
+            foreach (var part in Wrap("Customer: " + sale.CustomerName.Trim(), lineWidth))
+                lines.Add(new ReceiptLine(part));
         lines.Add(separator);
 
         // ---- items ----
         var hasGstFree = false;
         foreach (var item in sale.LineItems)
         {
-            var gstFree = item.GstRate == 0;
+            // Gift cards and account payments carry no GST but aren't "GST-free goods", so they get no star.
+            var gstFree = item.GstRate == 0 && item.GiftCardCode is null && !AccountPayment.IsAccountPayment(item);
             hasGstFree |= gstFree;
-            var name = (gstFree && item.GiftCardCode is null ? "*" : "") + (item.IsReturn ? "RETURN " : "") + item.ProductName;
+            var name = (gstFree ? "*" : "") + (item.IsReturn ? "RETURN " : "") + item.ProductName;
             var lineTotal = Money(item.LineTotalIncGst);
 
             if (item.Quantity == 1)
@@ -99,6 +104,15 @@ public static class ReceiptBuilder
                 lines.Add(TwoColumn(TenderLabel(payment), Money(payment.IsRefund ? -payment.Amount : payment.Tendered), lineWidth));
             foreach (var payment in sale.Payments.Where(p => p.TenderType == TenderType.Cash && p.Change > 0))
                 lines.Add(TwoColumn("Change", Money(payment.Change), lineWidth));
+        }
+
+        // ---- charged to an account: the customer signs the store's copy ----
+        if (sale.Payments.Any(p => p.TenderType == TenderType.Account && !p.IsRefund))
+        {
+            lines.Add(new ReceiptLine(""));
+            lines.Add(new ReceiptLine("Charged to account. Pay within your terms.", ReceiptAlign.Center));
+            lines.Add(new ReceiptLine(""));
+            lines.Add(new ReceiptLine("Signature " + new string('_', Math.Max(10, lineWidth - 10))));
         }
 
         // ---- GST statement (ATO) ----
@@ -145,6 +159,8 @@ public static class ReceiptBuilder
                 return $"{(payment.IsRefund ? "To gift card" : "Gift card")} {payment.Reference}".Trim();
             case TenderType.StoreCredit:
                 return $"{(payment.IsRefund ? "Store credit issued" : "Store credit")} {payment.Reference}".Trim();
+            case TenderType.Account:
+                return $"{(payment.IsRefund ? "Credited to account" : "On account")} {payment.Reference}".Trim();
             default:
                 var name = payment.TenderName ?? "Other";
                 return payment.IsRefund ? $"{name} refund" : name;
@@ -336,6 +352,81 @@ public static class ReceiptBuilder
         var footer = isPeriod ? "*** END OF REPORT ***" : report.IsZ ? "*** END OF DAY ***" : "*** NOT A Z - DAY STILL OPEN ***";
         lines.Add(new ReceiptLine(footer, ReceiptAlign.Center, Bold: true));
 
+        return new ReceiptDocument(lineWidth, lines);
+    }
+
+    /// <summary>
+    /// A customer's account statement for the receipt printer: the latest lines with a running balance, how much is
+    /// overdue, and the amount due, with their customer code as a barcode.
+    /// </summary>
+    public static ReceiptDocument BuildStatement(CustomerStatement statement, StoreProfile store, int lineWidth, DateTime asOfLocal, int maxLines = 40)
+    {
+        ArgumentNullException.ThrowIfNull(statement);
+        ArgumentNullException.ThrowIfNull(store);
+        if (lineWidth < 24)
+            throw new ArgumentOutOfRangeException(nameof(lineWidth), "Receipts need at least 24 characters per line.");
+
+        var customer = statement.Customer;
+        var lines = new List<ReceiptLine>();
+        var separator = new ReceiptLine(new string('-', lineWidth));
+
+        if (!string.IsNullOrWhiteSpace(store.BusinessName))
+            lines.Add(new ReceiptLine(store.BusinessName.Trim(), ReceiptAlign.Center, Bold: true, Large: true));
+        foreach (var addressLine in store.AddressLines.Where(a => !string.IsNullOrWhiteSpace(a)))
+            lines.Add(new ReceiptLine(addressLine.Trim(), ReceiptAlign.Center));
+        if (!string.IsNullOrWhiteSpace(store.Phone))
+            lines.Add(new ReceiptLine("Ph " + store.Phone.Trim(), ReceiptAlign.Center));
+        if (!string.IsNullOrWhiteSpace(store.Abn))
+            lines.Add(new ReceiptLine("ABN " + FormatAbn(store.Abn), ReceiptAlign.Center));
+
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine("ACCOUNT STATEMENT", ReceiptAlign.Center, Bold: true));
+        lines.Add(new ReceiptLine(""));
+        foreach (var part in Wrap(customer.Name, lineWidth))
+            lines.Add(new ReceiptLine(part, Bold: true));
+        if (!string.IsNullOrWhiteSpace(customer.Company))
+            lines.Add(new ReceiptLine(customer.Company.Trim()));
+        lines.Add(TwoColumn(customer.Code, asOfLocal.ToString("dd/MM/yyyy", Au), lineWidth));
+        lines.Add(new ReceiptLine($"Terms: {customer.TermsDays} days"));
+        lines.Add(separator);
+
+        // Oldest first with a running balance; older lines are summed into "Brought forward".
+        var ordered = statement.Entries.OrderBy(e => e.AtUtc).ToList();
+        var shown = ordered.Skip(Math.Max(0, ordered.Count - maxLines)).ToList();
+        var running = ordered.Take(ordered.Count - shown.Count).Sum(e => e.Amount);
+        if (shown.Count < ordered.Count)
+            lines.Add(TwoColumn("Brought forward", Money(running), lineWidth));
+        foreach (var entry in shown)
+        {
+            running += entry.Amount;
+            var what = entry.Kind switch
+            {
+                AccountEntryKind.Charge => entry.InvoiceNumber is { } inv ? $"Invoice #{inv}" : "Charge",
+                AccountEntryKind.Payment => "Payment",
+                AccountEntryKind.Credit => entry.InvoiceNumber is { } inv ? $"Credit #{inv}" : "Credit",
+                _ => "Adjustment"
+            };
+            lines.Add(TwoColumn($"{entry.AtUtc.ToLocalTime():dd/MM/yy} {what}", Money(entry.Amount), lineWidth));
+            lines.Add(TwoColumn("", "bal " + Money(running), lineWidth));
+        }
+        if (shown.Count == 0)
+            lines.Add(new ReceiptLine("No account activity yet."));
+        lines.Add(separator);
+
+        var ageing = statement.Ageing;
+        lines.Add(TwoColumn("Not yet due", Money(ageing.Current), lineWidth));
+        lines.Add(TwoColumn("1-30 days overdue", Money(ageing.Days1To30), lineWidth));
+        lines.Add(TwoColumn("31-60 days overdue", Money(ageing.Days31To60), lineWidth));
+        lines.Add(TwoColumn("61-90 days overdue", Money(ageing.Days61To90), lineWidth));
+        lines.Add(TwoColumn("Over 90 days", Money(ageing.Over90), lineWidth));
+        lines.Add(separator);
+        lines.Add(TwoColumn(ageing.Total < 0 ? "IN CREDIT" : "AMOUNT DUE", Money(Math.Abs(ageing.Total)), lineWidth, bold: true));
+        if (ageing.Overdue > 0)
+            lines.Add(TwoColumn("Overdue now", Money(ageing.Overdue), lineWidth, bold: true));
+
+        lines.Add(new ReceiptLine(""));
+        lines.Add(new ReceiptLine(customer.Code, ReceiptAlign.Center, Barcode: true));
+        lines.Add(new ReceiptLine("Bring this to pay at the counter", ReceiptAlign.Center));
         return new ReceiptDocument(lineWidth, lines);
     }
 

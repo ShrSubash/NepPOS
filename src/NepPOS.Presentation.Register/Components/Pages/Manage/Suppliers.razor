@@ -1,0 +1,270 @@
+@page "/manage/suppliers"
+@layout ManageLayout
+@using NepPOS.Application.Accounts
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Suppliers
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@using NepPOS.Presentation.Register.Components.Shared
+@inject ISupplierAccountService SupplierService
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Suppliers</span>
+            <button class="save-btn" @onclick="NewSupplier">+ New supplier</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body cu-body">
+            <section class="card @(Edit is null ? "wide" : "")">
+                <AgeingTiles Ageing="Total" TotalLabel="You owe" />
+                <form class="pt-row" @onsubmit="LoadAsync">
+                    <input @bind="Search" placeholder="Supplier name or account number" />
+                    <button class="chip" type="submit">Search</button>
+                </form>
+                @if (Rows.Count == 0)
+                {
+                    <p class="field-note">No suppliers yet. They're added here, or when you receive a delivery.</p>
+                }
+                else
+                {
+                    <table class="gc-table">
+                        <thead><tr><th>Supplier</th><th>Next due</th><th class="num">You owe</th></tr></thead>
+                        <tbody>
+                            @foreach (var r in Rows)
+                            {
+                                <tr class="@(Edit?.Id == r.Supplier.Id ? "on" : "")" @onclick="() => OpenAsync(r.Supplier.Id)">
+                                    <td><strong>@r.Supplier.Name</strong><div class="sub">@r.Supplier.TermsDays days@(string.IsNullOrWhiteSpace(r.Supplier.Phone) ? "" : " · " + r.Supplier.Phone)</div></td>
+                                    <td class="@(r.NextDue < Today ? "neg" : "")">@(r.NextDue?.ToString("d MMM yyyy") ?? "")</td>
+                                    <td class="num">@(r.Ageing.Total == 0 ? "" : r.Ageing.Total.ToString("C"))</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+
+            @if (Edit is not null)
+            {
+                <section class="card">
+                    <h2>@(Edit.Id is null ? "New supplier" : Edit.Name)</h2>
+                    <div class="cu-grid">
+                        <label>Name<input @bind="Edit.Name" /></label>
+                        <label>Your account no. with them<input @bind="Edit.AccountNumber" /></label>
+                        <label>Contact person<input @bind="Edit.ContactName" /></label>
+                        <label>Phone<input @bind="Edit.Phone" inputmode="tel" /></label>
+                        <label>Email (orders, remittances)<input @bind="Edit.Email" type="email" /></label>
+                        <label>ABN<input @bind="Edit.Abn" inputmode="numeric" /></label>
+                        <label>Address<input @bind="Edit.Address" /></label>
+                        <label>Pay within (days)<input type="number" min="0" max="365" @bind="Edit.TermsDays" /></label>
+                    </div>
+                    <label>Notes<input @bind="Edit.Notes" /></label>
+                    <label class="check"><input type="checkbox" @bind="Edit.IsActive" /> Active</label>
+                    <div class="test-row">
+                        <button class="save-btn" @onclick="SaveAsync" disabled="@Busy">Save</button>
+                        <button class="chip" @onclick="() => Edit = null">Close</button>
+                    </div>
+                </section>
+
+                @if (Statement is { } st)
+                {
+                    <section class="card wide">
+                        <h2>What you owe @st.Supplier.Name</h2>
+                        <AgeingTiles Ageing="st.Ageing" TotalLabel="You owe" />
+
+                        <div class="pt-row">
+                            @foreach (var (kind, label) in Actions)
+                            {
+                                <button class="chip @(Action == kind ? "on" : "")" @onclick="() => StartAction(kind)">@label</button>
+                            }
+                        </div>
+                        @if (Action is { } action)
+                        {
+                            <div class="pt-row">
+                                <input type="number" min="0.01" step="0.01" @bind="EntryAmount" placeholder="Amount incl. GST" />
+                                <input type="date" @bind="EntryDate" />
+                                <input @bind="EntryReference" placeholder="@(action == SupplierEntryKind.Bill ? "Their invoice number" : action == SupplierEntryKind.Payment ? "EFT / cheque reference" : "Credit note number")" />
+                                <input @bind="EntryNote" placeholder="Note (optional)" />
+                                <button class="save-btn" @onclick="RecordAsync" disabled="@Busy">Record</button>
+                                <button class="chip" @onclick="() => Action = null">Cancel</button>
+                            </div>
+                        }
+
+                        @if (st.Entries.Count == 0)
+                        {
+                            <p class="field-note">Nothing yet. Deliveries received from this supplier add their invoice here automatically.</p>
+                        }
+                        else
+                        {
+                            <table class="gc-table">
+                                <thead><tr><th>Date</th><th>What</th><th>Reference</th><th>Due</th><th class="num">Amount</th></tr></thead>
+                                <tbody>
+                                    @foreach (var e in st.Entries)
+                                    {
+                                        <tr>
+                                            <td>@e.Date.ToString("d MMM yyyy")</td>
+                                            <td>@KindLabel(e.Kind)<div class="sub">@e.Note</div></td>
+                                            <td>@e.Reference</td>
+                                            <td class="@(e.DueDate < Today && e.Kind == SupplierEntryKind.Bill ? "neg" : "")">@(e.DueDate?.ToString("d MMM") ?? "")</td>
+                                            <td class="num @(e.Amount < 0 ? "pos" : "")">@e.Amount.ToString("+$#,##0.00;-$#,##0.00")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </section>
+                }
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly (SupplierEntryKind Kind, string Label)[] Actions =
+    {
+        (SupplierEntryKind.Payment, "Record a payment"),
+        (SupplierEntryKind.Bill, "Add a bill"),
+        (SupplierEntryKind.Credit, "Add a credit note")
+    };
+
+    private static DateOnly Today => DateOnly.FromDateTime(DateTime.Today);
+
+    private string Search = "";
+    private IReadOnlyList<CreditorRow> Rows = Array.Empty<CreditorRow>();
+    private Ageing Total = Ageing.Zero;
+    private SupplierForm? Edit;
+    private SupplierStatement? Statement;
+    private SupplierEntryKind? Action;
+    private decimal EntryAmount;
+    private DateOnly EntryDate = DateOnly.FromDateTime(DateTime.Today);
+    private string EntryReference = "";
+    private string EntryNote = "";
+    private bool Busy;
+    private string? Message;
+    private bool IsError;
+
+    private sealed class SupplierForm
+    {
+        public int? Id { get; set; }
+        public string Name { get; set; } = "";
+        public string? AccountNumber { get; set; }
+        public string? ContactName { get; set; }
+        public string? Phone { get; set; }
+        public string? Email { get; set; }
+        public string? Abn { get; set; }
+        public string? Address { get; set; }
+        public int TermsDays { get; set; } = 30;
+        public string? Notes { get; set; }
+        public bool IsActive { get; set; } = true;
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        Rows = await SupplierService.ListAsync(Search);
+        Total = Rows.Aggregate(Ageing.Zero, (sum, r) => sum.Add(r.Ageing));
+    }
+
+    private void NewSupplier() => (Edit, Statement, Action, Message) = (new SupplierForm(), null, null, null);
+
+    private async Task OpenAsync(int id)
+    {
+        Statement = await SupplierService.StatementAsync(id);
+        if (Statement is null) return;
+        var s = Statement.Supplier;
+        Edit = new SupplierForm
+        {
+            Id = s.Id, Name = s.Name, AccountNumber = s.AccountNumber, ContactName = s.ContactName, Phone = s.Phone,
+            Email = s.Email, Abn = s.Abn, Address = s.Address, TermsDays = s.TermsDays, Notes = s.Notes, IsActive = s.IsActive
+        };
+        Action = null;
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Edit is null) return;
+        Busy = true;
+        try
+        {
+            var saved = await SupplierService.SaveAsync(new SupplierInput(Edit.Id, Edit.Name, Edit.AccountNumber, Edit.ContactName,
+                Edit.Phone, Edit.Email, Edit.Abn, Edit.Address, Edit.TermsDays, Edit.Notes, Edit.IsActive));
+            (Message, IsError) = ($"{saved.Name} saved.", false);
+            await LoadAsync();
+            await OpenAsync(saved.Id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private void StartAction(SupplierEntryKind kind)
+    {
+        Action = kind;
+        (EntryAmount, EntryReference, EntryNote, EntryDate) = (kind == SupplierEntryKind.Payment && Statement is { } st && st.Ageing.Total > 0 ? st.Ageing.Total : 0, "", "", Today);
+    }
+
+    private async Task RecordAsync()
+    {
+        if (Edit?.Id is not { } id || Action is not { } kind) return;
+        Busy = true;
+        try
+        {
+            var who = Session.Employee?.FullName;
+            switch (kind)
+            {
+                case SupplierEntryKind.Bill:
+                    await SupplierService.AddBillAsync(id, EntryReference, EntryDate, EntryAmount, EntryNote, who);
+                    break;
+                case SupplierEntryKind.Payment:
+                    await SupplierService.AddPaymentAsync(id, EntryAmount, EntryDate, EntryReference, EntryNote, who);
+                    break;
+                default:
+                    await SupplierService.AddCreditAsync(id, EntryAmount, EntryDate, EntryReference, EntryNote, who);
+                    break;
+            }
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"{KindLabel(kind)} of {EntryAmount:C} recorded for {Edit.Name} by {who}", amount: EntryAmount);
+            (Message, IsError, Action) = ($"{KindLabel(kind)} of {EntryAmount:C} recorded for {Edit.Name}.", false, null);
+            await LoadAsync();
+            await OpenAsync(id);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = (ex.Message, true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private static string KindLabel(SupplierEntryKind kind) => kind switch
+    {
+        SupplierEntryKind.Bill => "Bill",
+        SupplierEntryKind.Payment => "Payment",
+        _ => "Credit"
+    };
+}

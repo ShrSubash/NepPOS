@@ -108,6 +108,29 @@ public sealed class TenderSession : IPaymentSession
         return take;
     }
 
+    /// <summary>
+    /// Charges part (or all) of what's due to a customer's account. The payment screen checks their credit limit
+    /// (and asks for a manager) before calling this.
+    /// </summary>
+    public decimal AddAccount(string customerCode, string customerName, decimal amount)
+    {
+        EnsureOpen();
+        if (string.IsNullOrWhiteSpace(customerCode))
+            throw new InvalidOperationException("Choose the account customer first.");
+        if (_payments.Any(p => p.TenderType == TenderType.Account))
+            throw new InvalidOperationException("This sale is already charged to an account.");
+
+        var take = Math.Min(amount <= 0 ? Remaining : amount, Remaining);
+        if (take <= 0)
+            throw new InvalidOperationException("Nothing is due.");
+
+        _payments.Add(new SalePayment(TenderType.Account, take, take, 0,
+            reference: customerCode.Trim().ToUpperInvariant(), tenderName: customerName));
+        if (Remaining == 0)
+            IsComplete = true;
+        return take;
+    }
+
     /// <summary>A tender the owner added (Account, Cheque…): exact amount, no change.</summary>
     public void AddOther(string name, decimal amount, string? reference = null)
     {

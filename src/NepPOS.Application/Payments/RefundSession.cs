@@ -94,6 +94,17 @@ public sealed class RefundSession : IPaymentSession
         Settle();
     }
 
+    /// <summary>Back onto the customer's account: takes it off what they owe.</summary>
+    public void RefundToAccount(string customerCode, string customerName, decimal amount)
+    {
+        if (string.IsNullOrWhiteSpace(customerCode))
+            throw new InvalidOperationException("Choose the account customer first.");
+        Take(amount, "Account");
+        _payments.Add(new SalePayment(TenderType.Account, -amount, -amount, 0,
+            reference: customerCode.Trim().ToUpperInvariant(), tenderName: customerName));
+        Settle();
+    }
+
     /// <summary>Back through a tender the owner added (Account…).</summary>
     public void RefundOther(string name, decimal amount, string? reference = null)
     {

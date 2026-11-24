@@ -35,6 +35,7 @@ public sealed class SaleTransactionRepository : ISaleTransactionRepository
             _dbContext.OutboxMessages.Add(OutboxMessage.SaleCompleted(saleTransaction));
             await TakeStockAsync(saleTransaction, cancellationToken);
             await new GiftCardLedger(_dbContext).ApplyAsync(saleTransaction, cancellationToken);
+            await new AccountLedger(_dbContext).ApplyAsync(saleTransaction, cancellationToken);
         }
 
         await _dbContext.SaveChangesAsync(cancellationToken);

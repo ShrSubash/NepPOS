@@ -55,6 +55,29 @@ public interface IHeadOfficeClient
     Task<ActivateResponse> ActivateAsync(string baseUrl, ActivateRequest request, CancellationToken cancellationToken = default);
     Task<SyncEventsResponse> SendEventsAsync(HeadOfficeConnection connection, IReadOnlyList<SyncEvent> events, CancellationToken cancellationToken = default);
     Task<HeartbeatResponse> HeartbeatAsync(HeadOfficeConnection connection, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The owner's customers, accounts and gift card changes from other registers after Head Office's number
+    /// <paramref name="afterId"/> (GET /api/v1/sync/shared).
+    /// </summary>
+    Task<SharedEventsResponse> GetSharedAsync(HeadOfficeConnection connection, long afterId, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new SharedEventsResponse(Array.Empty<SharedEvent>(), afterId, false));
+}
+
+/// <summary>
+/// Where this register keeps what other registers shared (customers, account lines, gift card movements)
+/// and how far through Head Office's list it has read.
+/// </summary>
+public interface ISharedDataStore
+{
+    /// <summary>Head Office's number of the last shared event applied here (0 = none yet).</summary>
+    Task<long> GetCursorAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Applies the events (skipping any already here) and moves the cursor to <paramref name="lastId"/>,
+    /// in one save. Returns how many changed something.
+    /// </summary>
+    Task<int> ApplyAsync(IReadOnlyList<SharedEvent> events, long lastId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>The register's outbox (integration step 1) as the sync sees it.</summary>
@@ -81,8 +104,8 @@ public enum SyncOutcome
     Unauthorized
 }
 
-/// <summary>One run of the sync: what was sent and what (if anything) went wrong.</summary>
-public sealed record SyncRunResult(SyncOutcome Outcome, int Sent, int Rejected, string? Problem);
+/// <summary>One run of the sync: what was sent (and received from other registers) and what (if anything) went wrong.</summary>
+public sealed record SyncRunResult(SyncOutcome Outcome, int Sent, int Rejected, string? Problem, int Received = 0);
 
 /// <summary>
 /// Sends the outbox to Head Office in batches, oldest first. Accepted and duplicate events are
@@ -100,14 +123,55 @@ public sealed class SyncService
     private readonly IHeadOfficeClient _client;
     private readonly IOutboxStore _outbox;
     private readonly LicenceGuard? _licence;
+    private readonly ISharedDataStore? _shared;
 
     /// <param name="licence">Receives the licence each heartbeat brings (null in tests that don't need it).</param>
-    public SyncService(IHeadOfficeConnectionStore connections, IHeadOfficeClient client, IOutboxStore outbox, LicenceGuard? licence = null)
+    /// <param name="shared">Keeps what other registers share (null in tests that don't need it).</param>
+    public SyncService(IHeadOfficeConnectionStore connections, IHeadOfficeClient client, IOutboxStore outbox,
+        LicenceGuard? licence = null, ISharedDataStore? shared = null)
     {
         _connections = connections ?? throw new ArgumentNullException(nameof(connections));
         _client = client ?? throw new ArgumentNullException(nameof(client));
         _outbox = outbox ?? throw new ArgumentNullException(nameof(outbox));
         _licence = licence;
+        _shared = shared;
+    }
+
+    /// <summary>
+    /// Fetches what the owner's other registers shared since last time (customers, account lines, gift card
+    /// movements) and applies it here. Run after sending, so this register's own changes are already at Head Office.
+    /// </summary>
+    public async Task<SyncRunResult> PullSharedAsync(CancellationToken cancellationToken = default)
+    {
+        var connection = _connections.Load();
+        if (connection is null || _shared is null)
+            return new SyncRunResult(_shared is null ? SyncOutcome.UpToDate : SyncOutcome.NotConnected, 0, 0, null);
+
+        var received = 0;
+        try
+        {
+            var cursor = await _shared.GetCursorAsync(cancellationToken);
+            for (var page = 0; page < MaxBatchesPerRun; page++)
+            {
+                var answer = await _client.GetSharedAsync(connection, cursor, cancellationToken);
+                if (answer.Events.Count == 0 && answer.LastId <= cursor)
+                    break;
+
+                received += await _shared.ApplyAsync(answer.Events, Math.Max(cursor, answer.LastId), cancellationToken);
+                cursor = Math.Max(cursor, answer.LastId);
+                if (!answer.More)
+                    break;
+            }
+            return new SyncRunResult(SyncOutcome.UpToDate, 0, 0, null, received);
+        }
+        catch (HeadOfficeException ex) when (ex.Problem == HeadOfficeProblem.Unauthorized)
+        {
+            return new SyncRunResult(SyncOutcome.Unauthorized, 0, 0, ex.Message, received);
+        }
+        catch (HeadOfficeException ex)
+        {
+            return new SyncRunResult(SyncOutcome.Failed, 0, 0, ex.Message, received);
+        }
     }
 
     public async Task<SyncRunResult> SendOutboxAsync(CancellationToken cancellationToken = default)
