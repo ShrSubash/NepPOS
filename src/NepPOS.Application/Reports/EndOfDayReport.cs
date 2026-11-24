@@ -1,4 +1,4 @@
-using NepPOS.Domain.Entities;
+﻿using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
 
 namespace NepPOS.Application.Reports;
@@ -28,6 +28,10 @@ public sealed record EndOfDayReport
     public long? FirstInvoice { get; init; }
     public long? LastInvoice { get; init; }
     public int ItemCount { get; init; }
+
+    /// <summary>Refunds and exchanges that gave money back, and how much (positive). Already taken off GrossSales.</summary>
+    public int RefundCount { get; init; }
+    public decimal RefundAmount { get; init; }
 
     /// <summary>Sum of the receipt totals (GST inclusive), before cash rounding.</summary>
     public decimal GrossSales { get; init; }
@@ -84,7 +88,18 @@ public sealed record EndOfDayReport
     public IReadOnlyList<DayTotal> Days { get; init; } = Array.Empty<DayTotal>();
 }
 
-public sealed record TenderTotal(TenderType Tender, int Count, decimal Amount);
+/// <param name="Name">An owner-added tender's name ("Account"); null for the built-in ones.</param>
+public sealed record TenderTotal(TenderType Tender, int Count, decimal Amount, string? Name = null)
+{
+    public string Label => Name ?? Tender switch
+    {
+        TenderType.Eftpos => "EFTPOS",
+        TenderType.GiftCard => "Gift cards",
+        TenderType.StoreCredit => "Store credit",
+        TenderType.Other => "Other",
+        _ => Tender.ToString()
+    };
+}
 
 public sealed record EmployeeTotal(string Employee, int SaleCount, decimal Amount);
 
@@ -179,14 +194,21 @@ public static class EndOfDayCalculator
 
         var payments = completed.SelectMany(s => s.Payments).ToList();
 
-        // Cash and EFTPOS are always listed, even at $0.00, so the cashier sees every tender.
-        var tenders = Enum.GetValues<TenderType>()
+        // Cash and EFTPOS are always listed, even at $0.00, so the cashier sees every tender; the others when used.
+        // Refunds are negative payments, so each tender is the money it kept after refunds.
+        var tenders = new[] { TenderType.Cash, TenderType.Eftpos }
             .Select(type =>
             {
                 var ofType = payments.Where(p => p.TenderType == type).ToList();
                 return new TenderTotal(type, ofType.Count, ofType.Sum(p => p.Amount));
             })
+            .Concat(payments
+                .Where(p => p.TenderType is not (TenderType.Cash or TenderType.Eftpos))
+                .GroupBy(p => new { p.TenderType, Name = p.TenderType == TenderType.Other ? p.TenderName ?? "Other" : null })
+                .OrderBy(g => g.Key.TenderType).ThenBy(g => g.Key.Name)
+                .Select(g => new TenderTotal(g.Key.TenderType, g.Count(), g.Sum(p => p.Amount), g.Key.Name)))
             .ToList();
+        var refunds = completed.Where(s => s.GrandTotal < 0).ToList();
 
         var byEmployee = completed
             .GroupBy(s => string.IsNullOrWhiteSpace(s.EmployeeName) ? "Unknown" : s.EmployeeName!)
@@ -226,6 +248,8 @@ public static class EndOfDayCalculator
             FirstInvoice = invoices.Count == 0 ? null : invoices.Min(),
             LastInvoice = invoices.Count == 0 ? null : invoices.Max(),
             ItemCount = completed.Sum(s => s.LineItems.Sum(li => li.Quantity)),
+            RefundCount = refunds.Count,
+            RefundAmount = refunds.Sum(s => -Cents(s.GrandTotal)),
             GrossSales = completed.Sum(s => Cents(s.GrandTotal)),
             Gst = completed.Sum(s => Cents(s.GstTotal)),
             CashRounding = completed.Sum(s => s.CashRounding),

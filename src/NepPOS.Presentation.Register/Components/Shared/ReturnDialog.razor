@@ -1,0 +1,228 @@
+@using System.Globalization
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Sales
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IReturnsService Returns
+@inject IRegisterSettingsStore SettingsStore
+@inject CurrentUserSession Session
+
+@*
+    Returns: scan the receipt (or type its invoice number), choose how many of each item come back and why,
+    then they go on the order as return lines. New items can be added for an exchange before paying.
+*@
+<div class="rd-overlay">
+    <div class="rd-shell">
+        <div class="rd-head">
+            <h2>@(_sale is null ? "Return or exchange" : $"Invoice #{_sale.Sale.InvoiceNumber}")</h2>
+            <button class="rd-close" @onclick="() => OnClose.InvokeAsync()">Close</button>
+        </div>
+
+        @if (_message is not null)
+        {
+            <div class="rd-msg @(_isError ? "error" : "")">@_message</div>
+        }
+
+        @if (_sale is null)
+        {
+            <form class="rd-find" @onsubmit="FindAsync">
+                <input @ref="_codeInput" @bind="_code" placeholder="Scan the receipt's barcode, or type the invoice number" autocomplete="off" />
+                <button type="submit" class="rd-btn primary" disabled="@_busy">Find</button>
+            </form>
+
+            <div class="rd-or">No receipt?</div>
+            <div class="rd-find">
+                <input type="date" @bind="_day" />
+                <button class="rd-btn" @onclick="FindByDayAsync" disabled="@_busy">Show that day's sales</button>
+            </div>
+            @if (_daySales is { } list)
+            {
+                @if (list.Count == 0)
+                {
+                    <p class="rd-muted">No sales on this register that day.</p>
+                }
+                else
+                {
+                    <div class="rd-day">
+                        @foreach (var s in list)
+                        {
+                            <button class="rd-day-row" @onclick="() => OpenAsync(s.InvoiceNumber!.Value.ToString(CultureInfo.InvariantCulture))">
+                                <span>#@s.InvoiceNumber · @s.CreatedAtUtc.ToLocalTime().ToString("h:mm tt")</span>
+                                <span class="rd-muted">@string.Join(", ", s.LineItems.Take(3).Select(l => l.ProductName))@(s.LineItems.Count > 3 ? "…" : "")</span>
+                                <strong>@s.GrandTotal.ToString("C")</strong>
+                            </button>
+                        }
+                    </div>
+                }
+            }
+        }
+        else
+        {
+            var days = _sale.DaysAgo(DateTime.UtcNow);
+            <div class="rd-info">
+                <span>@_sale.Sale.CreatedAtUtc.ToLocalTime().ToString("ddd d MMM yyyy, h:mm tt") · @(days == 0 ? "today" : days == 1 ? "yesterday" : $"{days} days ago")</span>
+                @if (!string.IsNullOrEmpty(_sale.Sale.EmployeeName))
+                {
+                    <span>Served by @_sale.Sale.EmployeeName</span>
+                }
+                <span>Paid: @string.Join(", ", _sale.Sale.Payments.Select(p => $"{ReceiptBuilder.TenderLabel(p)} {p.Amount:C}"))</span>
+            </div>
+            @if (TooOld)
+            {
+                <div class="rd-msg error">This sale is more than @Settings.Returns.ReturnDays days old. @(IsManager ? "As a manager you can still return it." : "A manager needs to do this return.")</div>
+            }
+
+            <div class="rd-lines">
+                @foreach (var pick in _picks)
+                {
+                    var line = pick.Source.Line;
+                    <div class="rd-line @(pick.Quantity > 0 ? "on" : "")">
+                        <div class="rd-name">
+                            <strong>@line.ProductName</strong>
+                            <span class="rd-muted">@line.UnitPriceIncGst.ToString("C") each · sold @line.Quantity@(pick.Source.AlreadyReturned > 0 ? $" · {pick.Source.AlreadyReturned} already returned" : "")</span>
+                        </div>
+                        @if (!pick.CanReturn)
+                        {
+                            <span class="rd-muted rd-not">@pick.WhyNot</span>
+                        }
+                        else
+                        {
+                            <div class="rd-qty">
+                                <button @onclick="() => pick.Quantity = Math.Max(0, pick.Quantity - 1)" disabled="@(pick.Quantity == 0)">−</button>
+                                <span>@pick.Quantity</span>
+                                <button @onclick="() => pick.Quantity = Math.Min(pick.Source.Returnable, pick.Quantity + 1)" disabled="@(pick.Quantity >= pick.Source.Returnable)">+</button>
+                                <button class="rd-all" @onclick="() => pick.Quantity = pick.Source.Returnable">All @pick.Source.Returnable</button>
+                            </div>
+                            @if (pick.Quantity > 0)
+                            {
+                                <div class="rd-reasons">
+                                    @foreach (var reason in Reasons)
+                                    {
+                                        <button class="rd-chip @(pick.Reason == reason ? "on" : "")" @onclick="() => pick.Reason = reason">@reason</button>
+                                    }
+                                    <span class="rd-muted">@(RestockFor(pick.Reason) ? "Goes back on the shelf" : "Written off (not back in stock)")</span>
+                                </div>
+                            }
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="rd-foot">
+                <button class="rd-btn" @onclick="() => (_sale, _picks) = (null, new())">Another receipt</button>
+                <span class="rd-total">Returning @_picks.Sum(p => p.Quantity) · <strong>@_picks.Sum(p => p.Quantity * p.Source.Line.UnitPriceIncGst).ToString("C")</strong></span>
+                <button class="rd-btn primary" disabled="@(_picks.All(p => p.Quantity == 0) || (TooOld && !IsManager))" @onclick="AddAsync">Add to order</button>
+            </div>
+            <p class="rd-muted rd-hint">After adding, scan new items for an exchange, then Refund (or Charge the difference).</p>
+        }
+    </div>
+</div>
+
+@code {
+    /// <summary>A code scanned on the sell screen, opened straight away.</summary>
+    [Parameter] public string? InitialCode { get; set; }
+
+    [Parameter] public EventCallback<ReturnSelection> OnAdd { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    public static readonly string[] Reasons = { "Change of mind", "Faulty", "Wrong item", "Damaged" };
+
+    /// <summary>Faulty and damaged items don't go back on the shelf.</summary>
+    public static bool RestockFor(string reason) => reason is not ("Faulty" or "Damaged");
+
+    private ElementReference _codeInput;
+    private string _code = "";
+    private DateTime _day = DateTime.Today;
+    private IReadOnlyList<SaleTransaction>? _daySales;
+    private ReturnableSale? _sale;
+    private List<Pick> _picks = new();
+    private string? _message;
+    private bool _isError;
+    private bool _busy;
+    private RegisterSettings Settings = new();
+
+    private bool IsManager => Session.Employee?.Role >= EmployeeRole.Manager;
+    private bool TooOld => _sale is not null && Settings.Returns.ReturnDays > 0 && _sale.DaysAgo(DateTime.UtcNow) > Settings.Returns.ReturnDays;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Settings = SettingsStore.Load();
+        if (!string.IsNullOrWhiteSpace(InitialCode))
+            await OpenAsync(InitialCode);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _sale is null)
+        {
+            try { await _codeInput.FocusAsync(); } catch (InvalidOperationException) { }
+        }
+    }
+
+    private Task FindAsync() => OpenAsync(_code);
+
+    private async Task OpenAsync(string code)
+    {
+        _busy = true;
+        try
+        {
+            var found = await Returns.FindAsync(code);
+            if (found is null)
+            {
+                Show($"No sale found for \"{code.Trim()}\" on this register.", error: true);
+                return;
+            }
+            _sale = found;
+            _picks = found.Lines.Select(l => new Pick(l)).ToList();
+            _message = null;
+            _code = "";
+        }
+        catch (InvalidOperationException ex)
+        {
+            Show(ex.Message, error: true);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task FindByDayAsync()
+    {
+        _busy = true;
+        try
+        {
+            _daySales = await Returns.SalesOnAsync(DateOnly.FromDateTime(_day));
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task AddAsync()
+    {
+        if (_sale is null) return;
+        var chosen = _picks.Where(p => p.Quantity > 0)
+            .Select(p => new ReturnSelection.Item(p.Source.Line, p.Quantity, p.Reason, RestockFor(p.Reason)))
+            .ToList();
+        await OnAdd.InvokeAsync(new ReturnSelection(_sale.Sale, chosen));
+    }
+
+    private void Show(string text, bool error) => (_message, _isError) = (text, error);
+
+    /// <summary>One line of the original sale on the screen.</summary>
+    private sealed class Pick(ReturnableLine source)
+    {
+        public ReturnableLine Source { get; } = source;
+        public int Quantity { get; set; }
+        public string Reason { get; set; } = Reasons[0];
+
+        public bool CanReturn => WhyNot is null;
+
+        public string? WhyNot => Source.Line.GiftCardCode is not null ? "Gift cards can't be returned"
+            : Source.Returnable <= 0 ? "Already returned"
+            : null;
+    }
+}

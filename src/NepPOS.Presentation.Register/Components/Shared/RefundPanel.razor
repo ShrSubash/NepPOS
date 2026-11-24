@@ -1,0 +1,350 @@
+@using System.Globalization
+@using Microsoft.Extensions.Logging
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Payments
+@using NepPOS.Application.Sales
+@using NepPOS.Domain.Entities
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject ILogger<RefundPanel> Logger
+@inject IJournal Journal
+@inject ILocalHardwareService Hardware
+@inject IRegisterSettingsStore SettingsStore
+@inject IGiftCardService GiftCards
+@inject CurrentUserSession Session
+
+@*
+    Money back for a return (or an even exchange). The refund goes back the way the customer paid when possible:
+    card to card (done on the EFTPOS terminal), cash to cash, gift card back onto it; or as store credit.
+    Card refunds are made on the terminal and confirmed here.
+*@
+<div class="tender-overlay">
+    <div class="tender-shell rf-shell">
+        @if (_done)
+        {
+            <div class="done">
+                <div class="done-label">@(CashGiven > 0 ? "Give back in cash" : _session.RefundTotal == 0 ? "Exchange done" : "Refunded")</div>
+                <div class="done-amount">@((CashGiven > 0 ? CashGiven : _session.Refunded).ToString("C"))</div>
+                @if (_session.RoundingAdjustment != 0)
+                {
+                    <div class="muted">Cash rounding @_session.RoundingAdjustment.ToString("+0.00;-0.00", CultureInfo.InvariantCulture)</div>
+                }
+                <div class="muted">Refund #@_invoiceNumber</div>
+                @foreach (var credit in _session.Payments.Where(p => p.TenderType == TenderType.StoreCredit))
+                {
+                    <div class="msg">Store credit @credit.Reference for @((-credit.Amount).ToString("C")) is on the receipt.</div>
+                }
+                @if (!string.IsNullOrEmpty(_hardwareMessage))
+                {
+                    <div class="msg @(_hardwareError ? "error" : "")">@_hardwareMessage</div>
+                }
+                <div class="done-actions">
+                    @if (_printerMode != PrinterMode.None)
+                    {
+                        <button class="btn-back" disabled="@_printing" @onclick="PrintAsync">@(_printing ? "Printing…" : "Print receipt again")</button>
+                    }
+                    <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <section class="summary-col">
+                <div class="due-block">
+                    <div class="muted">@(_session.RefundTotal == 0 ? "Even exchange" : "To give back")</div>
+                    <div class="due">@_session.Remaining.ToString("C")</div>
+                    @if (_session.RemainingCash != _session.Remaining)
+                    {
+                        <div class="muted">In cash: @_session.RemainingCash.ToString("C")</div>
+                    }
+                    @if (Original is { Count: > 0 })
+                    {
+                        <div class="muted rf-paid">They paid: @string.Join(", ", Original.Select(p => $"{ReceiptBuilder.TenderLabel(p)} {p.Amount:C}"))</div>
+                    }
+                    else if (_session.RefundTotal > 0)
+                    {
+                        <div class="muted rf-paid">No receipt: store credit is suggested.</div>
+                    }
+                </div>
+
+                @if (_session.Payments.Count > 0)
+                {
+                    <ul class="paid-list">
+                        @foreach (var payment in _session.Payments)
+                        {
+                            <li><span>@ReceiptBuilder.TenderLabel(payment)</span><span>@((-payment.Amount).ToString("C"))</span></li>
+                        }
+                    </ul>
+                }
+
+                @if (!string.IsNullOrEmpty(_message))
+                {
+                    <div class="msg @(_isError ? "error" : "")">@_message</div>
+                }
+
+                @if (_session.RefundTotal > 0)
+                {
+                    <label class="rf-amount">
+                        Amount <span class="muted">(empty = all that's left)</span>
+                        <input type="number" min="0" step="0.05" @bind="_entry" @bind:event="oninput" disabled="@Busy" />
+                    </label>
+                }
+
+                @if (_stage == Stage.SaveFailed)
+                {
+                    <button class="btn-grad big" @onclick="SaveAsync">Retry Save</button>
+                }
+                else
+                {
+                    <button class="btn-back" disabled="@(Busy || _session.Payments.Count > 0)" @onclick="() => OnCancel.InvokeAsync()">Back to Order</button>
+                }
+            </section>
+
+            <section class="rf-tenders">
+                @if (_stage == Stage.ConfirmCard)
+                {
+                    <div class="rf-card">
+                        <h3>Refund @_cardAmount.ToString("C") on the EFTPOS terminal</h3>
+                        <p>Choose <strong>Refund</strong> on the terminal (or in the Spice window), enter @_cardAmount.ToString("C") and let the customer tap or insert their card.</p>
+                        <label>Approval / auth code <span class="muted">(optional)</span><input @bind="_authCode" maxlength="20" /></label>
+                        <div class="rf-row">
+                            <button class="btn-back" @onclick="() => _stage = Stage.Choosing">It didn't go through</button>
+                            <button class="btn-grad" @onclick="ConfirmCardAsync">Approved</button>
+                        </div>
+                    </div>
+                }
+                else if (_session.RefundTotal == 0)
+                {
+                    <button class="tender cash rf-big" disabled="@Busy" @onclick="SaveAsync"><span class="t-title">COMPLETE</span><span class="t-sub">Nothing to pay or refund</span></button>
+                }
+                else
+                {
+                    <button class="tender cash" disabled="@Busy" @onclick="CashAsync"><span class="t-title">CASH</span><span class="t-sub">@AmountFor(true).ToString("C")</span></button>
+                    <button class="tender eftpos" disabled="@Busy" @onclick="StartCard"><span class="t-title">CARD</span><span class="t-sub">on the terminal</span></button>
+                    @foreach (var gift in OriginalGiftCards)
+                    {
+                        <button class="tender other" disabled="@Busy" @onclick="() => BackToCardAsync(gift)"><span class="t-title">BACK TO CARD</span><span class="t-sub">@gift.Reference</span></button>
+                    }
+                    @if (Settings.PaymentTypes.StoreCredit)
+                    {
+                        <button class="tender credit" disabled="@Busy" @onclick="StoreCreditAsync"><span class="t-title">STORE CREDIT</span><span class="t-sub">printed with a barcode</span></button>
+                    }
+                    @foreach (var other in Settings.PaymentTypes.Others)
+                    {
+                        <button class="tender other" disabled="@Busy" @onclick="() => OtherAsync(other)"><span class="t-title">@other.Name.ToUpperInvariant()</span><span class="t-sub">refund</span></button>
+                    }
+                }
+            </section>
+        }
+    </div>
+</div>
+
+@code {
+    private enum Stage { Choosing, ConfirmCard, Saving, SaveFailed }
+
+    [Parameter, EditorRequired] public SaleTransaction Sale { get; set; } = default!;
+
+    /// <summary>How the original sale was paid (null for a return without a receipt).</summary>
+    [Parameter] public IReadOnlyList<SalePayment>? Original { get; set; }
+
+    [Parameter, EditorRequired] public Func<RefundSession, Task<long>> CompleteRefund { get; set; } = default!;
+    [Parameter] public EventCallback OnFinished { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private RefundSession _session = default!;
+    private RegisterSettings Settings = new();
+    private Stage _stage = Stage.Choosing;
+    private decimal? _entry;
+    private decimal _cardAmount;
+    private string _authCode = "";
+    private string? _message;
+    private bool _isError;
+    private bool _done;
+    private long _invoiceNumber;
+    private PrinterMode _printerMode;
+    private string? _hardwareMessage;
+    private bool _hardwareError;
+    private bool _printing;
+
+    private bool Busy => _stage is Stage.Saving or Stage.SaveFailed;
+    private bool IsManager => Session.Employee?.Role >= EmployeeRole.Manager;
+    private decimal CashGiven => -_session.Payments.Where(p => p.TenderType == TenderType.Cash).Sum(p => p.Amount);
+
+    private IEnumerable<SalePayment> OriginalGiftCards =>
+        (Original ?? Array.Empty<SalePayment>()).Where(p => p.TenderType == TenderType.GiftCard && p.Amount > 0 && p.Reference is not null);
+
+    protected override void OnInitialized()
+    {
+        _session = new RefundSession(Sale.Id, Sale.GrandTotal);
+        Settings = SettingsStore.Load();
+        _printerMode = Settings.Printer.Mode;
+    }
+
+    /// <summary>The typed amount, or everything left (rounded to 5c for cash).</summary>
+    private decimal AmountFor(bool cash) => _entry is > 0 ? decimal.Round(_entry.Value, 2) : cash ? _session.RemainingCash : _session.Remaining;
+
+    /// <summary>
+    /// The rules a manager can override: refunds over the cashier limit; cash back for a sale paid by card;
+    /// money (rather than store credit) without a receipt.
+    /// </summary>
+    private string? NeedsManager(TenderType type)
+    {
+        if (IsManager) return null;
+        var limit = Settings.Returns.CashierRefundLimit;
+        if (limit > 0 && _session.RefundTotal > limit && type != TenderType.StoreCredit)
+            return $"Refunds over {limit:C} need a manager. Store credit is fine.";
+        if (Original is null && type != TenderType.StoreCredit)
+            return "Without a receipt, a refund is store credit unless a manager agrees.";
+        if (type == TenderType.Cash && Original is not null && Original.All(p => p.TenderType != TenderType.Cash))
+            return "This sale wasn't paid in cash: refund to the card, or ask a manager.";
+        return null;
+    }
+
+    private async Task CashAsync()
+    {
+        if (Refuse(TenderType.Cash)) return;
+        try
+        {
+            _session.RefundCash(_entry is > 0 ? decimal.Round(_entry.Value, 2) : null);
+            await AfterTenderAsync();
+        }
+        catch (InvalidOperationException ex) { ShowError(ex.Message); }
+    }
+
+    private void StartCard()
+    {
+        if (Refuse(TenderType.Eftpos)) return;
+        var amount = AmountFor(cash: false);
+        var paidByCard = Original?.Where(p => p.TenderType == TenderType.Eftpos && p.Amount > 0).Sum(p => p.Amount);
+        if (paidByCard is { } card && amount > card && !IsManager)
+        {
+            ShowError($"Only {card:C} was paid by card. Refund the rest another way, or ask a manager.");
+            return;
+        }
+        if (amount <= 0 || amount > _session.Remaining)
+        {
+            ShowError($"Enter up to {_session.Remaining:C}.");
+            return;
+        }
+        (_cardAmount, _authCode, _message, _stage) = (amount, "", null, Stage.ConfirmCard);
+    }
+
+    private async Task ConfirmCardAsync()
+    {
+        try
+        {
+            _session.RefundCard(_cardAmount, _authCode);
+            _stage = Stage.Choosing;
+            await AfterTenderAsync();
+        }
+        catch (InvalidOperationException ex) { _stage = Stage.Choosing; ShowError(ex.Message); }
+    }
+
+    private async Task BackToCardAsync(SalePayment gift)
+    {
+        var amount = Math.Min(AmountFor(cash: false), gift.Amount);
+        try
+        {
+            _session.RefundToVoucher(TenderType.GiftCard, gift.Reference!, amount);
+            await AfterTenderAsync();
+        }
+        catch (InvalidOperationException ex) { ShowError(ex.Message); }
+    }
+
+    private async Task StoreCreditAsync()
+    {
+        if (Refuse(TenderType.StoreCredit)) return;
+        try
+        {
+            var code = await GiftCards.NewCodeAsync(GiftCardKind.StoreCredit);
+            _session.RefundToVoucher(TenderType.StoreCredit, code, AmountFor(cash: false));
+            await AfterTenderAsync();
+        }
+        catch (InvalidOperationException ex) { ShowError(ex.Message); }
+    }
+
+    private async Task OtherAsync(OtherTender tender)
+    {
+        if (Refuse(TenderType.Other)) return;
+        try
+        {
+            _session.RefundOther(tender.Name, AmountFor(cash: false));
+            await AfterTenderAsync();
+        }
+        catch (InvalidOperationException ex) { ShowError(ex.Message); }
+    }
+
+    private bool Refuse(TenderType type)
+    {
+        if (Busy) return true;
+        var why = NeedsManager(type);
+        if (why is null) return false;
+        ShowError(why);
+        return true;
+    }
+
+    private async Task AfterTenderAsync()
+    {
+        _entry = null;
+        if (_session.IsComplete)
+            await SaveAsync();
+        else
+            ShowInfo($"{_session.Remaining:C} still to give back.");
+    }
+
+    private async Task SaveAsync()
+    {
+        _stage = Stage.Saving;
+        StateHasChanged();
+        try
+        {
+            _invoiceNumber = await CompleteRefund(_session);
+            _done = true;
+            _stage = Stage.Choosing;
+            await Journal.WriteAsync(JournalEventType.RefundCompleted,
+                $"Refund #{_invoiceNumber}{(Sale.ReturnOfInvoice is { } inv ? $" (return of #{inv})" : " (no receipt)")}: " +
+                string.Join(", ", _session.Payments.Select(p => $"{ReceiptBuilder.TenderLabel(p)} {-p.Amount:C}")),
+                Sale.Id, _invoiceNumber, -_session.RefundTotal);
+
+            if (CashGiven > 0 && Settings.Printer.DrawerMode != CashDrawerMode.None)
+            {
+                var drawer = await Hardware.OpenCashDrawerAsync();
+                if (!drawer.Succeeded) (_hardwareMessage, _hardwareError) = (drawer.Message, true);
+            }
+            if (_printerMode != PrinterMode.None)
+                await PrintAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogCritical(ex, "Refund {SaleId} was paid back but failed to save", Sale.Id);
+            _stage = Stage.SaveFailed;
+            ShowError(ex is InvalidOperationException ? ex.Message + " Tap Retry Save after fixing it." : "The refund didn't save. Tap Retry Save. Do NOT refund again.");
+        }
+    }
+
+    private async Task PrintAsync()
+    {
+        if (_printing) return;
+        _printing = true;
+        try
+        {
+            var settings = SettingsStore.Load();
+            var receipt = ReceiptBuilder.Build(Sale, settings.Store, settings.Printer.LineWidth, receiptNote: settings.Returns.ReceiptNote);
+            var result = await Hardware.PrintReceiptAsync(receipt);
+            (_hardwareMessage, _hardwareError) = result.Succeeded ? ("Receipt printed.", false) : ("Receipt didn't print: " + result.Message, true);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Refund receipt {SaleId} could not be built", Sale.Id);
+            (_hardwareMessage, _hardwareError) = ("Receipt didn't print. Details are in the log file.", true);
+        }
+        finally
+        {
+            _printing = false;
+        }
+    }
+
+    private void ShowError(string message) => (_message, _isError) = (message, true);
+    private void ShowInfo(string message) => (_message, _isError) = (message, false);
+}

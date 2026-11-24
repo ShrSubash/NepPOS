@@ -1,4 +1,4 @@
-using System.Linq;
+﻿using System.Linq;
 
 namespace NepPOS.Domain.Entities;
 
@@ -42,6 +42,26 @@ public sealed class SaleTransaction
     /// Payments always add up to GrandTotal (to the cent) plus this amount.
     /// </summary>
     public decimal CashRounding { get; private set; }
+
+    /// <summary>For a return or exchange: the sale the items came back from (null for a normal sale or a return without receipt).</summary>
+    public Guid? ReturnOfSaleId { get; private set; }
+
+    /// <summary>That sale's invoice number, printed on the refund receipt.</summary>
+    public long? ReturnOfInvoice { get; private set; }
+
+    public bool HasReturns => _lineItems.Any(li => li.Quantity < 0);
+
+    /// <summary>Money goes back to the customer (more returned than bought).</summary>
+    public bool IsRefund => GrandTotal < 0;
+
+    /// <summary>Links a return or exchange to the sale its items came from.</summary>
+    public void MarkAsReturnOf(Guid saleId, long invoiceNumber)
+    {
+        if (Status != SaleTransactionStatus.InProgress)
+            throw new InvalidOperationException("Only an in-progress sale can be linked to a return.");
+        ReturnOfSaleId = saleId;
+        ReturnOfInvoice = invoiceNumber;
+    }
 
     // EF Core requires a parameterless constructor for materialization.
     private SaleTransaction() { }

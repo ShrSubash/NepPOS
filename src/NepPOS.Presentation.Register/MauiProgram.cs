@@ -95,6 +95,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<OnScreenKeyboardService>();
         builder.Services.AddScoped<IScanResolver, ProductScanResolver>();
         builder.Services.AddScoped<IScanResolver, VoucherScanResolver>();
+        builder.Services.AddScoped<IScanResolver, ReceiptScanResolver>();
         builder.Services.AddScoped<IScanResolver, CustomerScanResolver>();
         builder.Services.AddScoped<ScanResolutionService>();
         builder.Services.AddScoped<IProductManagementService, ProductManagementService>();
@@ -103,6 +104,10 @@ public static class MauiProgram
         // Checkout: this register's identity, saving paid sales, and the EFTPOS terminal.
         builder.Services.AddSingleton(new RegisterTerminal(StoreId: "STORE-001", RegisterId: "REG-001"));
         builder.Services.AddScoped<ICheckoutService, CheckoutService>();
+
+        // Returns (scan the receipt) and gift cards / store credit (balances kept on this register).
+        builder.Services.AddScoped<NepPOS.Application.Sales.IReturnsService, NepPOS.Infrastructure.Database.Sales.ReturnsService>();
+        builder.Services.AddScoped<NepPOS.Application.Sales.IGiftCardService, NepPOS.Infrastructure.Database.Sales.GiftCardService>();
         // EFTPOS: mx51 Spice running on this PC.
         // No terminal handy? Swap SpicePaymentGateway for SimulatedPaymentGateway on the line below.
         builder.Services.AddSingleton(new SpiceOptions(Host: "localhost", Port: 8282, PosId: ""));

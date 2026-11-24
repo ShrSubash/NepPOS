@@ -1,0 +1,128 @@
+@page "/manage/payment-types"
+@layout ManageLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Payments
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IRegisterSettingsStore SettingsStore
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Payment types &amp; returns</span>
+            <button class="save-btn" @onclick="SaveAsync">Save</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+            <section class="card">
+                <h2>Payment screen <span class="hint">what the cashier can take</span></h2>
+                <p class="field-note">Cash and EFTPOS are always there.</p>
+                <label class="check"><input type="checkbox" @bind="GiftCards" /> Gift cards (sold with the Gift card button, spent on the payment screen)</label>
+                <label class="check"><input type="checkbox" @bind="StoreCredit" /> Store credit (given on returns, spent like a gift card)</label>
+
+                <h3>Your own payment types</h3>
+                <p class="field-note">For example Account, Cheque or Afterpay (taken on its own device). Each gets a button on the payment screen.</p>
+                @foreach (var other in Others)
+                {
+                    <div class="pt-row">
+                        <input @bind="other.Name" maxlength="20" placeholder="Name" />
+                        <label class="check"><input type="checkbox" @bind="other.OpensDrawer" /> Opens the drawer</label>
+                        <label class="check"><input type="checkbox" @bind="other.NeedsReference" /> Ask for a reference</label>
+                        <button class="chip danger" @onclick="() => Others.Remove(other)">Remove</button>
+                    </div>
+                }
+                <div class="test-row"><button class="chip" @onclick="() => Others.Add(new OtherRow())">+ Add a payment type</button></div>
+            </section>
+
+            <section class="card">
+                <h2>Returns <span class="hint">every receipt has a barcode to scan for a return</span></h2>
+                <label>Returns accepted for (days) <input type="number" min="0" max="365" @bind="ReturnDays" /></label>
+                <span class="field-note">Older sales need a manager. 0 = no limit.</span>
+                <label>Cashiers can refund up to ($) <input type="number" min="0" step="10" @bind="RefundLimit" /></label>
+                <span class="field-note">Bigger refunds need a manager (store credit is always allowed). 0 = no limit.</span>
+                <label>Note under the receipt barcode <input @bind="ReceiptNote" maxlength="80" /></label>
+                <p class="field-note">
+                    Managers are also needed for: a return without a receipt (store credit otherwise), and cash back for a sale paid by card.
+                </p>
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private bool GiftCards;
+    private bool StoreCredit;
+    private List<OtherRow> Others = new();
+    private int ReturnDays;
+    private decimal RefundLimit;
+    private string ReceiptNote = "";
+    private string? Message;
+    private bool IsError;
+
+    protected override void OnInitialized()
+    {
+        var settings = SettingsStore.Load();
+        (GiftCards, StoreCredit) = (settings.PaymentTypes.GiftCards, settings.PaymentTypes.StoreCredit);
+        Others = settings.PaymentTypes.Others.Select(o => new OtherRow { Name = o.Name, OpensDrawer = o.OpensDrawer, NeedsReference = o.NeedsReference }).ToList();
+        (ReturnDays, RefundLimit, ReceiptNote) = (settings.Returns.ReturnDays, settings.Returns.CashierRefundLimit, settings.Returns.ReceiptNote);
+    }
+
+    private async Task SaveAsync()
+    {
+        var names = Others.Select(o => o.Name.Trim()).ToList();
+        if (names.Any(n => n.Length == 0)) { Show("Give every payment type a name, or remove it.", true); return; }
+        if (names.Any(n => n.Equals("Cash", StringComparison.OrdinalIgnoreCase) || n.Equals("EFTPOS", StringComparison.OrdinalIgnoreCase)))
+        { Show("Cash and EFTPOS are already there.", true); return; }
+        if (names.Distinct(StringComparer.OrdinalIgnoreCase).Count() != names.Count) { Show("Two payment types have the same name.", true); return; }
+        if (ReturnDays is < 0 or > 365 || RefundLimit < 0) { Show("Check the return days and the refund limit.", true); return; }
+
+        try
+        {
+            var settings = SettingsStore.Load();
+            SettingsStore.Save(settings with
+            {
+                PaymentTypes = new PaymentTypeSettings
+                {
+                    GiftCards = GiftCards,
+                    StoreCredit = StoreCredit,
+                    Others = Others.Select(o => new OtherTender(o.Name.Trim(), o.OpensDrawer, o.NeedsReference)).ToList()
+                },
+                Returns = new ReturnSettings { ReturnDays = ReturnDays, CashierRefundLimit = RefundLimit, ReceiptNote = ReceiptNote.Trim() }
+            });
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Payment types saved: gift cards {(GiftCards ? "on" : "off")}, store credit {(StoreCredit ? "on" : "off")}, " +
+                $"others: {(names.Count == 0 ? "none" : string.Join(", ", names))}; returns {ReturnDays} days, cashier limit {RefundLimit:C}");
+            Show("Saved.", false);
+        }
+        catch (Exception)
+        {
+            Show("Could not save the settings. Details are in the log file.", true);
+        }
+    }
+
+    private void Show(string text, bool error) => (Message, IsError) = (text, error);
+
+    private sealed class OtherRow
+    {
+        public string Name { get; set; } = "";
+        public bool OpensDrawer { get; set; }
+        public bool NeedsReference { get; set; }
+    }
+}

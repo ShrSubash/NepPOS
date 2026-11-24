@@ -1,4 +1,4 @@
-namespace NepPOS.Domain.Entities;
+﻿namespace NepPOS.Domain.Entities;
 
 /// <summary>
 /// A single product line within a SaleTransaction.
@@ -28,6 +28,21 @@ public sealed class SaleLineItem
     /// <summary>Singles this line takes off stock (a refund line puts them back).</summary>
     public int StockUnits => Quantity * PackUnits;
 
+    /// <summary>For a returned item: the line it came back from (on the original sale). Null for a normal line,
+    /// and for a return without a receipt.</summary>
+    public Guid? ReturnOfLineId { get; private set; }
+
+    /// <summary>Why it came back ("Faulty", "Change of mind"…). Only on returned lines.</summary>
+    public string? ReturnReason { get; private set; }
+
+    /// <summary>A returned item goes back on the shelf (true) or is written off as wastage (faulty, damaged).</summary>
+    public bool Restock { get; private set; } = true;
+
+    /// <summary>A gift card sold or topped up by this line (GC-…). Not a product; GST-free.</summary>
+    public string? GiftCardCode { get; private set; }
+
+    public bool IsReturn => Quantity < 0;
+
     // Derived from tax-inclusive unit price — never the other way around.
     public decimal LineTotalIncGst => UnitPriceIncGst * Quantity;
     public decimal GstAmount => LineTotalIncGst - LineTotalIncGst / (1 + GstRate);
@@ -37,8 +52,13 @@ public sealed class SaleLineItem
     private SaleLineItem() { }
 
     public SaleLineItem(string sku, string productName, int quantity, decimal unitPriceIncGst, decimal gstRate, string? category = null,
-        int? productId = null, int packUnits = 1)
+        int? productId = null, int packUnits = 1, Guid? returnOfLineId = null, string? returnReason = null, bool restock = true,
+        string? giftCardCode = null)
     {
+        if (returnOfLineId is not null && quantity > 0)
+            throw new ArgumentException("A returned item has a negative quantity.", nameof(quantity));
+        if (giftCardCode is not null && (quantity != 1 || gstRate != 0))
+            throw new ArgumentException("A gift card is sold one at a time, GST-free.", nameof(giftCardCode));
         if (string.IsNullOrWhiteSpace(sku))
             throw new ArgumentException("SKU is required.", nameof(sku));
         if (quantity == 0)
@@ -59,5 +79,9 @@ public sealed class SaleLineItem
         Category = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
         ProductId = productId;
         PackUnits = packUnits;
+        ReturnOfLineId = returnOfLineId;
+        ReturnReason = quantity < 0 && !string.IsNullOrWhiteSpace(returnReason) ? returnReason.Trim() : null;
+        Restock = quantity > 0 || restock;
+        GiftCardCode = string.IsNullOrWhiteSpace(giftCardCode) ? null : giftCardCode.Trim().ToUpperInvariant();
     }
 }

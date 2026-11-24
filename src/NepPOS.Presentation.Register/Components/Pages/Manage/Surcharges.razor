@@ -1,0 +1,135 @@
+@page "/manage/surcharges"
+@layout ManageLayout
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Sales
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IRegisterSettingsStore SettingsStore
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Surcharges</span>
+            <button class="save-btn" @onclick="SaveAsync">Save</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+            <section class="card">
+                <h2>Sunday and public holiday surcharge <span class="hint">added as its own line on the sale and receipt</span></h2>
+                <label>Sunday surcharge (%) <input type="number" min="0" max="50" step="0.5" @bind="Sunday" /></label>
+                <label>Public holiday surcharge (%) <input type="number" min="0" max="50" step="0.5" @bind="Holiday" /></label>
+                <span class="field-note">0 = none. On a public holiday that's also a Sunday, the public holiday rate applies.</span>
+
+                <label class="check"><input type="checkbox" @bind="Automatic" /> Add it to every sale on those days automatically</label>
+                <span class="field-note">@(Automatic ? "The cashier can tap Remove for one sale; it's recorded in the Journal." : "The cashier taps \"+ Add surcharge\" when it applies.")</span>
+
+                <div class="sc-notice">
+                    <strong>The law (ACCC):</strong> display <em>@Wording</em> at the counter and on any price list, at least as prominently as your most prominent price, so customers know before they buy.
+                </div>
+            </section>
+
+            <section class="card">
+                <h2>Public holidays <span class="hint">the dates the public holiday rate applies</span></h2>
+                <div class="pt-row">
+                    <input type="date" @bind="NewDate" />
+                    <button class="chip" @onclick="AddDate">Add date</button>
+                </div>
+                @if (Holidays.Count == 0)
+                {
+                    <p class="field-note">No dates yet. Add your state's public holidays for the year.</p>
+                }
+                else
+                {
+                    <div class="sc-dates">
+                        @foreach (var day in Holidays.OrderBy(d => d))
+                        {
+                            <span class="sc-date @(day < DateOnly.FromDateTime(DateTime.Today) ? "past" : "")">
+                                @day.ToString("ddd d MMM yyyy")
+                                <button title="Remove" @onclick="() => Holidays.Remove(day)">✕</button>
+                            </span>
+                        }
+                    </div>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private decimal Sunday;
+    private decimal Holiday;
+    private bool Automatic;
+    private List<DateOnly> Holidays = new();
+    private DateTime NewDate = DateTime.Today;
+    private string? Message;
+    private bool IsError;
+
+    private string Wording
+    {
+        get
+        {
+            var parts = new List<string>();
+            if (Sunday > 0) parts.Add($"\"A surcharge of {Sunday:0.##}% applies on Sundays\"");
+            if (Holiday > 0) parts.Add($"\"A surcharge of {Holiday:0.##}% applies on public holidays\"");
+            return parts.Count == 0 ? "\"A surcharge of x% applies on …\"" : string.Join(" and ", parts);
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        var s = SettingsStore.Load().Surcharges;
+        (Sunday, Holiday, Automatic, Holidays) = (s.SundayPercent, s.PublicHolidayPercent, s.Automatic, s.PublicHolidays.ToList());
+    }
+
+    private void AddDate()
+    {
+        var day = DateOnly.FromDateTime(NewDate);
+        if (!Holidays.Contains(day))
+            Holidays.Add(day);
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Sunday is < 0 or > 50 || Holiday is < 0 or > 50) { Show("Surcharges are between 0% and 50%.", true); return; }
+        try
+        {
+            var settings = SettingsStore.Load();
+            SettingsStore.Save(settings with
+            {
+                Surcharges = new SurchargeSettings
+                {
+                    SundayPercent = Sunday,
+                    PublicHolidayPercent = Holiday,
+                    Automatic = Automatic,
+                    PublicHolidays = Holidays.Distinct().OrderBy(d => d).ToList()
+                }
+            });
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Surcharges saved: Sunday {Sunday:0.##}%, public holiday {Holiday:0.##}% ({Holidays.Count} dates), {(Automatic ? "automatic" : "cashier adds")}");
+            Show("Saved.", false);
+        }
+        catch (Exception)
+        {
+            Show("Could not save the settings. Details are in the log file.", true);
+        }
+    }
+
+    private void Show(string text, bool error) => (Message, IsError) = (text, error);
+}

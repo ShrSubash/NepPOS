@@ -1,4 +1,6 @@
+﻿using NepPOS.Application.Payments;
 using NepPOS.Application.Reports;
+using NepPOS.Application.Sales;
 
 namespace NepPOS.Application.Hardware;
 
@@ -72,6 +74,15 @@ public sealed record RegisterSettings
 
     /// <summary>Close-day outputs (print / PDF / CSV) and the report folder, set on the Reports screen.</summary>
     public ReportOutput ReportOutput { get; init; } = new();
+
+    /// <summary>Gift cards, store credit and owner-added tenders (Manage → Payment types).</summary>
+    public PaymentTypeSettings PaymentTypes { get; init; } = new();
+
+    /// <summary>Return period, refund limit, receipt note (Manage → Payment types).</summary>
+    public ReturnSettings Returns { get; init; } = new();
+
+    /// <summary>Sunday and public holiday surcharges (Manage → Surcharges).</summary>
+    public SurchargeSettings Surcharges { get; init; } = new();
 }
 
 public enum ReceiptAlign
@@ -85,7 +96,9 @@ public enum ReceiptAlign
 /// One printed line. Large = double HEIGHT only (same width), so a Large line still fits
 /// <see cref="ReceiptDocument.LineWidth"/> characters on every printer.
 /// </summary>
-public sealed record ReceiptLine(string Text, ReceiptAlign Align = ReceiptAlign.Left, bool Bold = false, bool Large = false);
+/// <remarks>With <c>Barcode</c> set, <c>Text</c> is printed as a Code 128 barcode (with the code in text under it)
+/// on a thermal printer, and as plain text elsewhere.</remarks>
+public sealed record ReceiptLine(string Text, ReceiptAlign Align = ReceiptAlign.Left, bool Bold = false, bool Large = false, bool Barcode = false);
 
 /// <summary>A receipt laid out as lines of at most <see cref="LineWidth"/> characters — printer-independent.</summary>
 public sealed record ReceiptDocument(int LineWidth, IReadOnlyList<ReceiptLine> Lines);

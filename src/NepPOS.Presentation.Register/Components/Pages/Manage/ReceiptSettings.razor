@@ -1,4 +1,4 @@
-@page "/manage/receipt-settings"
+﻿@page "/manage/receipt-settings"
 @layout ManageLayout
 @using NepPOS.Application.Abstractions
 @using NepPOS.Application.Hardware
@@ -231,9 +231,10 @@ else
 
         try
         {
-            // Keep what is set on the Reports screen (sections, close-day outputs, folder).
+            // Only the store and printer change here: keep what other screens set (reports, payment types, surcharges).
             var current = SettingsStore.Load();
-            var settings = Form.ToSettings() with { Reports = current.Reports, ReportOutput = current.ReportOutput };
+            var edited = Form.ToSettings();
+            var settings = current with { Store = edited.Store, Printer = edited.Printer };
             SettingsStore.Save(settings);
 
             await Journal.WriteAsync(JournalEventType.SettingsChanged,

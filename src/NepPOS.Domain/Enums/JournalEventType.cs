@@ -1,4 +1,4 @@
-namespace NepPOS.Domain.Enums;
+﻿namespace NepPOS.Domain.Enums;
 
 /// <summary>
 /// What happened at the register. Stored as text, so new event types can be added
@@ -18,6 +18,12 @@ public enum JournalEventType
     DrawerOpened,
     ReceiptReprinted,
     SettingsChanged,
+
+    /// <summary>A refund or exchange saved (the money went back to the customer, or the difference was paid).</summary>
+    RefundCompleted,
+
+    /// <summary>The Sunday / public holiday surcharge was taken off a sale.</summary>
+    SurchargeRemoved,
 
     /// <summary>X reading printed: running totals since the last Z, nothing reset.</summary>
     XReport,

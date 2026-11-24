@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using NepPOS.Contracts.Sync;
 using NepPOS.Domain.Entities;
 
@@ -74,8 +74,9 @@ public sealed class OutboxMessage
                 .ToList(),
             sale.Payments
                 .Select(p => new SalePaymentV1(p.TenderType.ToString(), p.Amount, p.Tendered, p.Change,
-                    p.AuthCode, p.CardType, p.MaskedPan))
-                .ToList());
+                    p.AuthCode, p.CardType, p.MaskedPan, p.TenderName))
+                .ToList(),
+            sale.ReturnOfInvoice);
 
         return new OutboxMessage(SyncEventTypes.SaleCompleted, SaleCompletedV1.Version,
             sale.StoreId, sale.RegisterId, DateTime.UtcNow, JsonSerializer.Serialize(payload, SyncJson.Options));

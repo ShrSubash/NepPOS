@@ -1,13 +1,22 @@
-using NepPOS.Domain.Entities;
+﻿using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
 
 namespace NepPOS.Application.Payments;
+
+/// <summary>What the checkout saves from either session: the payments, the cash rounding, and whether it's settled.</summary>
+public interface IPaymentSession
+{
+    Guid TransactionId { get; }
+    IReadOnlyList<SalePayment> Payments { get; }
+    decimal RoundingAdjustment { get; }
+    bool IsComplete { get; }
+}
 
 /// <summary>
 /// The state of one checkout while the customer pays: split tenders, cash rounding and change.
 /// No UI and no database, so every money rule here is unit tested.
 /// </summary>
-public sealed class TenderSession
+public sealed class TenderSession : IPaymentSession
 {
     private readonly List<SalePayment> _payments = new();
 
@@ -71,6 +80,56 @@ public sealed class TenderSession
         {
             _payments.Add(new SalePayment(TenderType.Cash, tendered, tendered, 0));
         }
+    }
+
+    /// <summary>
+    /// Takes part (or all) of what's due from a gift card or store credit. <paramref name="available"/> is the card's
+    /// balance: the amount taken is the smaller of the two. Returns what was taken.
+    /// </summary>
+    public decimal AddVoucher(TenderType type, string code, decimal amount, decimal available)
+    {
+        EnsureOpen();
+        if (type is not (TenderType.GiftCard or TenderType.StoreCredit))
+            throw new ArgumentOutOfRangeException(nameof(type), "Only gift cards and store credit are vouchers.");
+        if (string.IsNullOrWhiteSpace(code))
+            throw new InvalidOperationException("Scan or type the card's code.");
+        if (_payments.Any(p => p.TenderType == type && string.Equals(p.Reference, code.Trim(), StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"{code.Trim()} is already used on this sale.");
+        if (available <= 0)
+            throw new InvalidOperationException($"{code.Trim()} has nothing left on it.");
+
+        var take = Math.Min(Math.Min(amount <= 0 ? Remaining : amount, Remaining), available);
+        if (take <= 0)
+            throw new InvalidOperationException("Nothing is due.");
+
+        _payments.Add(new SalePayment(type, take, take, 0, reference: code.Trim().ToUpperInvariant()));
+        if (Remaining == 0)
+            IsComplete = true;
+        return take;
+    }
+
+    /// <summary>A tender the owner added (Account, Cheque…): exact amount, no change.</summary>
+    public void AddOther(string name, decimal amount, string? reference = null)
+    {
+        EnsureOpen();
+        if (string.IsNullOrWhiteSpace(name))
+            throw new InvalidOperationException("Choose the payment type.");
+        if (amount <= 0)
+            throw new InvalidOperationException("Enter an amount.");
+        if (amount > Remaining)
+            throw new InvalidOperationException($"{name} amount is more than the amount due.");
+
+        _payments.Add(new SalePayment(TenderType.Other, amount, amount, 0, reference: reference, tenderName: name));
+        if (Remaining == 0)
+            IsComplete = true;
+    }
+
+    /// <summary>One share when the remainder is split evenly between <paramref name="ways"/> people; the last pays the cents left.</summary>
+    public decimal EvenShare(int ways)
+    {
+        if (ways < 2)
+            throw new ArgumentOutOfRangeException(nameof(ways), "Split between two or more.");
+        return Math.Floor(Remaining / ways * 100m) / 100m;
     }
 
     /// <summary>Checks a card amount before it goes to the terminal, so a card is never charged for an invalid amount.</summary>

@@ -31,7 +31,11 @@ public sealed record SyncEvent(
     DateTime OccurredAtUtc,
     JsonElement Payload);
 
-/// <summary>Version 1 of <c>sale.completed</c>. Money is in AUD, GST inclusive unless the name says otherwise.</summary>
+/// <summary>
+/// Version 1 of <c>sale.completed</c>. Money is in AUD, GST inclusive unless the name says otherwise.
+/// A return is the same event with negative lines (and a negative total for a refund) and
+/// <c>ReturnOfInvoice</c> set when it came back with a receipt.
+/// </summary>
 public sealed record SaleCompletedV1(
     Guid SaleId,
     long InvoiceNumber,
@@ -42,7 +46,8 @@ public sealed record SaleCompletedV1(
     decimal Gst,
     decimal CashRounding,
     IReadOnlyList<SaleLineV1> Lines,
-    IReadOnlyList<SalePaymentV1> Payments)
+    IReadOnlyList<SalePaymentV1> Payments,
+    long? ReturnOfInvoice = null)
 {
     public const int Version = 1;
 }
@@ -64,7 +69,8 @@ public sealed record SalePaymentV1(
     decimal Change,
     string? AuthCode,
     string? CardType,
-    string? MaskedPan);
+    string? MaskedPan,
+    string? TenderName = null);
 
 /// <summary>Version 1 of <c>journal.recorded</c>: one journal line, as the register's Journal screen shows it.</summary>
 public sealed record JournalRecordedV1(

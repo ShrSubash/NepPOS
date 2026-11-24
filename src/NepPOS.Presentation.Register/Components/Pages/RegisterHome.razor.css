@@ -558,3 +558,13 @@
     font-weight: 700;
     cursor: pointer;
 }
+
+/* ---- returns, gift cards, surcharge ---- */
+.scan-note { color: #7ee2b8; font-size: 0.78rem; margin-top: 0.4rem; display: block; }
+.order-line.is-return { background: #fff5f5; }
+.order-line.is-return .line-total { color: #b42323; }
+.line-tag { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: #fde5e5; color: #b42323; font-size: 0.72rem; font-weight: 700; vertical-align: middle; }
+.order-line.surcharge { background: #fff9ec; }
+.surcharge-btn { min-height: 44px; padding: 0 0.8rem; border: 1px solid #e8d7ad; border-radius: 10px; background: #fff; font-weight: 600; cursor: pointer; }
+.surcharge-add { margin: 8px 12px; min-height: 48px; border: 1px dashed #d6b45a; border-radius: 12px; background: #fffaf0; color: #8a5a00; font-weight: 700; cursor: pointer; }
+.fn-btn.fn-primary.refund { background: linear-gradient(135deg, #ff7a59, #ffb35c); }

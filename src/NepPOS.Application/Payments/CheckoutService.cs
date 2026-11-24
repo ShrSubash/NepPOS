@@ -1,4 +1,4 @@
-using NepPOS.Application.Abstractions;
+﻿using NepPOS.Application.Abstractions;
 using NepPOS.Domain.Entities;
 
 namespace NepPOS.Application.Payments;
@@ -11,7 +11,7 @@ public interface ICheckoutService
     /// so retrying a failed save can never charge the customer twice.
     /// </summary>
     /// <returns>The invoice number.</returns>
-    Task<long> CompleteSaleAsync(SaleTransaction sale, TenderSession tender, CancellationToken cancellationToken = default);
+    Task<long> CompleteSaleAsync(SaleTransaction sale, IPaymentSession tender, CancellationToken cancellationToken = default);
 }
 
 public sealed class CheckoutService : ICheckoutService
@@ -23,7 +23,7 @@ public sealed class CheckoutService : ICheckoutService
         _repository = repository ?? throw new ArgumentNullException(nameof(repository));
     }
 
-    public async Task<long> CompleteSaleAsync(SaleTransaction sale, TenderSession tender, CancellationToken cancellationToken = default)
+    public async Task<long> CompleteSaleAsync(SaleTransaction sale, IPaymentSession tender, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(sale);
         ArgumentNullException.ThrowIfNull(tender);

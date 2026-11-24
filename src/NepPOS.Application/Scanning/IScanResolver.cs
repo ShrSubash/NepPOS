@@ -20,6 +20,9 @@ public enum ScanResultType
     Product,
     Voucher,
     Customer,
+
+    /// <summary>A receipt's barcode (RT001-19): open the sale for a return. Payload: the code.</summary>
+    Receipt,
     NotFound
 }
 

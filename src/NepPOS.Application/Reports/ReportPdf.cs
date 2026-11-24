@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using NepPOS.Application.Hardware;
 using NepPOS.Domain.Enums;
 using static NepPOS.Application.Reports.SimplePdf;
@@ -68,7 +68,7 @@ public static class ReportPdf
 
         // ---- sections ----
         var tenderRows = report.Tenders
-            .Select(t => Row(t.Amount, report.TotalTaken, t.Tender == TenderType.Eftpos ? "EFTPOS" : t.Tender.ToString(), t.Count.ToString(Au), Money(t.Amount)))
+            .Select(t => Row(t.Amount, report.TotalTaken, t.Label, t.Count.ToString(Au), Money(t.Amount)))
             .ToList();
         y = layout.Table(y, "How customers paid", new[] { ("Tender", 0.46f, false), ("Count", 0.14f, true), ("Amount", 0.2f, true) }, tenderRows);
 
