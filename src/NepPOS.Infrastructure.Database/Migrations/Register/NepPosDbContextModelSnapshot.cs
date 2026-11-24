@@ -17,6 +17,77 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "9.0.9");
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.GiftCard", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Balance")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("IssuedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("LastUsedUtc")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("GiftCards");
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.GiftCardMovement", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("AtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("GiftCardId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("InvoiceNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SaleId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("GiftCardId");
+
+                    b.ToTable("GiftCardMovements");
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.JournalEntry", b =>
                 {
                     b.Property<Guid>("Id")
@@ -258,6 +329,10 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("GiftCardCode")
+                        .HasMaxLength(20)
+                        .HasColumnType("TEXT");
+
                     b.Property<decimal>("GstRate")
                         .HasPrecision(5, 4)
                         .HasColumnType("TEXT");
@@ -276,6 +351,16 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<int>("Quantity")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("Restock")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("ReturnOfLineId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReturnReason")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<Guid?>("SaleTransactionId")
                         .HasColumnType("TEXT");
 
@@ -289,6 +374,8 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ReturnOfLineId");
 
                     b.HasIndex("SaleTransactionId");
 
@@ -328,11 +415,19 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasMaxLength(25)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Reference")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ResponseText")
                         .HasMaxLength(100)
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("SaleTransactionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("TenderName")
+                        .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("TenderType")
@@ -379,6 +474,12 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<long?>("ReturnOfInvoice")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("ReturnOfSaleId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Status")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -390,6 +491,8 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ReturnOfSaleId");
 
                     b.HasIndex("StoreId", "InvoiceNumber")
                         .IsUnique()
@@ -654,6 +757,15 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.ToTable("OutboxMessages");
                 });
 
+            modelBuilder.Entity("NepPOS.Domain.Entities.GiftCardMovement", b =>
+                {
+                    b.HasOne("NepPOS.Domain.Entities.GiftCard", null)
+                        .WithMany("Movements")
+                        .HasForeignKey("GiftCardId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("NepPOS.Domain.Entities.Product", b =>
                 {
                     b.HasOne("NepPOS.Domain.Entities.Supplier", null)
@@ -756,6 +868,11 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasForeignKey("SupplierId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("NepPOS.Domain.Entities.GiftCard", b =>
+                {
+                    b.Navigation("Movements");
                 });
 
             modelBuilder.Entity("NepPOS.Domain.Entities.SaleTransaction", b =>
