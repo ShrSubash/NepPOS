@@ -2,6 +2,16 @@ html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
 }
 
+/* Screen fit: index.html sets --z so the screens look the same on any resolution
+   (designed at 1366 x 768). Full-height pages use calc(100vh / var(--z)). */
+:root {
+    --z: 1;
+}
+
+html {
+    zoom: var(--z);
+}
+
 /* FocusOnNavigate in Routes.razor focuses the page <h1>; hide the outline */
 h1:focus {
     outline: none;

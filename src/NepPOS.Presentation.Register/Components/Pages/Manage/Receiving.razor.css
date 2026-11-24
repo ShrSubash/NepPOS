@@ -1,6 +1,6 @@
 /* Receive stock: touch-first (controls 48px+), same shell as the other Manage pages. */
-.settings-denied { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 1rem; }
-.settings-shell { height: 100vh; display: flex; flex-direction: column; background: #f4f5f9; font-family: "Segoe UI", sans-serif; }
+.settings-denied { display: flex; flex-direction: column; align-items: center; justify-content: center; height: calc(100vh / var(--z)); gap: 1rem; }
+.settings-shell { height: calc(100vh / var(--z)); display: flex; flex-direction: column; background: #f4f5f9; font-family: "Segoe UI", sans-serif; }
 .settings-topbar { display: flex; align-items: center; gap: 1rem; padding: 1rem 1.5rem; background: #14162b; color: #fff; }
 .brand-text { font-weight: 700; font-size: 1.05rem; margin-right: auto; }
 

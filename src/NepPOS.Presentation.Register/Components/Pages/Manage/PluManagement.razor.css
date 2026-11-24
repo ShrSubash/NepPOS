@@ -1,5 +1,5 @@
 ﻿.plu-shell {
-    height: 100vh;
+    height: calc(100vh / var(--z));
     background: #f4f5f9;
     font-family: "Segoe UI", sans-serif;
     display: flex;
@@ -245,8 +245,8 @@
     background: #fff;
     border-radius: 14px;
     padding: 1.5rem;
-    width: min(880px, 94vw);
-    max-height: 90vh;
+    width: min(880px, calc(94vw / var(--z)));
+    max-height: calc(90vh / var(--z));
     display: flex;
     flex-direction: column;
     gap: 0.9rem;

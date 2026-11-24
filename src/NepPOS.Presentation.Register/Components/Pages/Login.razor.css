@@ -1,5 +1,5 @@
 ﻿.login-shell {
-    height: 100vh;
+    height: calc(100vh / var(--z));
     display: flex;
     align-items: center;
     justify-content: center;

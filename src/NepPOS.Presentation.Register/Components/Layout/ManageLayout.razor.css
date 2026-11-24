@@ -9,7 +9,7 @@
     --mg-accent-soft: #eef0ff;
     display: grid;
     grid-template-columns: 264px minmax(0, 1fr);
-    height: 100vh;
+    height: calc(100vh / var(--z));
     background: var(--mg-bg);
     color: var(--mg-ink);
     font-family: "Segoe UI", system-ui, sans-serif;
@@ -275,7 +275,7 @@
 .mg-denied {
     display: grid;
     place-items: center;
-    height: 100vh;
+    height: calc(100vh / var(--z));
     background: #f4f5f9;
     font-family: "Segoe UI", system-ui, sans-serif;
 }

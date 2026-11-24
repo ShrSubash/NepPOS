@@ -11,8 +11,8 @@
 
 .tender-shell {
     position: relative;
-    width: min(1100px, 96vw);
-    height: min(680px, 92vh);
+    width: min(1100px, calc(96vw / var(--z)));
+    height: min(680px, calc(92vh / var(--z)));
     background: #f4f5f9;
     border-radius: 18px;
     overflow: hidden;

@@ -1,5 +1,5 @@
 .rd-overlay { position: fixed; inset: 0; z-index: 880; background: rgba(13, 15, 34, 0.55); display: flex; align-items: center; justify-content: center; font-family: "Segoe UI", sans-serif; }
-.rd-shell { width: min(980px, 96vw); max-height: 92vh; overflow: auto; background: #f4f5f9; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
+.rd-shell { width: min(980px, calc(96vw / var(--z))); max-height: calc(92vh / var(--z)); overflow: auto; background: #f4f5f9; border-radius: 18px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
 .rd-head { display: flex; align-items: center; justify-content: space-between; }
 .rd-head h2 { margin: 0; font-size: 1.4rem; color: #14162b; }
 .rd-close { min-height: 48px; padding: 0 1.2rem; border: 0; border-radius: 12px; background: #fff; font-weight: 600; cursor: pointer; }
