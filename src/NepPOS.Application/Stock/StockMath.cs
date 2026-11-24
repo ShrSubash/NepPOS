@@ -1,4 +1,4 @@
-namespace NepPOS.Application.Stock;
+﻿namespace NepPOS.Application.Stock;
 
 /// <summary>
 /// The cost and margin rules the old Stock program used, so owners see the same numbers after switching.
@@ -7,6 +7,24 @@ namespace NepPOS.Application.Stock;
 public static class StockMath
 {
     public const decimal GstRate = 0.10m;
+
+    /// <summary>
+    /// Takes a delivery back out of the average cost: the average before it, worked back from the average now.
+    /// Keeps the current average when there's too little stock left to say (under one single) or the result
+    /// would be $0 or less, which happens when much of the delivery has already been sold.
+    /// </summary>
+    public static decimal? ReverseAverageCost(decimal stockNow, decimal? averageNow, decimal removed, decimal unitCost)
+    {
+        if (averageNow is null)
+            return null;
+
+        var remaining = stockNow - removed;
+        if (remaining < 1 || stockNow <= 0)
+            return averageNow;
+
+        var before = (stockNow * averageNow.Value - removed * unitCost) / remaining;
+        return before > 0 ? Math.Round(before, 4) : averageNow;
+    }
 
     /// <summary>
     /// Weighted average cost after receiving <paramref name="received"/> singles at <paramref name="unitCost"/>:

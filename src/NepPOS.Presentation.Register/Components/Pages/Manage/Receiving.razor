@@ -47,6 +47,10 @@ else
             }
             else if (Mode is View.Detail or View.Posted)
             {
+                @if (Mode == View.Detail && Detail is { IsReversed: false } && !Reversing)
+                {
+                    <button class="top-save danger" @onclick="() => Reversing = true">Reverse delivery</button>
+                }
                 <button class="top-save" @onclick="BackToListAsync">← All deliveries</button>
             }
         </div>
@@ -90,12 +94,12 @@ else
                             <tbody>
                                 @foreach (var r in Recent)
                                 {
-                                    <tr class="click" @onclick="() => OpenAsync(r.Id)">
+                                    <tr class="click @(r.Reversed ? "reversed" : "")" @onclick="() => OpenAsync(r.Id)">
                                         <td>@r.PostedUtc.ToLocalTime().ToString("ddd d MMM, h:mm tt")</td>
                                         <td>@r.SupplierName</td>
-                                        <td>@r.InvoiceNumber <span class="muted">@r.InvoiceDate.ToString("d MMM")</span></td>
+                                        <td>@r.InvoiceNumber <span class="muted">@r.InvoiceDate.ToString("d MMM")</span>@if (r.Reversed) { <span class="tag-reversed">Reversed</span> }</td>
                                         <td class="num">@r.Lines</td>
-                                        <td class="num">@r.TotalCost.ToString("C")</td>
+                                        <td class="num cost">@r.TotalCost.ToString("C")</td>
                                         <td class="muted">@r.EmployeeName</td>
                                     </tr>
                                 }
@@ -245,6 +249,10 @@ else
                                                 {
                                                     <div class="rc-sub">@line.Note</div>
                                                 }
+                                                @if (line.Source is not null)
+                                                {
+                                                    <button class="link-btn" @onclick="() => ChangeProduct(line)">Wrong product? Change it</button>
+                                                }
                                             </td>
                                             <td>
                                                 <select value="@line.PackUnits" @onchange="e => ChangePack(line, e.Value)">
@@ -359,6 +367,31 @@ else
 
             case View.Detail when Detail is not null:
                 <div class="rc-body">
+                    @if (Detail.ReversedUtc is { } reversedAt)
+                    {
+                        <section class="rc-card rc-reversed">
+                            <h2>Reversed</h2>
+                            <p>@reversedAt.ToLocalTime().ToString("ddd d MMM yyyy, h:mm tt")@(Detail.ReversedBy is null ? "" : " by " + Detail.ReversedBy): @Detail.ReversalReason. This delivery's stock was taken back out and its costs put back. It's kept here for the record.</p>
+                        </section>
+                    }
+                    else if (Reversing)
+                    {
+                        <section class="rc-card rc-reverse">
+                            <h2>Reverse this delivery?</h2>
+                            <p>Takes <strong>@Detail.Lines.Sum(l => l.Singles).ToString("0.##") singles</strong> back out of stock and puts each product's cost back to what it was before. Invoice @Detail.InvoiceNumber can then be imported or entered again, correctly.</p>
+                            <div class="rc-reasons">
+                                @foreach (var r in ReverseReasons)
+                                {
+                                    <button class="chip @(ReverseReason == r ? "primary" : "")" @onclick="() => ReverseReason = r">@r</button>
+                                }
+                            </div>
+                            <label class="rc-reason-text">Or type the reason <input @bind="ReverseReason" @bind:event="oninput" maxlength="200" /></label>
+                            <div class="rc-reverse-actions">
+                                <button class="big-btn" @onclick="() => (Reversing, ReverseReason) = (false, string.Empty)" disabled="@Busy">Keep it</button>
+                                <button class="big-btn danger" @onclick="ReverseAsync" disabled="@(Busy || string.IsNullOrWhiteSpace(ReverseReason))">@(Busy ? "Reversing…" : "Reverse delivery")</button>
+                            </div>
+                        </section>
+                    }
                     <section class="rc-card">
                         <h2>@Detail.SupplierName · invoice @Detail.InvoiceNumber</h2>
                         <p class="muted">Invoice date @Detail.InvoiceDate.ToString("d MMM yyyy") · received @Detail.PostedUtc.ToLocalTime().ToString("d MMM yyyy h:mm tt")@(Detail.EmployeeName is null ? "" : " by " + Detail.EmployeeName)</p>
@@ -453,6 +486,8 @@ else
         public decimal? WasPerPack => (Product.LastCost ?? Product.CostPrice) is { } single ? Math.Round(single * PackUnits, 2) : null;
 
         public string? SupplierItemCode { get; init; }
+        /// <summary>The e-invoice line this came from, so it can be matched to a different product.</summary>
+        public SupplierInvoiceLine? Source { get; init; }
         public int UnitsPerSingle { get; init; } = 1;
         public string? Note { get; init; }
 
@@ -480,6 +515,7 @@ else
 
     private async Task OpenAsync(int id)
     {
+        (Reversing, ReverseReason, Message) = (false, "", null);
         Detail = await Deliveries.GetAsync(id);
         Mode = Detail is null ? View.List : View.Detail;
     }
@@ -697,6 +733,7 @@ else
             Quantity = quantity,
             CostPerPack = quantity == 0 ? 0 : Math.Round(line.CostExGst / quantity, 4),
             SupplierItemCode = line.ItemCode,
+            Source = line,
             UnitsPerSingle = unitsPerSingle,
             Note = line.IsSubstitute ? $"Substitute: you ordered {line.OrderedItemCode}. Check the shelf price." : null
         });
@@ -759,6 +796,46 @@ else
         catch (Exception)
         {
             Show($"{pending.NewName} couldn't be created. Details are in the log file.", error: true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    /// <summary>Puts an imported line back to "not matched", so it can be linked to the right product (remembered on posting).</summary>
+    private void ChangeProduct(Line line)
+    {
+        Lines.Remove(line);
+        Unmatched.Add(new Pending { Line = line.Source!, Mode = PendingMode.Link });
+        Confirming = false;
+    }
+
+    private static readonly string[] ReverseReasons = { "Wrong quantities", "Wrong products", "Wrong supplier or invoice", "Entered twice" };
+    private bool Reversing;
+    private string ReverseReason = "";
+
+    private async Task ReverseAsync()
+    {
+        if (Detail is null || Busy) return;
+
+        Busy = true;
+        try
+        {
+            var result = await Deliveries.ReverseAsync(Detail.Id, ReverseReason, Session.Employee?.FullName);
+            var invoice = Detail.InvoiceNumber;
+            (Reversing, ReverseReason) = (false, "");
+            Detail = await Deliveries.GetAsync(Detail.Id);
+            Show($"Invoice {invoice} reversed: {result.Singles:0.##} singles taken back out of stock and costs put back. Import or enter it again with the right details."
+                + (result.NegativeStock.Count == 0 ? "" : $" Now below zero (some was already sold): {string.Join(", ", result.NegativeStock)}."));
+        }
+        catch (InvalidOperationException ex)
+        {
+            Show(ex.Message, error: true);
+        }
+        catch (Exception)
+        {
+            Show("The delivery wasn't reversed, so nothing changed. Details are in the log file.", error: true);
         }
         finally
         {

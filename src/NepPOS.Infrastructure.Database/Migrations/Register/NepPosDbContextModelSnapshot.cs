@@ -459,6 +459,17 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                     b.Property<DateTime>("PostedUtc")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ReversalReason")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReversedBy")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime?>("ReversedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<int?>("SupplierId")
                         .HasColumnType("INTEGER");
 
@@ -469,7 +480,9 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
 
                     b.HasKey("Id");
 
-                    b.HasIndex("SupplierId", "InvoiceNumber");
+                    b.HasIndex("SupplierId", "InvoiceNumber")
+                        .IsUnique()
+                        .HasFilter("[ReversedUtc] IS NULL");
 
                     b.ToTable("StockReceipts");
                 });
@@ -491,6 +504,14 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
 
                     b.Property<int>("PackUnits")
                         .HasColumnType("INTEGER");
+
+                    b.Property<decimal?>("PreviousAverageCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
+
+                    b.Property<decimal?>("PreviousLastCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("TEXT");
 
                     b.Property<decimal?>("PreviousUnitCost")
                         .HasPrecision(18, 4)
