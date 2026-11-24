@@ -1,4 +1,4 @@
-using NepPOS.Application.Sync;
+﻿using NepPOS.Application.Sync;
 using NepPOS.Contracts.Licensing;
 
 namespace NepPOS.Application.Licensing;
@@ -70,7 +70,8 @@ public sealed class LicenceGuard
     /// Keeps a licence from Head Office (activation or heartbeat) and takes its clock as the trusted time.
     /// A licence that doesn't verify is ignored; the one already held stays.
     /// </summary>
-    /// <param name="publicKeyPem">Given at activation; null on heartbeats (the stored key is used).</param>
+    /// <param name="publicKeyPem">Head Office's key, sent at activation and with each heartbeat (null = keep the stored one).
+    /// A build with <see cref="LicenceTrust.PinnedPublicKeyPem"/> set checks against that instead.</param>
     public void Accept(SignedLicence? licence, string? publicKeyPem, DateTime serverTimeUtc)
     {
         lock (_lock)

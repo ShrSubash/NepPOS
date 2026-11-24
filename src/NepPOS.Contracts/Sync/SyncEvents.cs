@@ -157,6 +157,7 @@ public sealed record RejectedEvent(Guid EventId, string Reason);
 
 /// <summary>
 /// POST /api/v1/heartbeat, every minute: tells Head Office (and later the website) the register is online.
-/// The answer carries a freshly signed licence, so a renewal or suspension reaches the register within a minute.
+/// The answer carries a freshly signed licence, so a renewal or suspension reaches the register within a minute,
+/// and the key to check it with (registers activated before licences existed never got one at activation).
 /// </summary>
-public sealed record HeartbeatResponse(DateTime ServerTimeUtc, Licensing.SignedLicence? Licence = null);
+public sealed record HeartbeatResponse(DateTime ServerTimeUtc, Licensing.SignedLicence? Licence = null, string? LicencePublicKey = null);

@@ -110,6 +110,19 @@ public class LicenceGuardTests : IDisposable
     }
 
     [Fact]
+    public void A_register_activated_before_licences_gets_its_key_with_the_heartbeat()
+    {
+        Connect();
+        var guard = Guard();
+
+        guard.Accept(Signed(), null, _clock.Now);         // no key stored and none sent: can't be checked
+        Assert.Null(guard.Claims);
+
+        guard.Accept(Signed(), PublicKey, _clock.Now);    // the heartbeat now sends the key
+        Assert.Equal("standard", guard.Claims!.Plan);
+    }
+
+    [Fact]
     public void A_licence_that_does_not_verify_is_ignored()
     {
         Connect();

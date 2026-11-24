@@ -164,7 +164,7 @@ public sealed class SyncService
         try
         {
             var answer = await _client.HeartbeatAsync(connection, cancellationToken);
-            _licence?.Accept(answer.Licence, null, answer.ServerTimeUtc);
+            _licence?.Accept(answer.Licence, answer.LicencePublicKey, answer.ServerTimeUtc);
             return (SyncOutcome.UpToDate, null);
         }
         catch (HeadOfficeException ex)
