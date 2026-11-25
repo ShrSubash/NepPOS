@@ -16,6 +16,10 @@ public partial class App : MauiWinUIApplication
 	/// </summary>
 	public App()
 	{
+		// Installer/updater hooks first (install, uninstall, apply a downloaded update). Quits straight away
+		// when Velopack started the app only to run a hook; otherwise does nothing and NepPOS opens as usual.
+		Velopack.VelopackApp.Build().Run();
+
 		this.InitializeComponent();
 
 		// Crashes inside the UI layer don't reach AppDomain.UnhandledException — log them here.

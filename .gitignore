@@ -488,3 +488,8 @@ src/NepPOS.HeadOffice.Api/headoffice.db*
 
 # Licence signing keys: settings / Key Vault only
 *.pem
+
+# NepPOS register releases (deploy/register/publish-release.ps1)
+/publish/
+/releases/
+/publish-ho/

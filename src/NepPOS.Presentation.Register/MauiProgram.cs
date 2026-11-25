@@ -90,6 +90,14 @@ public static class MauiProgram
 
         builder.Services.AddRegisterDatabase(connectionString);
 
+        // Daily backup of the register (Manage → Backups & updates) and automatic updates.
+        builder.Services.AddSingleton<NepPOS.Application.Maintenance.IRegisterBackupService>(sp =>
+            new NepPOS.Infrastructure.Database.Maintenance.SqliteRegisterBackupService(
+                connectionString, appDataFolder, sp.GetRequiredService<IRegisterSettingsStore>(),
+                sp.GetRequiredService<ILogger<NepPOS.Infrastructure.Database.Maintenance.SqliteRegisterBackupService>>()));
+        builder.Services.AddSingleton<NepPOS.Infrastructure.Database.Maintenance.BackupWorker>();
+        builder.Services.AddSingleton<AppUpdateService>();
+
         // Session + auth wiring for the login flow
         builder.Services.AddSingleton<CurrentUserSession>();
         builder.Services.AddSingleton<ICurrentOperator>(sp => sp.GetRequiredService<CurrentUserSession>());
@@ -158,6 +166,10 @@ public static class MauiProgram
 
         // Sends anything waiting in the outbox once this register is connected to Head Office.
         app.Services.GetRequiredService<SyncWorker>().Start();
+
+        // Backs up once a day while NepPOS runs; looks for updates every few hours.
+        app.Services.GetRequiredService<NepPOS.Infrastructure.Database.Maintenance.BackupWorker>().Start();
+        app.Services.GetRequiredService<AppUpdateService>().Start();
 
         // Apply pending migrations and seed test data on startup.
         // CreateMauiApp() is synchronous, so block on the async work here

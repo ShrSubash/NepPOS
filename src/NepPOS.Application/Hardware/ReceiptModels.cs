@@ -1,4 +1,5 @@
-﻿using NepPOS.Application.Payments;
+﻿using NepPOS.Application.Maintenance;
+using NepPOS.Application.Payments;
 using NepPOS.Application.Reports;
 using NepPOS.Application.Sales;
 
@@ -88,6 +89,9 @@ public sealed record RegisterSettings
 {
     public StoreProfile Store { get; init; } = new();
     public PrinterSettings Printer { get; init; } = new();
+
+    /// <summary>Daily backups: second folder and how long to keep them (Manage → Backups &amp; updates).</summary>
+    public BackupSettings Backup { get; init; } = new();
 
     /// <summary>Which sections the Reports screen and the Z print (ticked on the Reports screen).</summary>
     public ReportSections Reports { get; init; } = new();
