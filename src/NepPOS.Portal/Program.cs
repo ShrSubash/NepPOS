@@ -51,6 +51,16 @@ builder.Services.AddHttpContextAccessor();
 
 var app = builder.Build();
 
+// Behind the web server (Caddy, deploy/portal/README.md): trust its X-Forwarded-* headers so HTTPS is seen as
+// HTTPS (no redirect loop, secure cookies). Kestrel only listens on localhost in production.
+var forwarded = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+};
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Clear();
+app.UseForwardedHeaders(forwarded);
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/error", createScopeForErrors: true);

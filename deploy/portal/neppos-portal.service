@@ -1,0 +1,23 @@
+# systemd service for the NepPOS Portal (staff console). Copy to /etc/systemd/system/ (see README.md).
+[Unit]
+Description=NepPOS Portal
+After=network.target neppos-headoffice.service
+
+[Service]
+User=neppos
+Group=neppos
+WorkingDirectory=/opt/neppos-portal
+ExecStart=/opt/neppos-portal/NepPOS.Portal
+Restart=always
+RestartSec=5
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5090
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+# Secrets: /opt/neppos-portal/appsettings.Production.json (chmod 600). The Portal has no database.
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
