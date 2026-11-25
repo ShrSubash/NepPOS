@@ -10,6 +10,33 @@ namespace NepPOS.HeadOffice.Api.Data;
 /// </summary>
 public static partial class SqliteDevSchema
 {
+    /// <summary>
+    /// True for a headoffice.db that already has tables but no migrations history: made by EnsureCreated on a
+    /// developer PC before Head Office had migrations. Those stay on the old path; everything else uses migrations.
+    /// </summary>
+    public static bool IsOldDeveloperDatabase(HeadOfficeDbContext db)
+    {
+        var connection = db.Database.GetDbConnection();
+        var opened = connection.State != System.Data.ConnectionState.Open;
+        if (opened)
+            connection.Open();
+        try
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText =
+                "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> '__EFMigrationsHistory'), " +
+                "(SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '__EFMigrationsHistory')";
+            using var reader = command.ExecuteReader();
+            reader.Read();
+            return reader.GetInt64(0) > 0 && reader.GetInt64(1) == 0;
+        }
+        finally
+        {
+            if (opened)
+                connection.Close();
+        }
+    }
+
     public static void AddMissingTables(HeadOfficeDbContext db, ILogger logger)
     {
         var script = db.Database.GenerateCreateScript();

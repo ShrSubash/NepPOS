@@ -4,6 +4,18 @@ Head Office runs on the same server as the website (set up with the HamroGrocery
 which already made the `neppos` user, `/opt/neppos-headoffice`, `/var/lib/neppos`, HTTPS for `ho.neppos.com.au` and
 the nightly backup of `headoffice.db`).
 
+## Database
+
+Head Office uses a SQLite file on the server, `/var/lib/neppos/headoffice.db`, built and upgraded by EF Core
+migrations (`src/NepPOS.HeadOffice.Api/Data/Migrations`). It's backed up every night with the website (`hamro-backup.sh`).
+That's plenty for the first few dozen shops; moving to SQL Server later needs its own set of migrations.
+
+When a change adds or alters a Head Office table, add a migration before releasing (NepPOS folder):
+
+```bash
+dotnet ef migrations add WhatChanged --project src/NepPOS.HeadOffice.Api --output-dir Data/Migrations
+```
+
 ## Once
 
 1. Copy the service and enable it (from your PC, in the NepPOS folder):
