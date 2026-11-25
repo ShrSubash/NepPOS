@@ -130,6 +130,14 @@ else
                         {
                             <button class="chip" disabled="@Printing" @onclick="ReprintAsync">@(Printing ? "Printing…" : "🖨️ Reprint")</button>
                         }
+                        @if (OpenSale is not null && CardSlips.CustomerCopies(OpenSale.Payments).Count > 0)
+                        {
+                            <button class="chip" disabled="@Printing" @onclick="() => PrintCardSlipsAsync(merchant: false)">💳 Customer card slip</button>
+                        }
+                        @if (OpenSale is not null && CardSlips.MerchantCopies(OpenSale.Payments).Count > 0)
+                        {
+                            <button class="chip" disabled="@Printing" @onclick="() => PrintCardSlipsAsync(merchant: true)">💳 Merchant card slip</button>
+                        }
                         <button class="chip" @onclick="CloseReceipt">Close</button>
                     </div>
                 </div>
@@ -221,20 +229,40 @@ else
 
             PrintMessage = result.Message ?? "Reprinted.";
 
-            // Reprint the customer's EFTPOS slip(s) too, from the copy saved with the payment.
-            if (OpenSale is not null)
+            await JournalService.WriteAsync(JournalEventType.ReceiptReprinted,
+                $"Invoice #{OpenEntry.InvoiceNumber} reprinted from the journal",
+                OpenEntry.SaleId, OpenEntry.InvoiceNumber, OpenEntry.Amount);
+            await LoadAsync();
+        }
+        finally
+        {
+            Printing = false;
+        }
+    }
+
+    /// <summary>Prints the EFTPOS slips saved with the sale (customer or merchant copy), e.g. when the customer asks later.</summary>
+    private async Task PrintCardSlipsAsync(bool merchant)
+    {
+        if (OpenSale is null || OpenEntry is null || Printing) return;
+
+        Printing = true;
+        try
+        {
+            var slips = merchant ? CardSlips.MerchantCopies(OpenSale.Payments) : CardSlips.CustomerCopies(OpenSale.Payments);
+            var lineWidth = Receipt?.LineWidth ?? SettingsStore.Load().Printer.LineWidth;
+            foreach (var text in slips)
             {
-                foreach (var payment in OpenSale.Payments.Where(p => !string.IsNullOrWhiteSpace(p.CustomerReceipt)))
+                var slip = await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(text, lineWidth));
+                if (!slip.Succeeded)
                 {
-                    var slip = await Hardware.PrintReceiptAsync(
-                        ReceiptBuilder.BuildCardSlip(payment.CustomerReceipt!, Receipt.LineWidth));
-                    if (!slip.Succeeded)
-                        PrintMessage += " Card slip didn't print: " + slip.Message;
+                    PrintMessage = "Card slip didn't print: " + slip.Message;
+                    return;
                 }
             }
 
+            PrintMessage = merchant ? "Merchant card slip printed." : "Customer card slip printed.";
             await JournalService.WriteAsync(JournalEventType.ReceiptReprinted,
-                $"Invoice #{OpenEntry.InvoiceNumber} reprinted from the journal",
+                $"Invoice #{OpenEntry.InvoiceNumber} {(merchant ? "merchant" : "customer")} card slip printed from the journal",
                 OpenEntry.SaleId, OpenEntry.InvoiceNumber, OpenEntry.Amount);
             await LoadAsync();
         }

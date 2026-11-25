@@ -32,12 +32,22 @@
                 {
                     <div class="msg @(_hardwareError ? "error" : "")">@_hardwareMessage</div>
                 }
+                @if (HasCardSlip && !_cardSlipPrinted && _cardSlipMode == CardSlipMode.Ask && _printerMode != PrinterMode.None)
+                {
+                    <div class="msg">Card slip saved with the sale. Tap Print card slip if the customer wants it.</div>
+                }
                 <div class="done-actions">
                     @if (_printerMode != PrinterMode.None)
                     {
                         <button class="btn-back" disabled="@_printing" @onclick="PrintReceiptAsync">
                             @(_printing ? "Printing…" : _receiptPrinted ? "Reprint receipt" : "Print receipt")
                         </button>
+                        @if (HasCardSlip)
+                        {
+                            <button class="btn-back" disabled="@_printing" @onclick="PrintCardSlipsAsync">
+                                @(_cardSlipPrinted ? "Reprint card slip" : "Print card slip")
+                            </button>
+                        }
                     }
                     <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
                 </div>
@@ -235,6 +245,11 @@
     private bool _printing;
     private bool _printThisSale;
 
+    // Customer EFTPOS slip: printed by itself (Print), offered with a button (Ask), or kept in the history (DontPrint).
+    private CardSlipMode _cardSlipMode;
+    private bool _cardSlipPrinted;
+    private bool HasCardSlip => CardSlips.CustomerCopies(_session.Payments).Count > 0;
+
     // Gift cards, store credit and the owner's own tenders (Manage → Payment types).
     private PaymentTypeSettings _paymentTypes = new();
     private bool _voucherEntry;
@@ -298,6 +313,7 @@
         var settings = SettingsStore.Load();
         _printerMode = settings.Printer.Mode;
         _printThisSale = settings.Printer.AutoPrint;
+        _cardSlipMode = settings.Printer.CustomerCardSlip;
         _paymentTypes = settings.PaymentTypes;
     }
 
@@ -540,6 +556,11 @@
 
         if (printer.Mode != PrinterMode.None && _printThisSale)
             await PrintReceiptAsync();
+
+        // The customer's card slip follows its own setting, not the 🧾 Receipt toggle.
+        var slips = CardSlips.CustomerCopiesToPrintNow(_session.Payments, printer);
+        if (slips.Count > 0)
+            await PrintSlipsAsync(slips, printer.LineWidth);
     }
 
     private async Task PrintReceiptAsync()
@@ -559,14 +580,6 @@
             {
                 _hardwareMessage = result.Message ?? "Receipt printed.";
                 _hardwareError = false;
-
-                // Bank card slip(s), customer copy — as a separate slip after the tax invoice.
-                var slipProblem = await PrintCardSlipsAsync(settings.Printer.LineWidth);
-                if (slipProblem is not null)
-                {
-                    _hardwareMessage += " Card slip didn't print: " + slipProblem;
-                    _hardwareError = true;
-                }
 
                 if (reprint)
                     await Journal.WriteAsync(JournalEventType.ReceiptReprinted,
@@ -592,17 +605,46 @@
         }
     }
 
-    /// <summary>Customer copies of the EFTPOS slips for this sale. Returns a problem description, or null.</summary>
-    private async Task<string?> PrintCardSlipsAsync(int lineWidth)
+    /// <summary>"Print card slip" button: the customer copies of this sale's EFTPOS slips, from the saved text.</summary>
+    private async Task PrintCardSlipsAsync()
     {
-        foreach (var payment in _session.Payments.Where(p => !string.IsNullOrWhiteSpace(p.CustomerReceipt)))
+        if (_printing) return;
+        _printing = true;
+        StateHasChanged();
+        try
         {
-            var slip = await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(payment.CustomerReceipt!, lineWidth));
-            if (!slip.Succeeded)
-                return slip.Message;
+            await PrintSlipsAsync(CardSlips.CustomerCopies(_session.Payments), SettingsStore.Load().Printer.LineWidth);
         }
+        finally
+        {
+            _printing = false;
+        }
+    }
 
-        return null;
+    /// <summary>Prints card slips; a printer problem only shows a message (the sale is already saved).</summary>
+    private async Task PrintSlipsAsync(IReadOnlyList<string> slips, int lineWidth)
+    {
+        try
+        {
+            foreach (var text in slips)
+            {
+                var slip = await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(text, lineWidth));
+                if (!slip.Succeeded)
+                {
+                    _hardwareMessage = "Card slip didn't print: " + slip.Message;
+                    _hardwareError = true;
+                    return;
+                }
+            }
+
+            _cardSlipPrinted = true;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Card slip for sale {SaleId} could not be printed", Sale.Id);
+            _hardwareMessage = "Card slip didn't print. Details are in the log file.";
+            _hardwareError = true;
+        }
     }
 
     /// <summary>Legacy behaviour: the store's copy prints as soon as the card is approved (if switched on).</summary>
@@ -612,7 +654,8 @@
         try
         {
             var printer = SettingsStore.Load().Printer;
-            if (printer.Mode == PrinterMode.None || !printer.PrintMerchantCopy || string.IsNullOrWhiteSpace(result.MerchantReceipt))
+            if (printer.Mode == PrinterMode.None || !printer.PrintMerchantCopy || result.MerchantReceiptPrinted ||
+                string.IsNullOrWhiteSpace(result.MerchantReceipt))
                 return;
 
             await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(result.MerchantReceipt!, printer.LineWidth));

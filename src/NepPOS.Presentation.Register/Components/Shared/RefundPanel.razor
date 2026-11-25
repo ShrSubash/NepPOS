@@ -44,6 +44,10 @@
                     @if (_printerMode != PrinterMode.None)
                     {
                         <button class="btn-back" disabled="@_printing" @onclick="PrintAsync">@(_printing ? "Printing…" : "Print receipt again")</button>
+                        @if (HasCardSlip)
+                        {
+                            <button class="btn-back" disabled="@_printing" @onclick="PrintCardSlipAsync">Print card slip</button>
+                        }
                     }
                     <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
                 </div>
@@ -277,10 +281,9 @@
                 return;
             }
 
-            _session.RefundCard(_cardAmount, result.AuthCode);
+            // The terminal's card slips are saved with the refund; the customer copy prints after saving (per setting).
+            _session.RefundCard(_cardAmount, result.AuthCode, result);
             _stage = Stage.Choosing;
-            if (result.CustomerReceipt is { Length: > 0 } slip && _printerMode != PrinterMode.None)
-                await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(slip, Settings.Printer.LineWidth));
             await AfterTenderAsync();
         }
         catch (PaymentOutcomeUnknownException ex)
@@ -393,6 +396,10 @@
             }
             if (_printerMode != PrinterMode.None)
                 await PrintAsync();
+
+            var slips = CardSlips.CustomerCopiesToPrintNow(_session.Payments, Settings.Printer);
+            if (slips.Count > 0)
+                await PrintSlipsAsync(slips);
         }
         catch (Exception ex)
         {
@@ -421,6 +428,44 @@
         finally
         {
             _printing = false;
+        }
+    }
+
+    private bool HasCardSlip => CardSlips.CustomerCopies(_session.Payments).Count > 0;
+
+    /// <summary>"Print card slip" button: the customer copy of the terminal's refund slip, from the saved text.</summary>
+    private async Task PrintCardSlipAsync()
+    {
+        if (_printing) return;
+        _printing = true;
+        try
+        {
+            await PrintSlipsAsync(CardSlips.CustomerCopies(_session.Payments));
+        }
+        finally
+        {
+            _printing = false;
+        }
+    }
+
+    private async Task PrintSlipsAsync(IReadOnlyList<string> slips)
+    {
+        try
+        {
+            foreach (var text in slips)
+            {
+                var slip = await Hardware.PrintReceiptAsync(ReceiptBuilder.BuildCardSlip(text, Settings.Printer.LineWidth));
+                if (!slip.Succeeded)
+                {
+                    (_hardwareMessage, _hardwareError) = ("Card slip didn't print: " + slip.Message, true);
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Card slip for refund {SaleId} could not be printed", Sale.Id);
+            (_hardwareMessage, _hardwareError) = ("Card slip didn't print. Details are in the log file.", true);
         }
     }
 

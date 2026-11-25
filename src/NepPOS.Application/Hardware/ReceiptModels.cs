@@ -40,6 +40,23 @@ public enum CashDrawerMode
     ViaPrinter = 1
 }
 
+/// <summary>
+/// What happens to the customer's EFTPOS card slip after a card payment or card refund.
+/// The terminal integration (Spice/SCI) hands both slips to the POS; the POS decides whether to print.
+/// Both slips are always saved with the payment, so they can be printed later from the Journal.
+/// </summary>
+public enum CardSlipMode
+{
+    /// <summary>Show a "Print card slip" button on the finished screen; nothing prints unless the cashier taps it.</summary>
+    Ask = 0,
+
+    /// <summary>Print the customer's slip straight after every card payment.</summary>
+    Print = 1,
+
+    /// <summary>Never print at the register; slips stay in the sale history (Journal) to print when asked for.</summary>
+    DontPrint = 2
+}
+
 /// <summary>Per-register hardware settings (each PC has its own printer).</summary>
 public sealed record PrinterSettings
 {
@@ -61,6 +78,9 @@ public sealed record PrinterSettings
 
     /// <summary>Print the EFTPOS merchant copy as soon as a card is approved (legacy behaviour; off by default).</summary>
     public bool PrintMerchantCopy { get; init; }
+
+    /// <summary>Customer EFTPOS slip: ask the cashier (default), always print, or keep it in the history only.</summary>
+    public CardSlipMode CustomerCardSlip { get; init; } = CardSlipMode.Ask;
 }
 
 /// <summary>Everything this register needs to know about its store and hardware.</summary>

@@ -109,12 +109,22 @@ else
                     </label>
 
                     <label>
+                        EFTPOS customer card slip
+                        <select @bind="Form.CustomerCardSlip">
+                            <option value="@CardSlipMode.Ask">Ask: show a Print card slip button</option>
+                            <option value="@CardSlipMode.Print">Print after every card payment</option>
+                            <option value="@CardSlipMode.DontPrint">Don't print (keep it in the sale history)</option>
+                        </select>
+                        <span class="field-note">Every card slip is saved with the sale. Print it any time from Manage → Journal.</span>
+                    </label>
+
+                    <label>
                         EFTPOS merchant copy
                         <select @bind="Form.MerchantCopy">
-                            <option value="none">Don't print (kept in the Spice receipt files)</option>
+                            <option value="none">Don't print (saved with the sale)</option>
                             <option value="print">Print when the card is approved</option>
                         </select>
-                        <span class="field-note">The customer's card slip always prints with their receipt.</span>
+                        <span class="field-note">Never printed twice: if the terminal printed a slip itself, the register skips it.</span>
                     </label>
                 }
 
@@ -280,6 +290,8 @@ else
 
         public bool PrintMerchantCopy { get; set; }
 
+        public CardSlipMode CustomerCardSlip { get; set; } = CardSlipMode.Ask;
+
         // Same reason as ReceiptDefault: the select binds to text, not a bool.
         public string MerchantCopy
         {
@@ -300,7 +312,8 @@ else
             LineWidth = s.Printer.LineWidth is 32 or 42 or 48 ? s.Printer.LineWidth : 48,
             DrawerMode = s.Printer.DrawerMode,
             AutoPrint = s.Printer.AutoPrint,
-            PrintMerchantCopy = s.Printer.PrintMerchantCopy
+            PrintMerchantCopy = s.Printer.PrintMerchantCopy,
+            CustomerCardSlip = s.Printer.CustomerCardSlip
         };
 
         public RegisterSettings ToSettings() => new()
@@ -320,7 +333,8 @@ else
                 LineWidth = LineWidth,
                 DrawerMode = DrawerMode,
                 AutoPrint = AutoPrint,
-                PrintMerchantCopy = PrintMerchantCopy
+                PrintMerchantCopy = PrintMerchantCopy,
+                CustomerCardSlip = CustomerCardSlip
             }
         };
     }

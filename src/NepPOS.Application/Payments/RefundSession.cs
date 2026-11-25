@@ -73,11 +73,14 @@ public sealed class RefundSession : IPaymentSession
     }
 
     /// <summary>A refund made on the EFTPOS terminal, recorded once the terminal approved it.</summary>
-    public void RefundCard(decimal amount, string? authCode = null)
+    /// <param name="terminal">The terminal's answer when the refund went through the EFTPOS integration: its card slips are kept with the refund.</param>
+    public void RefundCard(decimal amount, string? authCode = null, PaymentResult? terminal = null)
     {
         Take(amount, "Card refund");
         _payments.Add(new SalePayment(TenderType.Eftpos, -amount, -amount, 0, authCode: string.IsNullOrWhiteSpace(authCode) ? null : authCode.Trim(),
-            tenderName: "Card refund"));
+            cardType: terminal?.CardType, maskedPan: terminal?.MaskedPan, responseText: terminal?.ResponseText,
+            customerReceipt: terminal?.CustomerReceipt, tenderName: "Card refund",
+            merchantReceipt: terminal?.MerchantReceipt, customerReceiptPrintedByTerminal: terminal?.CustomerReceiptPrinted ?? false));
         Settle();
     }
 

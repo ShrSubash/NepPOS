@@ -177,7 +177,8 @@ public sealed class TenderSession : IPaymentSession
 
         _payments.Add(new SalePayment(
             TenderType.Eftpos, amount, amount, 0,
-            result.AuthCode, result.CardType, result.MaskedPan, result.ResponseText, result.CustomerReceipt));
+            result.AuthCode, result.CardType, result.MaskedPan, result.ResponseText, result.CustomerReceipt,
+            merchantReceipt: result.MerchantReceipt, customerReceiptPrintedByTerminal: result.CustomerReceiptPrinted));
 
         if (Remaining == 0)
             IsComplete = true;
