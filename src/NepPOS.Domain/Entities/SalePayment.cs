@@ -24,8 +24,14 @@ public sealed class SalePayment
     public string? MaskedPan { get; private set; }
     public string? ResponseText { get; private set; }
 
-    /// <summary>The bank's card slip text (customer copy), kept so it can be reprinted later.</summary>
+    /// <summary>The bank's card slip text (customer copy), kept so it can be printed or reprinted later.</summary>
     public string? CustomerReceipt { get; private set; }
+
+    /// <summary>The bank's card slip text (merchant copy), kept so it can be printed later (disputes, signatures).</summary>
+    public string? MerchantReceipt { get; private set; }
+
+    /// <summary>The terminal printed the customer slip itself, so the register doesn't print it automatically.</summary>
+    public bool CustomerReceiptPrintedByTerminal { get; private set; }
 
     /// <summary>Gift card or store credit code (GC-…, SC-…), or the reference typed for an "other" tender.</summary>
     public string? Reference { get; private set; }
@@ -51,7 +57,9 @@ public sealed class SalePayment
         string? responseText = null,
         string? customerReceipt = null,
         string? reference = null,
-        string? tenderName = null)
+        string? tenderName = null,
+        string? merchantReceipt = null,
+        bool customerReceiptPrintedByTerminal = false)
     {
         if (amount == 0)
             throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount can't be zero.");
@@ -71,7 +79,9 @@ public sealed class SalePayment
         CardType = cardType;
         MaskedPan = maskedPan;
         ResponseText = responseText;
-        CustomerReceipt = customerReceipt;
+        CustomerReceipt = string.IsNullOrWhiteSpace(customerReceipt) ? null : customerReceipt;
+        MerchantReceipt = string.IsNullOrWhiteSpace(merchantReceipt) ? null : merchantReceipt;
+        CustomerReceiptPrintedByTerminal = customerReceiptPrintedByTerminal && CustomerReceipt is not null;
         Reference = string.IsNullOrWhiteSpace(reference) ? null : reference.Trim();
         TenderName = string.IsNullOrWhiteSpace(tenderName) ? null : tenderName.Trim();
         CreatedAtUtc = DateTimeOffset.UtcNow;

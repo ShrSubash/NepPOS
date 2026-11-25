@@ -756,8 +756,15 @@ namespace NepPOS.Infrastructure.Database.Migrations.Register
                         .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
+                    b.Property<bool>("CustomerReceiptPrintedByTerminal")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("MaskedPan")
                         .HasMaxLength(25)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("MerchantReceipt")
+                        .HasMaxLength(4000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("Reference")

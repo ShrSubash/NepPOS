@@ -23,6 +23,12 @@
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 	</PropertyGroup>
 
+    <!-- Where installed registers look for updates. Set when publishing a release:
+         dotnet publish ... -p:NepPosUpdateUrl=https://updates.example.com.au/neppos  (empty = updates off) -->
+    <ItemGroup>
+        <AssemblyMetadata Include="UpdateFeedUrl" Value="$(NepPosUpdateUrl)" />
+    </ItemGroup>
+
     <ItemGroup>
         <!-- App Icon -->
         <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
@@ -47,6 +53,8 @@
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="9.0.9" />
         <PackageReference Include="Serilog.Extensions.Logging" Version="9.0.2" />
         <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+        <!-- Installer and automatic updates (deploy/register/README.md). -->
+        <PackageReference Include="Velopack" Version="1.2.161" />
     </ItemGroup>
 
     <ItemGroup>

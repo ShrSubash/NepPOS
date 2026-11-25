@@ -70,6 +70,16 @@ using (var scope = app.Services.CreateScope())
     PortalEndpoints.CreateFirstOwner(db, app.Configuration, app.Logger);
 }
 
+// Behind the web server (Caddy, deploy/headoffice/README.md): trust its X-Forwarded-* headers so HTTPS is seen
+// as HTTPS. Kestrel only listens on localhost in production, so only the web server can set them.
+var forwarded = new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+};
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Clear();
+app.UseForwardedHeaders(forwarded);
+
 app.UseExceptionHandler();
 app.UseHttpsRedirection();
 app.UseAuthentication();

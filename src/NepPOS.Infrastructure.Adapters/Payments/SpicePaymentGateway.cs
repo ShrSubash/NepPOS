@@ -220,17 +220,19 @@ public sealed class SpicePaymentGateway : IPaymentGateway, IDisposable
             AuthCode: GetString(node, "auth_code"),
             CardType: GetString(node, "scheme_name"),
             MaskedPan: GetString(node, "masked_pan"),
-            CustomerReceipt: SlipToPrint(node, "customer_receipt"),
-            MerchantReceipt: SlipToPrint(node, "merchant_receipt"));
+            // Both slips go back to the POS every time; the POS decides whether to print (Manage → Receipt).
+            CustomerReceipt: Slip(node, "customer_receipt"),
+            MerchantReceipt: Slip(node, "merchant_receipt"),
+            CustomerReceiptPrinted: SlipPrinted(node, "customer_receipt"),
+            MerchantReceiptPrinted: SlipPrinted(node, "merchant_receipt"));
     }
 
-    /// <summary>mx51: only print a slip when "&lt;name&gt;_printed" is false or absent (the terminal didn't print it).</summary>
-    private static string? SlipToPrint(JsonElement node, string name)
-    {
-        var alreadyPrinted = node.TryGetProperty(name + "_printed", out var printed) && printed.ValueKind == JsonValueKind.True;
-        var text = GetString(node, name);
-        return alreadyPrinted || string.IsNullOrWhiteSpace(text) ? null : text;
-    }
+    private static string? Slip(JsonElement node, string name) =>
+        GetString(node, name) is { } text && !string.IsNullOrWhiteSpace(text) ? text : null;
+
+    /// <summary>mx51: "&lt;name&gt;_printed" = true means the terminal printed that slip itself; the POS must not print it again.</summary>
+    private static bool SlipPrinted(JsonElement node, string name) =>
+        node.TryGetProperty(name + "_printed", out var printed) && printed.ValueKind == JsonValueKind.True;
 
     private static JsonElement? ParseResponseNode(string body)
     {

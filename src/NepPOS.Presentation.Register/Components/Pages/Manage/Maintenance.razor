@@ -1,0 +1,221 @@
+@page "/manage/maintenance"
+@layout ManageLayout
+@using System.Globalization
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Maintenance
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IRegisterBackupService Backups
+@inject AppUpdateService Updates
+@inject IRegisterSettingsStore SettingsStore
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Backups &amp; updates</span>
+            <button class="save-btn" disabled="@Busy" @onclick="SaveAsync">Save</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+
+            <section class="card">
+                <h2>Backups <span class="hint">once a day, by themselves</span></h2>
+
+                @if (Latest is null)
+                {
+                    <div class="big-status warn">No backup yet</div>
+                    <span class="field-note">The first one is made a few minutes after NepPOS starts, or tap Back up now.</span>
+                }
+                else
+                {
+                    <div class="big-status @(IsOld ? "warn" : "")">Last backup @When(Latest.CreatedLocal)</div>
+                    <span class="field-note">Saved in @Backups.LocalFolder</span>
+                }
+
+                <div class="test-row">
+                    <button class="primary-btn" disabled="@Busy" @onclick="BackUpNowAsync">@(Busy ? "Backing up…" : "Back up now")</button>
+                </div>
+
+                @if (Files.Count > 0)
+                {
+                    <ul class="backup-list">
+                        @foreach (var file in Files.Take(7))
+                        {
+                            <li><span>@file.CreatedLocal.ToString("ddd d MMM, h:mm tt", CultureInfo.CurrentCulture)</span><span>@Size(file.SizeBytes)</span></li>
+                        }
+                    </ul>
+                }
+            </section>
+
+            <section class="card">
+                <h2>Second copy <span class="hint">in case this PC dies</span></h2>
+
+                <label>
+                    Also copy backups to
+                    <input @bind="Form.CopyFolder" placeholder="E:\NepPOS backups  or  C:\Users\you\OneDrive\NepPOS backups" />
+                    <span class="field-note">A USB drive left plugged in, or a OneDrive / Google Drive folder that syncs to the cloud. Leave empty to keep backups on this PC only.</span>
+                </label>
+
+                <label>
+                    Keep backups for (days)
+                    <input type="number" min="1" max="3650" @bind="Form.KeepDays" />
+                    <span class="field-note">Older ones are deleted. The newest @BackupRules.AlwaysKeep are always kept.</span>
+                </label>
+
+                <span class="field-note">Backups hold sales, products, customers and staff. Keep the drive or folder private.</span>
+            </section>
+
+            <section class="card">
+                <h2>Restore a backup</h2>
+                <ol class="steps">
+                    <li>Close NepPOS.</li>
+                    <li>Open the backup .zip and copy <strong>neppos-register.db</strong> (and <strong>register-settings.json</strong>) into <strong>@DataFolder</strong>, replacing the files there.</li>
+                    <li>Open NepPOS, then reconnect on Manage → Head Office (the key isn't in backups, for safety).</li>
+                </ol>
+                <span class="field-note">On a new PC, install NepPOS first, open and close it once, then follow the same steps.</span>
+            </section>
+
+            <section class="card">
+                <h2>Updates <span class="hint">installed when NepPOS next starts</span></h2>
+
+                <div class="big-status @(Update.State is UpdateState.Failed ? "warn" : "")">@Update.Message</div>
+                <span class="field-note">
+                    This register: version @Update.CurrentVersion
+                    @if (Update.CheckedAt is { } checkedAt)
+                    {
+                        <text> · checked @When(checkedAt)</text>
+                    }
+                </span>
+
+                <div class="test-row">
+                    @if (Update.State is not (UpdateState.NotSetUp or UpdateState.NotInstalled))
+                    {
+                        <button class="chip" disabled="@Checking" @onclick="CheckUpdatesAsync">@(Checking ? "Checking…" : "Check now")</button>
+                    }
+                    @if (Updates.CanInstallNow)
+                    {
+                        <button class="primary-btn" @onclick="InstallNow">Install now and restart</button>
+                    }
+                </div>
+                @if (Updates.CanInstallNow)
+                {
+                    <span class="field-note">Only between sales: NepPOS closes for about a minute.</span>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private BackupForm Form = new();
+    private IReadOnlyList<BackupFile> Files = Array.Empty<BackupFile>();
+    private UpdateStatus Update = default!;
+    private bool Busy;
+    private bool Checking;
+    private string? Message;
+    private bool IsError;
+
+    private BackupFile? Latest => Files.FirstOrDefault();
+    private bool IsOld => Latest is { } latest && DateTime.Now - latest.CreatedLocal > TimeSpan.FromDays(2);
+    private string DataFolder => Path.GetDirectoryName(Backups.LocalFolder) ?? Backups.LocalFolder;
+
+    protected override void OnInitialized()
+    {
+        var settings = SettingsStore.Load().Backup;
+        Form = new BackupForm { CopyFolder = settings.CopyFolder, KeepDays = settings.KeepDays };
+        Files = Backups.List();
+        Update = Updates.Status;
+        if (Backups.LastResult is { Succeeded: false } failed)
+            ShowError(failed.Message);
+    }
+
+    private async Task SaveAsync()
+    {
+        var current = SettingsStore.Load();
+        var backup = new BackupSettings { CopyFolder = Form.CopyFolder.Trim(), KeepDays = Math.Clamp(Form.KeepDays, 1, 3650) };
+        SettingsStore.Save(current with { Backup = backup });
+        ShowInfo("Saved.");
+        await Journal.WriteAsync(JournalEventType.SettingsChanged,
+            $"Backup settings saved (second copy: {(backup.CopyFolder.Length == 0 ? "none" : backup.CopyFolder)}, keep {backup.KeepDays} days)");
+    }
+
+    private async Task BackUpNowAsync()
+    {
+        Busy = true;
+        Message = null;
+        StateHasChanged();
+        try
+        {
+            // Save first, so a newly typed second folder is used straight away.
+            var current = SettingsStore.Load();
+            SettingsStore.Save(current with { Backup = new BackupSettings { CopyFolder = Form.CopyFolder.Trim(), KeepDays = Math.Clamp(Form.KeepDays, 1, 3650) } });
+
+            var result = await Backups.BackUpNowAsync();
+            Files = Backups.List();
+            if (!result.Succeeded || result.Warning)
+                ShowError(result.Message);
+            else
+                ShowInfo(result.Message);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task CheckUpdatesAsync()
+    {
+        Checking = true;
+        StateHasChanged();
+        try
+        {
+            Update = await Updates.CheckNowAsync();
+        }
+        finally
+        {
+            Checking = false;
+        }
+    }
+
+    private async Task InstallNow()
+    {
+        await Journal.WriteAsync(JournalEventType.SettingsChanged, $"NepPOS update {Update.NewVersion} installed from Manage");
+        Updates.InstallNowAndRestart();
+    }
+
+    private static string When(DateTime local)
+    {
+        var today = DateTime.Today;
+        var day = local.Date == today ? "today" : local.Date == today.AddDays(-1) ? "yesterday" : local.ToString("ddd d MMM", CultureInfo.CurrentCulture);
+        return $"{day} at {local.ToString("h:mm tt", CultureInfo.CurrentCulture)}";
+    }
+
+    private static string Size(long bytes) =>
+        bytes >= 1_048_576 ? $"{bytes / 1_048_576.0:0.0} MB" : $"{Math.Max(1, bytes / 1024)} KB";
+
+    private void ShowError(string message) => (Message, IsError) = (message, true);
+    private void ShowInfo(string message) => (Message, IsError) = (message, false);
+
+    private sealed class BackupForm
+    {
+        public string CopyFolder { get; set; } = "";
+        public int KeepDays { get; set; } = 30;
+    }
+}

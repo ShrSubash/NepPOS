@@ -23,14 +23,29 @@ public sealed class SimulatedPaymentGateway : IPaymentGateway
         if (cents == 13m)
             return new PaymentResult(false, "51", "DECLINED - INSUFFICIENT FUNDS");
 
+        var auth = Random.Shared.Next(100000, 999999).ToString(CultureInfo.InvariantCulture);
         return new PaymentResult(
             Approved: true,
             ResponseCode: "00",
             ResponseText: "APPROVED",
-            AuthCode: Random.Shared.Next(100000, 999999).ToString(CultureInfo.InvariantCulture),
+            AuthCode: auth,
             CardType: "VISA",
-            MaskedPan: "**** **** **** 4242");
+            MaskedPan: "**** **** **** 4242",
+            // Sample slips so the card slip settings and reprints can be tried without a terminal.
+            CustomerReceipt: SampleSlip("CUSTOMER COPY", request.Amount, auth),
+            MerchantReceipt: SampleSlip("MERCHANT COPY", request.Amount, auth));
     }
+
+    private static string SampleSlip(string copy, decimal amount, string auth) => string.Join('\n',
+        "  SIMULATED EFTPOS",
+        $"  {copy}",
+        "",
+        $"{DateTime.Now:dd/MM/yyyy HH:mm}",
+        "VISA  **** 4242",
+        $"PURCHASE   {amount.ToString("C", CultureInfo.GetCultureInfo("en-AU"))}",
+        $"AUTH {auth}",
+        "",
+        "    APPROVED");
 
     /// <summary>Refunds always approve (after the same short wait), except amounts ending in .13 cents.</summary>
     public Task<PaymentResult> RefundAsync(PaymentRequest request, CancellationToken cancellationToken = default) =>

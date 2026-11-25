@@ -95,6 +95,7 @@ public sealed class NepPosDbContext : DbContext
             entity.Property(p => p.MaskedPan).HasMaxLength(25);
             entity.Property(p => p.ResponseText).HasMaxLength(100);
             entity.Property(p => p.CustomerReceipt).HasMaxLength(4000);
+            entity.Property(p => p.MerchantReceipt).HasMaxLength(4000);
             entity.Property(p => p.Reference).HasMaxLength(50);
             entity.Property(p => p.TenderName).HasMaxLength(50);
             entity.Ignore(p => p.IsRefund);

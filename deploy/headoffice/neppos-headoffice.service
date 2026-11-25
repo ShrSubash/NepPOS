@@ -1,0 +1,24 @@
+# systemd service for NepPOS Head Office. Copy to /etc/systemd/system/ (see README.md).
+[Unit]
+Description=NepPOS Head Office
+After=network.target
+
+[Service]
+User=neppos
+Group=neppos
+WorkingDirectory=/opt/neppos-headoffice
+ExecStart=/opt/neppos-headoffice/NepPOS.HeadOffice.Api
+Restart=always
+RestartSec=5
+# Only the web server (Caddy) reaches Head Office; registers and the website use https://ho.<your domain>.
+Environment=ASPNETCORE_URLS=http://127.0.0.1:5080
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=DOTNET_PRINT_TELEMETRY_MESSAGE=false
+# Secrets: /opt/neppos-headoffice/appsettings.Production.json (chmod 600). Database: /var/lib/neppos/headoffice.db.
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
