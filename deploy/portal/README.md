@@ -3,11 +3,11 @@
 The Portal is how you run NepPOS in production: create a business and its stores, issue a register's
 activation code, create the website key for HamroGrocery, see which registers are online, and revoke a lost PC's key.
 It has no database; everything goes through Head Office's admin API. It runs on the same server as Head Office,
-at `https://portal.<domain>`, and only your own internet connection can open it.
+at `https://portal.neppos.com.au`, and only your own internet connection can open it.
 
 ## Once
 
-1. DNS: add an **A record** `portal` → the server's IP (next to `ho` and `updates`).
+1. DNS (GoDaddy, `neppos.com.au`): an **A record** `portal` → the server's IP (next to `ho` and `updates`).
 
 2. Find your office/home internet address: open https://ifconfig.me on that PC. (If your internet provider changes it,
    update the Caddy line below.)
@@ -15,7 +15,7 @@ at `https://portal.<domain>`, and only your own internet connection can open it.
 3. On the server, add the Portal to Caddy (`nano /etc/caddy/Caddyfile`), with your address in place of `203.0.113.7`:
 
    ```
-   portal.hamrogrocery.com.au {
+   portal.neppos.com.au {
    	@outside not remote_ip 203.0.113.7
    	respond @outside "Not available" 403
    	encode zstd gzip
@@ -56,9 +56,9 @@ ssh root@SERVER_IP "systemctl stop neppos-portal && tar -xzf /tmp/portal.tgz -C 
 
 ## First sign-in
 
-Open `https://portal.<domain>` and sign in with the owner email and password from Head Office's settings
+Open `https://portal.neppos.com.au` and sign in with the owner email and password from Head Office's settings
 (`HeadOffice:Owner`). It makes you set up the authenticator app straight away. Then:
 
 1. **New business**: your business, the first store, an activation code for the shop PC, and a website key.
 2. Shop PC: Manage → Head Office → enter the activation code.
-3. Website: Admin → Connect to NepPOS → `https://ho.<domain>` and the website key.
+3. Website: Admin → Connect to NepPOS → `https://ho.neppos.com.au` and the website key.

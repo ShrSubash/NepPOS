@@ -1,7 +1,7 @@
 # Head Office on the server
 
 Head Office runs on the same server as the website (set up with the HamroGrocery repo's `deploy/server-setup.sh`,
-which already made the `neppos` user, `/opt/neppos-headoffice`, `/var/lib/neppos`, HTTPS for `ho.<domain>` and
+which already made the `neppos` user, `/opt/neppos-headoffice`, `/var/lib/neppos`, HTTPS for `ho.neppos.com.au` and
 the nightly backup of `headoffice.db`).
 
 ## Once
@@ -48,10 +48,10 @@ scp ho.tgz root@SERVER_IP:/tmp/ho.tgz
 ssh root@SERVER_IP "hamro-backup.sh && systemctl stop neppos-headoffice && tar -xzf /tmp/ho.tgz -C /opt/neppos-headoffice && chown -R neppos:neppos /opt/neppos-headoffice && chmod +x /opt/neppos-headoffice/NepPOS.HeadOffice.Api && systemctl start neppos-headoffice && rm /tmp/ho.tgz"
 ```
 
-Head Office applies its database migrations when it starts. Check it: `https://ho.<domain>/health` (or the log: `journalctl -u neppos-headoffice -n 100`).
+Head Office applies its database migrations when it starts. Check it: `https://ho.neppos.com.au/health` (or the log: `journalctl -u neppos-headoffice -n 100`).
 
 ## Connect the shop
 
-- Each register: Manage → Head Office → address `https://ho.<domain>` and its register key.
+- Each register: Manage → Head Office → address `https://ho.neppos.com.au` and its activation code (from the Portal).
   Each register has its own key; a lost or stolen PC is cut off by revoking its key in the Portal / Head Office admin.
-- The website: Admin → Connect to NepPOS → the same address and the website key.
+- The website: Admin → Connect to NepPOS → `https://ho.neppos.com.au` and the website key (from the Portal).

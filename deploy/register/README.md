@@ -2,10 +2,10 @@
 
 ## Installer and updates (Velopack)
 
-A release is built on your PC with one command and uploaded to `https://updates.<domain>/neppos`
+A release is built on your PC with one command and uploaded to `https://updates.neppos.com.au/neppos`
 (the server from the HamroGrocery repo's `deploy/README.md`).
 
-- **New shop PC:** download and run `https://updates.<domain>/neppos/NepPOS.Register-win-Setup.exe`.
+- **New shop PC:** download and run `https://updates.neppos.com.au/neppos/NepPOS.Register-win-Setup.exe`.
   It installs NepPOS for that Windows user with a desktop and Start menu shortcut. Nothing else is needed (.NET is included).
   Windows may show "Windows protected your PC" until the installer is code-signed: **More info → Run anyway**.
 - **Updates:** every register checks every 4 hours, downloads a new version in the background, and installs it the
