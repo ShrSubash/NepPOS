@@ -34,6 +34,17 @@ Change both straight away (the page shows a warning until you do), then add a si
 - Managers add and change cashiers and supervisors. Only an owner adds or changes managers and owners.
   Everyone can change their own PIN.
 - When someone leaves, untick **Can sign in**. Their past sales stay in reports. Every change is in the Journal.
+- Phone, email, start date and (owners only) hourly rate are optional details on the same page.
+
+## Timesheets and staff activity
+
+- Staff tap **Clock in** on the register's top bar when their shift starts and **Clock out** when it ends
+  (separate from signing in, which happens between customers). The button turns green while they're on shift.
+- **Manage → Timesheets:** hours per person for this week, last week or any dates; estimated pay for owners
+  (hours × hourly rate, no penalty rates). Fix a forgotten clock-out with **Edit**; every change is in the Journal.
+  **Export CSV** saves a file for payroll in the report folder.
+- **Manage → Staff activity:** per person: first sign-in, last sign-out, sales and average sale, refunds, voids,
+  lines removed, no-sales and discounts. Unusually many refunds, voids or no-sales are highlighted.
 
 ## Backups
 

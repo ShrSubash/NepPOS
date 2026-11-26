@@ -1,0 +1,155 @@
+@page "/manage/staff-activity"
+@layout ManageLayout
+@using System.Globalization
+@using NepPOS.Application.Authentication
+@using NepPOS.Application.Journal
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Staff activity</span>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Error))
+        {
+            <div class="msg error">@Error</div>
+        }
+
+        <div class="settings-body">
+            <section class="card wide">
+                <div class="range-row">
+                    <button class="chip @(Preset == "today" ? "on" : "")" @onclick='() => SetAsync("today")'>Today</button>
+                    <button class="chip @(Preset == "week" ? "on" : "")" @onclick='() => SetAsync("week")'>This week</button>
+                    <button class="chip @(Preset == "month" ? "on" : "")" @onclick='() => SetAsync("month")'>This month</button>
+                    <label>From <input type="date" @bind="FromDate" @bind:after="CustomAsync" /></label>
+                    <label>To <input type="date" @bind="ToDate" @bind:after="CustomAsync" /></label>
+                </div>
+                <span class="field-note">From the Journal: every sale, refund, void, no-sale and discount is stamped with who was signed in.</span>
+            </section>
+
+            <section class="card wide">
+                <h2>By staff member <span class="hint">@FromDate.ToString("d MMM") to @ToDate.ToString("d MMM yyyy")</span></h2>
+
+                @if (Lines.Count == 0)
+                {
+                    <p class="field-note">Nothing recorded in these dates.</p>
+                }
+                else
+                {
+                    <div class="table-scroll">
+                        <table class="ts-table">
+                            <thead>
+                                <tr>
+                                    <th>Staff member</th>
+                                    <th>First sign-in</th>
+                                    <th>Last sign-out</th>
+                                    <th class="num">Sales</th>
+                                    <th class="num">Sales $</th>
+                                    <th class="num">Avg sale</th>
+                                    <th class="num">Refunds</th>
+                                    <th class="num">Voids</th>
+                                    <th class="num">Lines removed</th>
+                                    <th class="num">No sales</th>
+                                    <th class="num">Discounts</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var line in Lines)
+                                {
+                                    <tr>
+                                        <td>@line.EmployeeName</td>
+                                        <td>@When(line.FirstSignInUtc)</td>
+                                        <td>@When(line.LastSignOutUtc)</td>
+                                        <td class="num">@line.Sales</td>
+                                        <td class="num">@line.SalesTotal.ToString("C", Aud)</td>
+                                        <td class="num">@line.AverageSale.ToString("C", Aud)</td>
+                                        <td class="num @(Flag(line.Refunds, line.Sales) ? "flag" : "")">@line.Refunds · @line.RefundsTotal.ToString("C", Aud)</td>
+                                        <td class="num @(Flag(line.Voids, line.Sales) ? "flag" : "")">@line.Voids · @line.VoidsTotal.ToString("C", Aud)</td>
+                                        <td class="num">@line.LinesRemoved</td>
+                                        <td class="num @(Flag(line.NoSales, line.Sales) ? "flag" : "")">@line.NoSales</td>
+                                        <td class="num">@line.Discounts · @line.DiscountsTotal.ToString("C", Aud)</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <span class="field-note">Highlighted: refunds, voids or no-sales above 1 in 10 sales. Worth a look, not proof of anything. The details are in Manage → Journal.</span>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly CultureInfo Aud = CultureInfo.GetCultureInfo("en-AU");
+
+    private DateTime FromDate;
+    private DateTime ToDate;
+    private string Preset = "today";
+    private IReadOnlyList<StaffActivityLine> Lines = Array.Empty<StaffActivityLine>();
+    private string? Error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
+        await SetAsync("today");
+    }
+
+    private async Task SetAsync(string which)
+    {
+        var today = DateTime.Today;
+        FromDate = which switch
+        {
+            "week" => today.AddDays(-(((int)today.DayOfWeek + 6) % 7)),
+            "month" => new DateTime(today.Year, today.Month, 1),
+            _ => today
+        };
+        ToDate = today;
+        Preset = which;
+        await LoadAsync();
+    }
+
+    private async Task CustomAsync()
+    {
+        Preset = "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            Error = null;
+            var entries = await Journal.QueryAsync(new JournalQuery(DateOnly.FromDateTime(FromDate), DateOnly.FromDateTime(ToDate), MaxResults: 50_000));
+            Lines = StaffActivity.Build(entries);
+        }
+        catch (Exception)
+        {
+            Error = "Could not load the journal. Details are in the log file.";
+            Lines = Array.Empty<StaffActivityLine>();
+        }
+    }
+
+    // More than 1 in 10 (and at least 3) is worth a manager's look.
+    private static bool Flag(int count, int sales) => count >= 3 && count * 10 > sales;
+
+    private string When(DateTime? utc)
+    {
+        if (utc is not { } value) return "–";
+        var local = DateTime.SpecifyKind(value, DateTimeKind.Utc).ToLocalTime();
+        return FromDate.Date == ToDate.Date ? local.ToString("h:mm tt") : local.ToString("ddd d MMM, h:mm tt");
+    }
+}

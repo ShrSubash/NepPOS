@@ -1,0 +1,346 @@
+@page "/manage/timesheets"
+@layout ManageLayout
+@using System.Globalization
+@using System.Text
+@using NepPOS.Application.Authentication
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Reports
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IShiftService Shifts
+@inject IStaffService StaffService
+@inject IReportFileStore Files
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Timesheets</span>
+            <button class="save-btn" disabled="@(Busy || Rows.Count == 0)" @onclick="ExportAsync">Export CSV</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">
+                @Message
+                @if (SavedPath is not null)
+                {
+                    <button class="link-btn" @onclick="Files.OpenFolder">Open folder</button>
+                }
+            </div>
+        }
+
+        <div class="settings-body">
+            <section class="card wide">
+                <div class="range-row">
+                    <button class="chip @(Preset == "this" ? "on" : "")" @onclick='() => SetWeekAsync("this")'>This week</button>
+                    <button class="chip @(Preset == "last" ? "on" : "")" @onclick='() => SetWeekAsync("last")'>Last week</button>
+                    <label>From <input type="date" @bind="FromDate" @bind:after="CustomAsync" /></label>
+                    <label>To <input type="date" @bind="ToDate" @bind:after="CustomAsync" /></label>
+                </div>
+                <span class="field-note">Staff tap <strong>Clock in</strong> on the register when their shift starts and <strong>Clock out</strong> when it ends. A shift counts on the day it started.</span>
+            </section>
+
+            <section class="card wide">
+                <h2>Hours <span class="hint">@FromDate.ToString("ddd d MMM") to @ToDate.ToString("ddd d MMM yyyy")</span></h2>
+
+                @if (Lines.Count == 0)
+                {
+                    <p class="field-note">No shifts in these dates.</p>
+                }
+                else
+                {
+                    <table class="ts-table">
+                        <thead>
+                            <tr>
+                                <th>Staff member</th>
+                                <th class="num">Shifts</th>
+                                <th class="num">Hours</th>
+                                @if (IsOwner)
+                                {
+                                    <th class="num">Rate</th>
+                                    <th class="num">Est. pay</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var line in Lines)
+                            {
+                                <tr>
+                                    <td>
+                                        @line.EmployeeName
+                                        @if (line.OnShiftNow)
+                                        {
+                                            <span class="badge ok">on shift</span>
+                                        }
+                                    </td>
+                                    <td class="num">@line.Shifts</td>
+                                    <td class="num">@HoursText(line.Hours)</td>
+                                    @if (IsOwner)
+                                    {
+                                        <td class="num">@(line.HourlyRate is { } rate ? rate.ToString("C", Aud) : "–")</td>
+                                        <td class="num">@(line.EstimatedPay is { } pay ? pay.ToString("C", Aud) : "–")</td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td>Total</td>
+                                <td class="num">@Lines.Sum(l => l.Shifts)</td>
+                                <td class="num">@HoursText(Lines.Sum(l => l.Hours))</td>
+                                @if (IsOwner)
+                                {
+                                    <td></td>
+                                    <td class="num">@Lines.Sum(l => l.EstimatedPay ?? 0).ToString("C", Aud)</td>
+                                }
+                            </tr>
+                        </tfoot>
+                    </table>
+                    @if (IsOwner)
+                    {
+                        <span class="field-note">Estimated pay = hours × hourly rate. It leaves out penalty rates, breaks and super; check with your payroll.</span>
+                    }
+                }
+            </section>
+
+            @if (Editing is not null)
+            {
+                <section class="card editor">
+                    <h2>Change shift <span class="hint">@Editing.EmployeeName</span></h2>
+                    <label>Clock in <input type="datetime-local" @bind="EditIn" /></label>
+                    <label class="check"><input type="checkbox" @bind="EditStillOn" /> Still on shift</label>
+                    @if (!EditStillOn)
+                    {
+                        <label>Clock out <input type="datetime-local" @bind="EditOut" /></label>
+                    }
+                    <span class="field-note">The change and who made it are recorded in the Journal.</span>
+                    <div class="test-row">
+                        <button class="primary-btn" disabled="@Busy" @onclick="SaveShiftAsync">@(Busy ? "Saving…" : "Save")</button>
+                        <button class="chip" disabled="@Busy" @onclick="() => Editing = null">Cancel</button>
+                    </div>
+                </section>
+            }
+
+            <section class="card wide">
+                <h2>Shifts <span class="hint">newest first</span></h2>
+                @if (Rows.Count == 0)
+                {
+                    <p class="field-note">No shifts in these dates.</p>
+                }
+                else
+                {
+                    <table class="ts-table">
+                        <thead>
+                            <tr><th>Staff member</th><th>Day</th><th>In</th><th>Out</th><th class="num">Hours</th><th></th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var shift in Rows)
+                            {
+                                var start = shift.ClockInUtc.ToLocalTime();
+                                var tooLong = shift.IsOpen && Now - shift.ClockInUtc > Timesheet.LongestShift;
+                                <tr class="@(tooLong ? "warn" : "")">
+                                    <td>@shift.EmployeeName</td>
+                                    <td>@start.ToString("ddd d MMM")</td>
+                                    <td>@start.ToString("h:mm tt")</td>
+                                    <td>
+                                        @if (shift.ClockOutUtc is { } end)
+                                        {
+                                            @(end.ToLocalTime().ToString(end.ToLocalTime().Date == start.Date ? "h:mm tt" : "ddd h:mm tt"))
+                                        }
+                                        else if (tooLong)
+                                        {
+                                            <span class="badge bad">forgot to clock out?</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge ok">on shift</span>
+                                        }
+                                    </td>
+                                    <td class="num">@HoursText(shift.Hours(Now))</td>
+                                    <td class="num">
+                                        @if (CanCorrect(shift))
+                                        {
+                                            <button class="chip small" disabled="@Busy" @onclick="() => StartEdit(shift)">Edit</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly CultureInfo Aud = CultureInfo.GetCultureInfo("en-AU");
+
+    private DateTime FromDate;
+    private DateTime ToDate;
+    private string Preset = "this";
+    private IReadOnlyList<ShiftRow> Rows = Array.Empty<ShiftRow>();
+    private IReadOnlyList<TimesheetLine> Lines = Array.Empty<TimesheetLine>();
+    private Dictionary<int, EmployeeRole> Roles = new();
+    private DateTimeOffset Now = DateTimeOffset.UtcNow;
+
+    private ShiftRow? Editing;
+    private DateTime EditIn;
+    private DateTime EditOut;
+    private bool EditStillOn;
+
+    private bool Busy;
+    private string? Message;
+    private bool IsError;
+    private string? SavedPath;
+
+    private bool IsOwner => Session.Employee?.Role == EmployeeRole.Owner;
+    private StaffActor Me => new(Session.Employee!.Id, Session.Employee.Role);
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
+        await SetWeekAsync("this");
+    }
+
+    // Weeks run Monday to Sunday, like most Australian pay weeks.
+    private async Task SetWeekAsync(string which)
+    {
+        var today = DateTime.Today;
+        var monday = today.AddDays(-(((int)today.DayOfWeek + 6) % 7));
+        if (which == "last") monday = monday.AddDays(-7);
+        (FromDate, ToDate, Preset) = (monday, monday.AddDays(6), which);
+        await LoadAsync();
+    }
+
+    private async Task CustomAsync()
+    {
+        Preset = "";
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            Now = DateTimeOffset.UtcNow;
+            var from = DateOnly.FromDateTime(FromDate);
+            var to = DateOnly.FromDateTime(ToDate);
+            var staff = await StaffService.ListAsync();
+            Roles = staff.ToDictionary(s => s.Id, s => s.Role);
+            var rates = staff.ToDictionary(s => s.Id, s => s.HourlyRate);
+
+            // Open shifts are always listed so a forgotten clock-out is seen; hours count only the chosen days.
+            Rows = await Shifts.ListAsync(from, to);
+            var inRange = Rows.Where(r => StartedIn(r, from, to)).ToList();
+            Lines = Timesheet.Summarise(inRange, rates, Now);
+        }
+        catch (Exception)
+        {
+            Show("Could not load timesheets. Details are in the log file.", true);
+        }
+    }
+
+    private static bool StartedIn(ShiftRow row, DateOnly from, DateOnly to)
+    {
+        var day = DateOnly.FromDateTime(row.ClockInUtc.ToLocalTime().DateTime);
+        return day >= from && day <= to;
+    }
+
+    private bool CanCorrect(ShiftRow shift) =>
+        shift.EmployeeId == Me.Id
+            ? Me.Role == EmployeeRole.Owner
+            : Roles.TryGetValue(shift.EmployeeId, out var role) && StaffRules.CanManage(Me.Role, role);
+
+    private void StartEdit(ShiftRow shift)
+    {
+        Editing = shift;
+        EditIn = shift.ClockInUtc.ToLocalTime().DateTime;
+        EditStillOn = shift.IsOpen && Now - shift.ClockInUtc <= Timesheet.LongestShift;
+        EditOut = (shift.ClockOutUtc ?? (EditStillOn ? Now : shift.ClockInUtc.AddHours(8))).ToLocalTime().DateTime;
+        Message = null;
+    }
+
+    private async Task SaveShiftAsync()
+    {
+        if (Editing is null) return;
+        Busy = true;
+        try
+        {
+            var clockIn = Utc(EditIn);
+            DateTimeOffset? clockOut = EditStillOn ? null : Utc(EditOut);
+            var result = await Shifts.CorrectAsync(Me, Editing.Id, clockIn, clockOut);
+            if (!result.Succeeded)
+            {
+                Show(result.Message, true);
+                return;
+            }
+
+            await Journal.WriteAsync(JournalEventType.ShiftCorrected,
+                $"Shift for {Editing.EmployeeName} changed: in {clockIn.ToLocalTime():ddd d MMM h:mm tt}, " +
+                (clockOut is { } o ? $"out {o.ToLocalTime():ddd d MMM h:mm tt}" : "still on shift") +
+                $" (was in {Editing.ClockInUtc.ToLocalTime():ddd d MMM h:mm tt}, " +
+                (Editing.ClockOutUtc is { } was ? $"out {was.ToLocalTime():ddd d MMM h:mm tt})" : "not clocked out)"));
+            Show(result.Message, false);
+            Editing = null;
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            Show("Could not save the shift. Details are in the log file.", true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private async Task ExportAsync()
+    {
+        Busy = true;
+        try
+        {
+            var from = DateOnly.FromDateTime(FromDate);
+            var to = DateOnly.FromDateTime(ToDate);
+            var csv = Timesheet.ToCsv(Rows.Where(r => StartedIn(r, from, to)), TimeZoneInfo.Local);
+            var name = $"Timesheet {from:yyyy-MM-dd} to {to:yyyy-MM-dd}.csv";
+            var path = await Files.SaveAsync(name, Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(csv)).ToArray());
+            Show($"Saved {Path.GetFileName(path)}.", false);
+            SavedPath = path;
+        }
+        catch (Exception)
+        {
+            Show("Could not save the CSV. Check the report folder on Manage → Reports.", true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private static DateTimeOffset Utc(DateTime local) =>
+        new DateTimeOffset(DateTime.SpecifyKind(local, DateTimeKind.Unspecified), TimeZoneInfo.Local.GetUtcOffset(local)).ToUniversalTime();
+
+    private static string HoursText(double hours)
+    {
+        var span = TimeSpan.FromHours(hours);
+        return $"{(int)span.TotalHours}h {span.Minutes:00}m";
+    }
+
+    private void Show(string text, bool error)
+    {
+        (Message, IsError) = (text, error);
+        SavedPath = null;
+    }
+}

@@ -71,12 +71,12 @@ public sealed class StaffServiceTests : IDisposable
         var (staff, db) = Service();
         await using var _ = db;
 
-        Assert.True((await staff.AddAsync(_owner, "  Sita Gurung ", EmployeeRole.Cashier, "5807")).Succeeded);
+        Assert.True((await staff.AddAsync(_owner, new StaffProfile("  Sita Gurung ", EmployeeRole.Cashier), "5807")).Succeeded);
         Assert.Equal("Sita Gurung", (await SignInAsync("5807"))!.FullName);
 
-        var clash = await staff.AddAsync(_owner, "Ram Thapa", EmployeeRole.Cashier, "5807");
+        var clash = await staff.AddAsync(_owner, new StaffProfile("Ram Thapa", EmployeeRole.Cashier), "5807");
         Assert.False(clash.Succeeded);
-        Assert.False((await staff.AddAsync(_owner, "Ram Thapa", EmployeeRole.Cashier, "1111")).Succeeded);   // starting PIN
+        Assert.False((await staff.AddAsync(_owner, new StaffProfile("Ram Thapa", EmployeeRole.Cashier), "1111")).Succeeded);   // starting PIN
     }
 
     [Fact]
@@ -85,7 +85,7 @@ public sealed class StaffServiceTests : IDisposable
         var (staff, db) = Service();
         await using var _ = db;
 
-        var result = await staff.UpdateAsync(_owner, _cashierId, "Test Cashier", EmployeeRole.Cashier, isActive: false);
+        var result = await staff.UpdateAsync(_owner, _cashierId, new StaffProfile("Test Cashier", EmployeeRole.Cashier), isActive: false);
 
         Assert.True(result.Succeeded, result.Message);
         Assert.Null(await SignInAsync("1111"));
@@ -96,12 +96,12 @@ public sealed class StaffServiceTests : IDisposable
     {
         var (staff, db) = Service();
         await using var _ = db;
-        Assert.True((await staff.AddAsync(_owner, "Hari Manager", EmployeeRole.Manager, "7351")).Succeeded);
+        Assert.True((await staff.AddAsync(_owner, new StaffProfile("Hari Manager", EmployeeRole.Manager), "7351")).Succeeded);
         var manager = new StaffActor((await staff.ListAsync()).Single(p => p.FullName == "Hari Manager").Id, EmployeeRole.Manager);
 
-        Assert.False((await staff.UpdateAsync(manager, _cashierId, "Test Cashier", EmployeeRole.Manager, true)).Succeeded);
+        Assert.False((await staff.UpdateAsync(manager, _cashierId, new StaffProfile("Test Cashier", EmployeeRole.Manager), true)).Succeeded);
         Assert.False((await staff.SetPinAsync(manager, _owner.Id, "9026")).Succeeded);
-        Assert.False((await staff.UpdateAsync(manager, manager.Id, "Hari Manager", EmployeeRole.Owner, true)).Succeeded);
+        Assert.False((await staff.UpdateAsync(manager, manager.Id, new StaffProfile("Hari Manager", EmployeeRole.Owner), true)).Succeeded);
         Assert.True((await staff.SetPinAsync(manager, _cashierId, "9026")).Succeeded);
         Assert.True((await staff.SetPinAsync(manager, manager.Id, "3519")).Succeeded);   // their own
     }
@@ -111,11 +111,11 @@ public sealed class StaffServiceTests : IDisposable
     {
         var (staff, db) = Service();
         await using var _ = db;
-        Assert.True((await staff.AddAsync(_owner, "Second Owner", EmployeeRole.Owner, "8264")).Succeeded);
+        Assert.True((await staff.AddAsync(_owner, new StaffProfile("Second Owner", EmployeeRole.Owner), "8264")).Succeeded);
         var second = new StaffActor((await staff.ListAsync()).Single(p => p.FullName == "Second Owner").Id, EmployeeRole.Owner);
 
-        Assert.True((await staff.UpdateAsync(second, _owner.Id, "Store Owner", EmployeeRole.Owner, isActive: false)).Succeeded);
-        Assert.False((await staff.UpdateAsync(second, second.Id, "Second Owner", EmployeeRole.Manager, true)).Succeeded);   // own role
+        Assert.True((await staff.UpdateAsync(second, _owner.Id, new StaffProfile("Store Owner", EmployeeRole.Owner), isActive: false)).Succeeded);
+        Assert.False((await staff.UpdateAsync(second, second.Id, new StaffProfile("Second Owner", EmployeeRole.Manager), true)).Succeeded);   // own role
     }
 
     [Fact]
@@ -123,14 +123,31 @@ public sealed class StaffServiceTests : IDisposable
     {
         var (staff, db) = Service();
         await using var _ = db;
-        Assert.True((await staff.AddAsync(_owner, "Second Owner", EmployeeRole.Owner, "8264")).Succeeded);
+        Assert.True((await staff.AddAsync(_owner, new StaffProfile("Second Owner", EmployeeRole.Owner), "8264")).Succeeded);
         var second = new StaffActor((await staff.ListAsync()).Single(p => p.FullName == "Second Owner").Id, EmployeeRole.Owner);
-        Assert.True((await staff.UpdateAsync(_owner, second.Id, "Second Owner", EmployeeRole.Owner, isActive: false)).Succeeded);
+        Assert.True((await staff.UpdateAsync(_owner, second.Id, new StaffProfile("Second Owner", EmployeeRole.Owner), isActive: false)).Succeeded);
 
         // Second owner is off: the remaining owner can't be demoted by the (now inactive) second owner.
-        var result = await staff.UpdateAsync(second, _owner.Id, "Store Owner", EmployeeRole.Manager, true);
+        var result = await staff.UpdateAsync(second, _owner.Id, new StaffProfile("Store Owner", EmployeeRole.Manager), true);
         Assert.False(result.Succeeded);
         Assert.Contains("always be an owner", result.Message);
+    }
+
+    [Fact]
+    public async Task Contact_and_pay_details_are_saved_and_checked()
+    {
+        var (staff, db) = Service();
+        await using var _ = db;
+
+        var added = await staff.AddAsync(_owner, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, " 0412 345 678 ", "sita@example.com", new DateOnly(2026, 11, 2), 28.50m), "5807");
+        Assert.True(added.Succeeded, added.Message);
+        var sita = (await staff.ListAsync()).Single(p => p.FullName == "Sita Gurung");
+        Assert.Equal(("0412 345 678", "sita@example.com", new DateOnly(2026, 11, 2), 28.50m), (sita.Phone, sita.Email, sita.StartDate, sita.HourlyRate));
+
+        Assert.False((await staff.UpdateAsync(_owner, sita.Id, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, Email: "not-an-email"), true)).Succeeded);
+        Assert.False((await staff.UpdateAsync(_owner, sita.Id, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, HourlyRate: -1), true)).Succeeded);
+        Assert.True((await staff.UpdateAsync(_owner, sita.Id, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, Phone: "  "), true)).Succeeded);
+        Assert.Null((await staff.ListAsync()).Single(p => p.Id == sita.Id).Phone);
     }
 
     public void Dispose() => _connection.Dispose();

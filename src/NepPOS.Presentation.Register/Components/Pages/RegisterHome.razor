@@ -50,6 +50,9 @@
             {
                 <button class="manage-link" @onclick="NoSaleAsync" disabled="@Paying">No sale</button>
             }
+            <button class="manage-link @(ClockedInSince is null ? "" : "on-shift")" @onclick="ToggleClockAsync" disabled="@(Paying || ClockBusy)">
+                @(ClockedInSince is { } since ? $"Clock out (in {since.ToLocalTime():h:mm tt})" : "Clock in")
+            </button>
             <button class="manage-link" @onclick="SignOutAsync" disabled="@Paying">Sign out</button>
         </div>
     </div>
@@ -630,6 +633,7 @@
     [Inject] private ICheckoutService Checkout { get; set; } = default!;
     [Inject] private RegisterTerminal Terminal { get; set; } = default!;
     [Inject] private IJournal Journal { get; set; } = default!;
+    [Inject] private NepPOS.Application.Authentication.IShiftService Shifts { get; set; } = default!;
     [Inject] private ILocalHardwareService Hardware { get; set; } = default!;
     [Inject] private IRegisterSettingsStore SettingsStore { get; set; } = default!;
 
@@ -653,7 +657,55 @@
         await LoadHomeAsync();
         ActivePromotions = await PromotionService.ActiveAsync();
         HeldCount = (await HeldSales.ListAsync()).Count;
+        await LoadClockAsync();
         _ = WatchWebOrdersAsync(_stop.Token);
+    }
+
+    // Clock in / out (Manage → Timesheets). Separate from signing in: staff sign in and out between
+    // customers, but clock in once when their shift starts and out when it ends.
+    private DateTimeOffset? ClockedInSince;
+    private bool ClockBusy;
+
+    private async Task LoadClockAsync()
+    {
+        try
+        {
+            ClockedInSince = Session.Employee is { } me ? (await Shifts.OpenShiftAsync(me.Id))?.ClockInUtc : null;
+        }
+        catch (Exception)
+        {
+            ClockedInSince = null;   // timesheets are a convenience; never block the register
+        }
+    }
+
+    private async Task ToggleClockAsync()
+    {
+        if (Session.Employee is not { } me || ClockBusy) return;
+
+        ClockBusy = true;
+        try
+        {
+            var clockingIn = ClockedInSince is null;
+            var result = clockingIn ? await Shifts.ClockInAsync(me.Id, Terminal.RegisterId) : await Shifts.ClockOutAsync(me.Id);
+            if (result.Succeeded)
+            {
+                await Journal.WriteAsync(clockingIn ? JournalEventType.ClockIn : JournalEventType.ClockOut, result.Message);
+                ScanError = null;
+            }
+            else
+            {
+                ScanError = result.Message;
+            }
+            await LoadClockAsync();
+        }
+        catch (Exception)
+        {
+            ScanError = "Couldn't save the clock-in. Try again, or tell a manager.";
+        }
+        finally
+        {
+            ClockBusy = false;
+        }
     }
 
     private readonly CancellationTokenSource _stop = new();

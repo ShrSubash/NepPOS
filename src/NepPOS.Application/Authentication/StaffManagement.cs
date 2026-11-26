@@ -3,7 +3,25 @@ using NepPOS.Domain.Enums;
 namespace NepPOS.Application.Authentication;
 
 /// <summary>A staff member as shown on Manage → Staff &amp; PINs. The PIN itself is never read back.</summary>
-public sealed record StaffMember(int Id, string FullName, EmployeeRole Role, bool IsActive, bool UsesStartingPin);
+public sealed record StaffMember(
+    int Id,
+    string FullName,
+    EmployeeRole Role,
+    bool IsActive,
+    bool UsesStartingPin,
+    string? Phone = null,
+    string? Email = null,
+    DateOnly? StartDate = null,
+    decimal? HourlyRate = null);
+
+/// <summary>What a manager types about a person. Phone, email, start date and pay are optional.</summary>
+public sealed record StaffProfile(
+    string FullName,
+    EmployeeRole Role,
+    string? Phone = null,
+    string? Email = null,
+    DateOnly? StartDate = null,
+    decimal? HourlyRate = null);
 
 /// <summary>Who is making the change (the signed-in manager or owner).</summary>
 public sealed record StaffActor(int Id, EmployeeRole Role);
@@ -20,9 +38,9 @@ public interface IStaffService
 {
     Task<IReadOnlyList<StaffMember>> ListAsync(CancellationToken cancellationToken = default);
 
-    Task<StaffResult> AddAsync(StaffActor actor, string fullName, EmployeeRole role, string pin, CancellationToken cancellationToken = default);
+    Task<StaffResult> AddAsync(StaffActor actor, StaffProfile profile, string pin, CancellationToken cancellationToken = default);
 
-    Task<StaffResult> UpdateAsync(StaffActor actor, int employeeId, string fullName, EmployeeRole role, bool isActive, CancellationToken cancellationToken = default);
+    Task<StaffResult> UpdateAsync(StaffActor actor, int employeeId, StaffProfile profile, bool isActive, CancellationToken cancellationToken = default);
 
     Task<StaffResult> SetPinAsync(StaffActor actor, int employeeId, string pin, CancellationToken cancellationToken = default);
 }
@@ -62,6 +80,25 @@ public static class StaffRules
         var name = fullName?.Trim() ?? "";
         if (name.Length == 0) return "Enter the person's name.";
         if (name.Length > MaxNameLength) return $"Names are up to {MaxNameLength} characters.";
+        return null;
+    }
+
+    public const int MaxPhoneLength = 40;
+    public const int MaxEmailLength = 200;
+    public const decimal MaxHourlyRate = 1000m;
+
+    /// <summary>Why the optional details can't be saved, or null when they're fine.</summary>
+    public static string? DetailsProblem(StaffProfile profile)
+    {
+        ArgumentNullException.ThrowIfNull(profile);
+        var phone = profile.Phone?.Trim() ?? "";
+        var email = profile.Email?.Trim() ?? "";
+        if (phone.Length > MaxPhoneLength || phone.Any(c => !(char.IsAsciiDigit(c) || c is ' ' or '+' or '(' or ')' or '-')))
+            return "Enter the phone number with digits only, e.g. 0412 345 678.";
+        if (email.Length > MaxEmailLength || (email.Length > 0 && (!email.Contains('@') || email.StartsWith('@') || email.EndsWith('@') || email.Contains(' '))))
+            return "Check the email address.";
+        if (profile.HourlyRate is < 0 or > MaxHourlyRate)
+            return $"The hourly rate is between $0 and ${MaxHourlyRate:0}.";
         return null;
     }
 

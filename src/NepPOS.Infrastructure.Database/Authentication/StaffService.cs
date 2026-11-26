@@ -26,18 +26,23 @@ public sealed class StaffService : IStaffService
             .ThenByDescending(e => e.Role)
             .ThenBy(e => e.FullName)
             .Select(e => new StaffMember(e.Id, e.FullName, e.Role, e.IsActive,
-                e.IsActive && StaffRules.StartingPins.Any(pin => PinHasher.Verify(pin, e.PinSalt, e.PinHash))))
+                e.IsActive && StaffRules.StartingPins.Any(pin => PinHasher.Verify(pin, e.PinSalt, e.PinHash)),
+                e.Phone, e.Email, e.StartDate, e.HourlyRate))
             .ToList();
     }
 
-    public async Task<StaffResult> AddAsync(StaffActor actor, string fullName, EmployeeRole role, string pin, CancellationToken cancellationToken = default)
+    public async Task<StaffResult> AddAsync(StaffActor actor, StaffProfile profile, string pin, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(profile);
+        var (fullName, role) = (profile.FullName, profile.Role);
 
         if (!StaffRules.CanManage(actor.Role, role))
             return StaffResult.Refused($"Only an owner can add a {StaffRules.Describe(role).ToLowerInvariant()}.");
         if (StaffRules.NameProblem(fullName) is { } nameProblem)
             return StaffResult.Refused(nameProblem);
+        if (StaffRules.DetailsProblem(profile) is { } detailsProblem)
+            return StaffResult.Refused(detailsProblem);
         if (StaffRules.PinProblem(pin) is { } pinProblem)
             return StaffResult.Refused(pinProblem);
         if (StaffRules.StartingPins.Contains(pin))
@@ -47,22 +52,28 @@ public sealed class StaffService : IStaffService
 
         var (hash, salt) = PinHasher.Hash(pin);
         var name = fullName.Trim();
-        _db.Employees.Add(new Employee { FullName = name, Role = role, PinHash = hash, PinSalt = salt, IsActive = true });
+        var employee = new Employee { Role = role, PinHash = hash, PinSalt = salt, IsActive = true };
+        Apply(employee, profile);
+        _db.Employees.Add(employee);
         await _db.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Staff member added: {Name} ({Role})", name, role);
         return StaffResult.Done($"{name} added. They can sign in with their PIN now.");
     }
 
-    public async Task<StaffResult> UpdateAsync(StaffActor actor, int employeeId, string fullName, EmployeeRole role, bool isActive, CancellationToken cancellationToken = default)
+    public async Task<StaffResult> UpdateAsync(StaffActor actor, int employeeId, StaffProfile profile, bool isActive, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(actor);
+        ArgumentNullException.ThrowIfNull(profile);
+        var (fullName, role) = (profile.FullName, profile.Role);
 
         var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId, cancellationToken);
         if (employee is null)
             return StaffResult.Refused("That staff member wasn't found.");
         if (StaffRules.NameProblem(fullName) is { } nameProblem)
             return StaffResult.Refused(nameProblem);
+        if (StaffRules.DetailsProblem(profile) is { } detailsProblem)
+            return StaffResult.Refused(detailsProblem);
 
         var self = employee.Id == actor.Id;
         if (self && role != employee.Role)
@@ -76,7 +87,7 @@ public sealed class StaffService : IStaffService
         if (losesOwner && !await _db.Employees.AnyAsync(e => e.Id != employee.Id && e.Role == EmployeeRole.Owner && e.IsActive, cancellationToken))
             return StaffResult.Refused("There must always be an owner who can sign in. Make someone else an owner first.");
 
-        employee.FullName = fullName.Trim();
+        Apply(employee, profile);
         employee.Role = role;
         employee.IsActive = isActive;
         await _db.SaveChangesAsync(cancellationToken);
@@ -107,6 +118,17 @@ public sealed class StaffService : IStaffService
         _logger.LogInformation("PIN changed for staff member {Id}", employee.Id);
         return StaffResult.Done($"PIN changed for {employee.FullName}.");
     }
+
+    private static void Apply(Employee employee, StaffProfile profile)
+    {
+        employee.FullName = profile.FullName.Trim();
+        employee.Phone = Blank(profile.Phone);
+        employee.Email = Blank(profile.Email);
+        employee.StartDate = profile.StartDate;
+        employee.HourlyRate = profile.HourlyRate;
+    }
+
+    private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     // PINs are salted hashes, so the only way to find a clash is to try the PIN against each person.
     // Inactive staff count too, so turning someone back on can never create two people with one PIN.

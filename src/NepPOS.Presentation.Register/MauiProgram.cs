@@ -103,6 +103,7 @@ public static class MauiProgram
         builder.Services.AddSingleton<ICurrentOperator>(sp => sp.GetRequiredService<CurrentUserSession>());
         builder.Services.AddScoped<IAuthenticationService, PinAuthenticationService>();
         builder.Services.AddScoped<IStaffService, StaffService>();
+        builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<IProductCatalogService, ProductCatalogService>();
         builder.Services.AddSingleton<OnScreenKeyboardService>();
         builder.Services.AddScoped<IScanResolver, ProductScanResolver>();

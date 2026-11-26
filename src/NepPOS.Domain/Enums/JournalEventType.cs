@@ -53,5 +53,10 @@ public enum JournalEventType
     ZReport,
 
     /// <summary>Staff added or changed on Manage → Staff &amp; PINs (a PIN change says whose, never the PIN).</summary>
-    StaffChanged
+    StaffChanged,
+
+    /// <summary>Someone started or finished a shift (Timesheets), or a manager corrected one.</summary>
+    ClockIn,
+    ClockOut,
+    ShiftCorrected
 }

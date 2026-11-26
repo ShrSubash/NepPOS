@@ -337,3 +337,23 @@
     gap: 0.5rem;
     flex: none;
 }
+
+.two-col {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 0.9rem;
+}
+
+.contact {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 0.9rem;
+    margin-top: 0.3rem;
+    font-size: 0.8rem;
+    color: #6b6f8e;
+}
+
+.state.ok {
+    background: #e8f6ef;
+    color: #17734a;
+}

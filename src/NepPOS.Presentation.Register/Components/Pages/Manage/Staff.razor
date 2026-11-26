@@ -5,6 +5,7 @@
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IStaffService StaffService
+@inject IShiftService Shifts
 @inject IJournal Journal
 @inject CurrentUserSession Session
 @inject NavigationManager Nav
@@ -53,6 +54,32 @@ else
                             </select>
                             <span class="field-note">@RoleNote(Form.Role)</span>
                         </label>
+                    }
+
+                    @if (Editing != Mode.Pin)
+                    {
+                        <div class="two-col">
+                            <label>
+                                Mobile
+                                <input type="tel" inputmode="tel" @bind="Form.Phone" maxlength="@StaffRules.MaxPhoneLength" placeholder="0412 345 678" />
+                            </label>
+                            <label>
+                                Email
+                                <input type="email" @bind="Form.Email" maxlength="@StaffRules.MaxEmailLength" placeholder="name@example.com" />
+                            </label>
+                            <label>
+                                Start date
+                                <input type="date" @bind="Form.StartDate" />
+                            </label>
+                            @if (Me.Role == EmployeeRole.Owner)
+                            {
+                                <label>
+                                    Hourly rate ($)
+                                    <input type="number" min="0" max="@StaffRules.MaxHourlyRate" step="0.01" @bind="Form.HourlyRate" placeholder="e.g. 28.50" />
+                                </label>
+                            }
+                        </div>
+                        <span class="field-note">Optional. The hourly rate only estimates wages on Timesheets, and only owners see it.</span>
                     }
 
                     @if (Editing == Mode.Edit && !EditingSelf)
@@ -123,7 +150,19 @@ else
                                         {
                                             <span class="state bad">Starting PIN</span>
                                         }
+                                        @if (OnShift.TryGetValue(person.Id, out var since))
+                                        {
+                                            <span class="state ok">On shift since @since.ToLocalTime().ToString("h:mm tt")</span>
+                                        }
                                     </div>
+                                    @if (!string.IsNullOrEmpty(person.Phone) || !string.IsNullOrEmpty(person.Email) || person.StartDate is not null)
+                                    {
+                                        <div class="contact">
+                                            @if (!string.IsNullOrEmpty(person.Phone)) { <span>@person.Phone</span> }
+                                            @if (!string.IsNullOrEmpty(person.Email)) { <span>@person.Email</span> }
+                                            @if (person.StartDate is { } started) { <span>Started @started.ToString("d MMM yyyy")</span> }
+                                        </div>
+                                    }
                                 </div>
                             </div>
                             <div class="actions">
@@ -153,6 +192,7 @@ else
     private enum Mode { None, Add, Edit, Pin }
 
     private IReadOnlyList<StaffMember> People = Array.Empty<StaffMember>();
+    private Dictionary<int, DateTimeOffset> OnShift = new();
     private Mode Editing;
     private StaffMember? Target;
     private StaffForm Form = new();
@@ -186,6 +226,11 @@ else
         try
         {
             People = await StaffService.ListAsync();
+            var today = DateOnly.FromDateTime(DateTime.Today);
+            OnShift = (await Shifts.ListAsync(today, today))
+                .Where(s => s.IsOpen)
+                .GroupBy(s => s.EmployeeId)
+                .ToDictionary(g => g.Key, g => g.Min(s => s.ClockInUtc));
         }
         catch (Exception)
         {
@@ -206,7 +251,12 @@ else
     private void StartEdit(StaffMember person)
     {
         Target = person;
-        Form = new StaffForm { Name = person.FullName, Role = person.Role, IsActive = person.IsActive };
+        Form = new StaffForm
+        {
+            Name = person.FullName, Role = person.Role, IsActive = person.IsActive,
+            Phone = person.Phone ?? "", Email = person.Email ?? "",
+            StartDate = person.StartDate?.ToDateTime(TimeOnly.MinValue), HourlyRate = person.HourlyRate
+        };
         Editing = Mode.Edit;
         Message = null;
     }
@@ -241,8 +291,8 @@ else
         {
             var result = Editing switch
             {
-                Mode.Add => await StaffService.AddAsync(Me, Form.Name, Form.Role, Form.Pin),
-                Mode.Edit => await StaffService.UpdateAsync(Me, Target!.Id, Form.Name, Form.Role, Form.IsActive),
+                Mode.Add => await StaffService.AddAsync(Me, Profile(), Form.Pin),
+                Mode.Edit => await StaffService.UpdateAsync(Me, Target!.Id, Profile(), Form.IsActive),
                 _ => await StaffService.SetPinAsync(Me, Target!.Id, Form.Pin)
             };
 
@@ -273,6 +323,12 @@ else
         }
     }
 
+    // Only an owner sees or sets pay; anyone else keeps what is already saved.
+    private StaffProfile Profile() => new(
+        Form.Name, Form.Role, Form.Phone, Form.Email,
+        Form.StartDate is { } d ? DateOnly.FromDateTime(d) : null,
+        Me.Role == EmployeeRole.Owner ? Form.HourlyRate : Target?.HourlyRate);
+
     private static string RoleNote(EmployeeRole role) => role switch
     {
         EmployeeRole.Cashier => "Sells at the register. No access to Manage.",
@@ -301,5 +357,9 @@ else
         public bool IsActive { get; set; } = true;
         public string Pin { get; set; } = "";
         public string PinAgain { get; set; } = "";
+        public string Phone { get; set; } = "";
+        public string Email { get; set; } = "";
+        public DateTime? StartDate { get; set; }
+        public decimal? HourlyRate { get; set; }
     }
 }

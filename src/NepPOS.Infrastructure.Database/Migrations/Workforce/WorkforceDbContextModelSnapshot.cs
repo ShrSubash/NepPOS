@@ -23,13 +23,24 @@ namespace NepPOS.Infrastructure.Database.Migrations.Workforce
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Email")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("FullName")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("TEXT");
 
+                    b.Property<decimal?>("HourlyRate")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("PinHash")
                         .IsRequired()
@@ -41,6 +52,9 @@ namespace NepPOS.Infrastructure.Database.Migrations.Workforce
 
                     b.Property<int>("Role")
                         .HasColumnType("INTEGER");
+
+                    b.Property<DateOnly?>("StartDate")
+                        .HasColumnType("TEXT");
 
                     b.HasKey("Id");
 
