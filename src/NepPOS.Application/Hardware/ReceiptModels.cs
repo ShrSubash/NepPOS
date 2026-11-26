@@ -110,6 +110,24 @@ public sealed record RegisterSettings
 
     /// <summary>Discounts by hand (Manage → Promotions).</summary>
     public DiscountSettings Discounts { get; init; } = new();
+
+    /// <summary>Deli and meat labels with the price in the barcode (Manage → Till options).</summary>
+    public Scanning.PriceBarcodeSettings PriceBarcodes { get; init; } = new();
+
+    /// <summary>The screen facing the customer (Manage → Till options).</summary>
+    public CustomerDisplaySettings CustomerDisplay { get; init; } = new();
+}
+
+/// <summary>A second screen that faces the customer: what they're buying, the total and their change.</summary>
+public sealed record CustomerDisplaySettings
+{
+    public bool Enabled { get; init; }
+
+    /// <summary>Shown in large type while no sale is going, e.g. "Welcome to Hamro Grocery".</summary>
+    public string Welcome { get; init; } = "Welcome";
+
+    /// <summary>Lines shown in turn while idle, one per line, e.g. this week's specials.</summary>
+    public string IdleMessages { get; init; } = "";
 }
 
 public enum ReceiptAlign

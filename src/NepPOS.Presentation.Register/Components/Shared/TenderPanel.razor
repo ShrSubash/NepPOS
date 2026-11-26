@@ -13,6 +13,9 @@
 @inject NepPOS.Application.Sales.IGiftCardService GiftCards
 @inject NepPOS.Application.Customers.ICustomerService Customers
 @inject NepPOS.Presentation.Register.Services.CurrentUserSession Session
+@inject NepPOS.Application.Email.IEmailSettingsStore EmailSettingsStore
+@inject NepPOS.Application.Email.IEmailOutbox EmailOutbox
+@inject NepPOS.Presentation.Register.Services.CustomerDisplayState Display
 
 @* Full-screen tender overlay opened by the Charge button. It only closes itself once the sale is saved. *@
 <div class="tender-overlay">
@@ -49,8 +52,21 @@
                             </button>
                         }
                     }
+                    @if (_canEmail)
+                    {
+                        <button class="btn-back" disabled="@_emailing" @onclick="() => _emailOpen = !_emailOpen">
+                            @(_emailSent ? "Email again" : "Email receipt")
+                        </button>
+                    }
                     <button class="btn-grad big" @onclick="() => OnFinished.InvokeAsync()">New Sale</button>
                 </div>
+                @if (_emailOpen)
+                {
+                    <div class="email-row">
+                        <input type="email" inputmode="email" placeholder="customer@example.com" @bind="_emailTo" @bind:event="oninput" />
+                        <button class="btn-back" disabled="@_emailing" @onclick="EmailReceiptAsync">@(_emailing ? "Sending…" : "Send")</button>
+                    </div>
+                }
             </div>
         }
         else
@@ -315,6 +331,7 @@
         _printThisSale = settings.Printer.AutoPrint;
         _cardSlipMode = settings.Printer.CustomerCardSlip;
         _paymentTypes = settings.PaymentTypes;
+        InitEmailReceipt();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -518,6 +535,7 @@
         {
             _invoiceNumber = await CompleteSale(_session);
             _stage = Stage.Done;
+            Display.ShowPaid(Sale.GrandTotal, _session.Paid, _session.ChangeDue);
             await Journal.WriteAsync(JournalEventType.SaleCompleted,
                 $"Invoice #{_invoiceNumber}: {Sale.LineItems.Count} line(s). {PaymentSummary()}",
                 Sale.Id, _invoiceNumber, _session.SaleTotal);
@@ -561,6 +579,57 @@
         var slips = CardSlips.CustomerCopiesToPrintNow(_session.Payments, printer);
         if (slips.Count > 0)
             await PrintSlipsAsync(slips, printer.LineWidth);
+    }
+
+    // ---- Email receipt (Manage → Email must have a server and a from address) ----
+
+    private bool _canEmail;
+    private bool _emailOpen;
+    private bool _emailing;
+    private bool _emailSent;
+    private string _emailTo = "";
+
+    private void InitEmailReceipt()
+    {
+        try
+        {
+            _canEmail = NepPOS.Application.Email.ReceiptEmail.CanSend(EmailSettingsStore.Load());
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Couldn't read the email settings; email receipts are off for this sale");
+        }
+        _emailTo = Customer?.Email ?? "";
+    }
+
+    private async Task EmailReceiptAsync()
+    {
+        if (NepPOS.Application.Email.ReceiptEmail.AddressProblem(_emailTo) is { } problem)
+        {
+            (_hardwareMessage, _hardwareError) = (problem, true);
+            return;
+        }
+
+        _emailing = true;
+        try
+        {
+            var settings = SettingsStore.Load();
+            var receipt = ReceiptBuilder.Build(Sale, settings.Store, settings.Printer.LineWidth, reprint: false, settings.Returns.ReceiptNote);
+            await EmailOutbox.QueueAsync(NepPOS.Application.Email.ReceiptEmail.Build(receipt, settings.Store.BusinessName, _invoiceNumber, _emailTo));
+            await Journal.WriteAsync(JournalEventType.ReceiptReprinted, $"Receipt #{_invoiceNumber} emailed", Sale.Id, _invoiceNumber);
+            (_hardwareMessage, _hardwareError) = ($"Receipt sent to {_emailTo.Trim()}.", false);
+            _emailSent = true;
+            _emailOpen = false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Emailing receipt #{Invoice} failed", _invoiceNumber);
+            (_hardwareMessage, _hardwareError) = ("Couldn't queue the email. Print the receipt instead.", true);
+        }
+        finally
+        {
+            _emailing = false;
+        }
     }
 
     private async Task PrintReceiptAsync()

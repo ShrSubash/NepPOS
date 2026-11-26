@@ -1,0 +1,176 @@
+@page "/manage/till-options"
+@layout ManageLayout
+@using NepPOS.Application.Email
+@using NepPOS.Application.Hardware
+@using NepPOS.Application.Journal
+@using NepPOS.Application.Scanning
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IRegisterSettingsStore SettingsStore
+@inject IEmailSettingsStore EmailSettingsStore
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Till options</span>
+            <button class="save-btn" @onclick="SaveAsync">Save</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+            <section class="card">
+                <h2>Customer display <span class="hint">a second screen facing the customer</span></h2>
+                <label class="check"><input type="checkbox" @bind="Display.Enabled" /> Show the basket, total and change on the second monitor</label>
+                <span class="field-note @(Monitors < 2 ? "bad" : "ok")">
+                    @(Monitors < 2 ? "Only one monitor is connected now. Plug in the second screen, then save." : $"{Monitors} monitors connected. The display opens full screen on the one the till isn't on.")
+                </span>
+                <label>Welcome line <input @bind="Display.Welcome" maxlength="60" placeholder="Welcome to Hamro Grocery" /></label>
+                <label>
+                    Messages while no one is paying (one per line, shown in turn)
+                    <textarea rows="4" @bind="Display.IdleMessages" placeholder="Basmati rice 5kg $18 this week&#10;Earn points online: hamrogrocerymarket.com.au"></textarea>
+                </label>
+            </section>
+
+            <section class="card">
+                <h2>Price barcodes <span class="hint">deli and meat labels</span></h2>
+                <label class="check"><input type="checkbox" @bind="Prices.Enabled" /> Read the price from labels starting with @Prices.FirstPrefix–@Prices.LastPrefix</label>
+                <span class="field-note">For labels printed by a trade-approved label scale. The label's item code is matched to a product's PLU, and the price on the label is charged.</span>
+                <div class="two-col">
+                    <label>First prefix <input maxlength="2" @bind="Prices.FirstPrefix" /></label>
+                    <label>Last prefix <input maxlength="2" @bind="Prices.LastPrefix" /></label>
+                    <label>Item code digits <input type="number" min="3" max="7" @bind="Prices.ItemDigits" /></label>
+                </div>
+                <label>
+                    Test a label
+                    <input inputmode="numeric" maxlength="13" placeholder="Scan or type a 13-digit label" @bind="TestCode" @bind:event="oninput" />
+                    <span class="field-note @(TestResult.StartsWith("PLU") ? "ok" : "")">@TestResult</span>
+                </label>
+            </section>
+
+            <section class="card">
+                <h2>Email receipts</h2>
+                @if (ReceiptEmail.CanSend(EmailSettingsStore.Load()))
+                {
+                    <span class="field-note ok">On. After a sale, tap Email receipt. The customer's email is filled in when a customer is on the sale.</span>
+                }
+                else
+                {
+                    <span class="field-note bad">Off until the email server is set up.</span>
+                    <div class="test-row"><button class="chip" @onclick='() => Nav.NavigateTo("/manage/email")'>Set up email</button></div>
+                }
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private DisplayForm Display = new();
+    private PriceForm Prices = new();
+    private string TestCode = "";
+    private int Monitors = 1;
+    private string? Message;
+    private bool IsError;
+
+    private string TestResult
+    {
+        get
+        {
+            var code = TestCode.Trim();
+            if (code.Length == 0) return "";
+            if (code.Length != PriceBarcodes.Length) return $"{code.Length} of 13 digits.";
+            if (!PriceBarcodes.HasValidCheckDigit(code)) return "The last digit doesn't check out: mistyped, or not an EAN-13 label.";
+            return PriceBarcodes.TryRead(code, Prices.ToSettings() with { Enabled = true }, out var item, out var price)
+                ? $"PLU {item} at {price:C}"
+                : "Not a price label with these settings.";
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        var settings = SettingsStore.Load();
+        Display = DisplayForm.From(settings.CustomerDisplay);
+        Prices = PriceForm.From(settings.PriceBarcodes);
+        Monitors = CustomerDisplayWindow.MonitorCount();
+    }
+
+    private async Task SaveAsync()
+    {
+        var prices = Prices.ToSettings();
+        if (!IsPrefix(prices.FirstPrefix) || !IsPrefix(prices.LastPrefix) || string.CompareOrdinal(prices.FirstPrefix, prices.LastPrefix) > 0)
+        {
+            (Message, IsError) = ("Prefixes are two digits from 20 to 29, first ≤ last.", true);
+            return;
+        }
+        if (prices.ItemDigits is < 3 or > 7)
+        {
+            (Message, IsError) = ("Item code digits is 3 to 7.", true);
+            return;
+        }
+
+        try
+        {
+            var current = SettingsStore.Load();
+            SettingsStore.Save(current with { CustomerDisplay = Display.ToSettings(), PriceBarcodes = prices });
+            Monitors = CustomerDisplayWindow.MonitorCount();
+            CustomerDisplayWindow.Refresh();
+            await Journal.WriteAsync(JournalEventType.SettingsChanged,
+                $"Till options saved: customer display {(Display.Enabled ? "on" : "off")}, price barcodes {(prices.Enabled ? $"on ({prices.FirstPrefix}-{prices.LastPrefix}, {prices.ItemDigits}-digit item code)" : "off")}");
+            (Message, IsError) = ("Saved.", false);
+        }
+        catch (Exception)
+        {
+            (Message, IsError) = ("Could not save the settings. Details are in the log file.", true);
+        }
+    }
+
+    private static bool IsPrefix(string value) => value.Length == 2 && value[0] == '2' && char.IsAsciiDigit(value[1]);
+
+    private sealed class DisplayForm
+    {
+        public bool Enabled { get; set; }
+        public string Welcome { get; set; } = "";
+        public string IdleMessages { get; set; } = "";
+
+        public static DisplayForm From(CustomerDisplaySettings s) => new() { Enabled = s.Enabled, Welcome = s.Welcome, IdleMessages = s.IdleMessages };
+
+        public CustomerDisplaySettings ToSettings() => new()
+        {
+            Enabled = Enabled,
+            Welcome = string.IsNullOrWhiteSpace(Welcome) ? "Welcome" : Welcome.Trim(),
+            IdleMessages = IdleMessages.Trim()
+        };
+    }
+
+    private sealed class PriceForm
+    {
+        public bool Enabled { get; set; }
+        public string FirstPrefix { get; set; } = "20";
+        public string LastPrefix { get; set; } = "29";
+        public int ItemDigits { get; set; } = 5;
+
+        public static PriceForm From(PriceBarcodeSettings s) => new() { Enabled = s.Enabled, FirstPrefix = s.FirstPrefix, LastPrefix = s.LastPrefix, ItemDigits = s.ItemDigits };
+
+        public PriceBarcodeSettings ToSettings() => new()
+        {
+            Enabled = Enabled,
+            FirstPrefix = FirstPrefix.Trim(),
+            LastPrefix = LastPrefix.Trim(),
+            ItemDigits = ItemDigits
+        };
+    }
+}

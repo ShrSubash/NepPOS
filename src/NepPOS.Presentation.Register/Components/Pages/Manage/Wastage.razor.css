@@ -215,3 +215,8 @@
 .ws-lines tr { cursor: default; }
 .ws-qty { white-space: nowrap; }
 .ws-qty span { display: inline-block; min-width: 2rem; text-align: center; font-weight: 700; }
+
+.return-box { display: grid; gap: 0.7rem; margin: 0.6rem 0; padding: 0.9rem 1rem; border-radius: 10px; background: #f3f2ff; border: 1px solid #dcd8ff; }
+.return-box label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; font-weight: 600; color: #6b6f8e; }
+.return-box label.check { flex-direction: row; align-items: center; gap: 0.6rem; font-size: 0.9rem; color: #14162b; }
+.return-box select, .return-box input:not([type=checkbox]) { border: 1px solid #e0e2ee; border-radius: 8px; padding: 0.55rem 0.7rem; font-size: 0.95rem; min-height: 40px; }

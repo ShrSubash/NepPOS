@@ -5,6 +5,7 @@
 @using NepPOS.Domain.Enums
 @using NepPOS.Presentation.Register.Services
 @inject IWastageService WastageService
+@inject NepPOS.Application.Suppliers.ISupplierAccountService SupplierAccounts
 @inject ILocalHardwareService Hardware
 @inject IRegisterSettingsStore SettingsStore
 @inject CurrentUserSession Session
@@ -87,13 +88,35 @@ else
                     </div>
                     <input @bind="Reason" placeholder="Or type the reason" />
 
+                    @if (IsSupplierReturn)
+                    {
+                        <div class="return-box">
+                            <label>
+                                Returned to
+                                <select @bind="ReturnSupplierId">
+                                    <option value="0">Choose the supplier…</option>
+                                    @foreach (var s in Suppliers)
+                                    {
+                                        <option value="@s.Id">@s.Name</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>Their return or credit note number <input @bind="ReturnReference" maxlength="50" placeholder="e.g. RA-20431" /></label>
+                            <label class="check">
+                                <input type="checkbox" @bind="AddCredit" />
+                                Take @Lines.Sum(l => l.ToLine().Cost).ToString("C") (cost) off what we owe them
+                            </label>
+                            <span class="field-note">The stock comes off now. The credit shows on Manage → Suppliers; change it there if their credit note is a different amount.</span>
+                        </div>
+                    }
+
                     <div class="test-row">
                         @if (PrinterOn)
                         {
                             <label class="check"><input type="checkbox" @bind="PrintDocket" /> Print the docket</label>
                         }
-                        <button class="save-btn" disabled="@(Busy || string.IsNullOrWhiteSpace(Reason))" @onclick="RecordAsync">
-                            Write off @Lines.Sum(l => l.ToLine().Cost).ToString("C")
+                        <button class="save-btn" disabled="@(Busy || string.IsNullOrWhiteSpace(Reason) || (IsSupplierReturn && ReturnSupplierId == 0))" @onclick="RecordAsync">
+                            @(IsSupplierReturn ? "Return" : "Write off") @Lines.Sum(l => l.ToLine().Cost).ToString("C")
                         </button>
                         <button class="chip" @onclick="() => Lines.Clear()">Clear</button>
                     </div>
@@ -155,6 +178,13 @@ else
     private readonly List<LineForm> Lines = new();
     private string Reason = "";
     private bool PrinterOn;
+
+    // Supplier returns: the stock goes back, and (usually) what we owe them goes down by its cost.
+    private IReadOnlyList<NepPOS.Domain.Entities.Supplier> Suppliers = Array.Empty<NepPOS.Domain.Entities.Supplier>();
+    private int ReturnSupplierId;
+    private string ReturnReference = "";
+    private bool AddCredit = true;
+    private bool IsSupplierReturn => string.Equals(Reason.Trim(), NepPOS.Application.Stock.Wastage.SupplierReturn, StringComparison.OrdinalIgnoreCase);
     private bool PrintDocket = true;
     private int Days = 6;
     private IReadOnlyList<WastageEntry> History = Array.Empty<WastageEntry>();
@@ -174,6 +204,7 @@ else
     protected override async Task OnInitializedAsync()
     {
         PrinterOn = SettingsStore.Load().Printer.Mode != PrinterMode.None;
+        Suppliers = (await SupplierAccounts.ListAsync()).Select(r => r.Supplier).OrderBy(s => s.Name).ToList();
         await LoadHistoryAsync(Days);
     }
 
@@ -208,9 +239,19 @@ else
         {
             var lines = Lines.Select(l => l.ToLine()).ToList();
             var who = Session.Employee?.FullName;
-            var recorded = await WastageService.RecordAsync(lines, Reason, who);
-            (Message, IsError) = ($"Docket {recorded.Docket}: {recorded.Singles:0.##} items written off ({recorded.Cost:C} at cost)."
+            var supplier = IsSupplierReturn ? Suppliers.FirstOrDefault(s => s.Id == ReturnSupplierId) : null;
+            var reason = supplier is null ? Reason : NepPOS.Application.Stock.Wastage.SupplierReturnReason(supplier.Name);
+            var recorded = await WastageService.RecordAsync(lines, reason, who);
+            (Message, IsError) = ($"Docket {recorded.Docket}: {recorded.Singles:0.##} items {(supplier is null ? "written off" : $"returned to {supplier.Name}")} ({recorded.Cost:C} at cost)."
                 + (recorded.NegativeStock.Count > 0 ? $" Stock is now below zero for {string.Join(", ", recorded.NegativeStock)}: count it." : ""), false);
+
+            if (supplier is not null && AddCredit && recorded.Cost > 0)
+            {
+                var reference = string.IsNullOrWhiteSpace(ReturnReference) ? recorded.Docket : ReturnReference.Trim();
+                await SupplierAccounts.AddCreditAsync(supplier.Id, recorded.Cost, DateOnly.FromDateTime(DateTime.Today), reference,
+                    $"Stock returned, docket {recorded.Docket}", who);
+                Message += $" {recorded.Cost:C} credited to {supplier.Name}'s account.";
+            }
 
             if (PrinterOn && PrintDocket)
             {
@@ -223,6 +264,7 @@ else
 
             Lines.Clear();
             Reason = "";
+            (ReturnSupplierId, ReturnReference, AddCredit) = (0, "", true);
             await LoadHistoryAsync(Days);
         }
         catch (InvalidOperationException ex)

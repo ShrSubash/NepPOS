@@ -637,6 +637,21 @@
     [Inject] private RegisterTerminal Terminal { get; set; } = default!;
     [Inject] private IJournal Journal { get; set; } = default!;
     [Inject] private NepPOS.Application.Authentication.IShiftService Shifts { get; set; } = default!;
+    [Inject] private CustomerDisplayState Display { get; set; } = default!;
+
+    // The customer display (Manage → Till options) shows the basket as it is after every change.
+    protected override void OnAfterRender(bool firstRender)
+    {
+        try
+        {
+            var lines = CartLines.Select(l => new DisplayLine(l.Name, l.Quantity, l.Total)).ToList();
+            Display.ShowBasket(lines, GrandTotal, DiscountTotal);
+        }
+        catch (Exception)
+        {
+            // The display is extra; never let it break the register.
+        }
+    }
     [Inject] private ILocalHardwareService Hardware { get; set; } = default!;
     [Inject] private IRegisterSettingsStore SettingsStore { get; set; } = default!;
 
@@ -766,6 +781,10 @@
     private void AddToCart(ProductVariant variant) =>
         AddLine($"V:{variant.Id}", SkuFor(variant.Plu, variant.Barcode, $"V{variant.Id}"),
                 variant.Product, $"{variant.Product.Name} ({variant.DisplayName})", variant.Price, Math.Max(1, variant.UnitQuantity));
+
+    // A deli or meat label with its price in the barcode: one line per label, at the label's price.
+    private void AddPricedLabel(PricedItem item) =>
+        AddLine($"E:{item.Barcode}:{Guid.NewGuid():N}", item.Barcode, item.Product, item.Product.Name, item.Price, packUnits: 1);
 
     // PLU first, then barcode, then the internal id — PLU-screen edits can leave "" rather than null.
     private static string SkuFor(string? plu, string? barcode, string fallback) =>
@@ -1099,6 +1118,9 @@
                 {
                     case ProductVariant variant:
                         AddToCart(variant);
+                        break;
+                    case PricedItem priced:
+                        AddPricedLabel(priced);
                         break;
                     case Product product:
                         AddToCart(product);
