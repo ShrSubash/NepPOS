@@ -50,5 +50,8 @@ public enum JournalEventType
     XReport,
 
     /// <summary>Day closed. InvoiceNumber = last invoice included, so the next report starts after it.</summary>
-    ZReport
+    ZReport,
+
+    /// <summary>Staff added or changed on Manage → Staff &amp; PINs (a PIN change says whose, never the PIN).</summary>
+    StaffChanged
 }

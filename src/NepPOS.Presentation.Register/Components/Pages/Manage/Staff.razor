@@ -1,0 +1,305 @@
+@page "/manage/staff"
+@layout ManageLayout
+@using NepPOS.Application.Authentication
+@using NepPOS.Application.Journal
+@using NepPOS.Domain.Enums
+@using NepPOS.Presentation.Register.Services
+@inject IStaffService StaffService
+@inject IJournal Journal
+@inject CurrentUserSession Session
+@inject NavigationManager Nav
+
+@if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager)
+{
+    <div class="settings-denied">
+        <p>Manager access required.</p>
+        <button @onclick='() => Nav.NavigateTo("/register")'>Back to Register</button>
+    </div>
+}
+else
+{
+    <div class="settings-shell">
+        <div class="settings-topbar">
+            <span class="brand-text">Staff &amp; PINs</span>
+            <button class="save-btn" disabled="@Busy" @onclick="StartAdd">+ Add staff</button>
+        </div>
+
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <div class="msg @(IsError ? "error" : "")">@Message</div>
+        }
+
+        <div class="settings-body">
+
+            @if (Editing != Mode.None)
+            {
+                <section class="card editor">
+                    <h2>@Title</h2>
+
+                    @if (Editing != Mode.Pin)
+                    {
+                        <label>
+                            Name
+                            <input @bind="Form.Name" maxlength="@StaffRules.MaxNameLength" placeholder="e.g. Sita Gurung" />
+                        </label>
+
+                        <label>
+                            Role
+                            <select @bind="Form.Role" disabled="@EditingSelf">
+                                @foreach (var role in RoleChoices)
+                                {
+                                    <option value="@role">@StaffRules.Describe(role)</option>
+                                }
+                            </select>
+                            <span class="field-note">@RoleNote(Form.Role)</span>
+                        </label>
+                    }
+
+                    @if (Editing == Mode.Edit && !EditingSelf)
+                    {
+                        <label class="check"><input type="checkbox" @bind="Form.IsActive" /> Can sign in</label>
+                        <span class="field-note">Untick when someone leaves. Their past sales stay in reports.</span>
+                    }
+
+                    @if (Editing is Mode.Add or Mode.Pin)
+                    {
+                        <label>
+                            @(Editing == Mode.Pin ? "New PIN" : "PIN")
+                            <input type="password" inputmode="numeric" autocomplete="off" maxlength="@StaffRules.MaxPinLength" @bind="Form.Pin" />
+                        </label>
+                        <label>
+                            Type it again
+                            <input type="password" inputmode="numeric" autocomplete="off" maxlength="@StaffRules.MaxPinLength" @bind="Form.PinAgain" />
+                        </label>
+                        <span class="field-note">@StaffRules.MinPinLength to @StaffRules.MaxPinLength digits, different for every person: the PIN alone says who signed in. Not 1111 or 1234.</span>
+                    }
+
+                    <div class="test-row">
+                        <button class="primary-btn" disabled="@Busy" @onclick="SaveAsync">@(Busy ? "Saving…" : "Save")</button>
+                        <button class="chip" disabled="@Busy" @onclick="Close">Cancel</button>
+                    </div>
+                </section>
+            }
+
+            @if (OnStartingPin.Count > 0)
+            {
+                <section class="card warn-card">
+                    <h2>Change the starting PINs</h2>
+                    <p>
+                        @string.Join(", ", OnStartingPin.Select(s => s.FullName))
+                        @(OnStartingPin.Count == 1 ? "still signs in" : "still sign in") with a PIN every new register starts with
+                        (@string.Join(" or ", StaffRules.StartingPins)). Anyone who knows it can sign in. Tap <strong>Change PIN</strong> below.
+                    </p>
+                </section>
+            }
+
+            <section class="card staff-card">
+                <h2>Staff <span class="hint">@People.Count(p => p.IsActive) can sign in</span></h2>
+
+                @if (People.Count == 0)
+                {
+                    <p class="field-note">Loading…</p>
+                }
+
+                <ul class="staff-list">
+                    @foreach (var person in People)
+                    {
+                        <li class="@(person.IsActive ? "" : "off")">
+                            <div class="who">
+                                <span class="avatar">@Initials(person.FullName)</span>
+                                <div>
+                                    <strong>@person.FullName</strong>
+                                    @if (person.Id == Me.Id)
+                                    {
+                                        <span class="you">you</span>
+                                    }
+                                    <div class="sub">
+                                        <span class="role role-@person.Role.ToString().ToLowerInvariant()">@StaffRules.Describe(person.Role)</span>
+                                        @if (!person.IsActive)
+                                        {
+                                            <span class="state">Can't sign in</span>
+                                        }
+                                        else if (person.UsesStartingPin)
+                                        {
+                                            <span class="state bad">Starting PIN</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="actions">
+                                @if (CanEdit(person))
+                                {
+                                    <button class="chip" disabled="@Busy" @onclick="() => StartEdit(person)">Edit</button>
+                                }
+                                @if (person.IsActive && (CanEdit(person) || person.Id == Me.Id))
+                                {
+                                    <button class="chip" disabled="@Busy" @onclick="() => StartPin(person)">Change PIN</button>
+                                }
+                            </div>
+                        </li>
+                    }
+                </ul>
+
+                <span class="field-note">
+                    Managers look after cashiers and supervisors. Only an owner adds or changes managers and owners.
+                    Everyone can change their own PIN.
+                </span>
+            </section>
+        </div>
+    </div>
+}
+
+@code {
+    private enum Mode { None, Add, Edit, Pin }
+
+    private IReadOnlyList<StaffMember> People = Array.Empty<StaffMember>();
+    private Mode Editing;
+    private StaffMember? Target;
+    private StaffForm Form = new();
+    private bool Busy;
+    private string? Message;
+    private bool IsError;
+
+    private StaffActor Me => new(Session.Employee!.Id, Session.Employee.Role);
+    private bool EditingSelf => Target is not null && Target.Id == Me.Id;
+    private List<StaffMember> OnStartingPin => People.Where(p => p.UsesStartingPin).ToList();
+
+    private string Title => Editing switch
+    {
+        Mode.Add => "Add staff",
+        Mode.Pin => $"Change PIN for {Target?.FullName}",
+        _ => $"Edit {Target?.FullName}"
+    };
+
+    // The person's own role stays in the list even when this manager couldn't give it to someone else.
+    private IReadOnlyList<EmployeeRole> RoleChoices =>
+        StaffRules.AssignableRoles(Me.Role).Union(Target is null ? Array.Empty<EmployeeRole>() : new[] { Target.Role }).OrderBy(r => r).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Session.Employee is null || Session.Employee.Role < EmployeeRole.Manager) return;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        try
+        {
+            People = await StaffService.ListAsync();
+        }
+        catch (Exception)
+        {
+            Show("Could not load staff. Details are in the log file.", true);
+        }
+    }
+
+    private bool CanEdit(StaffMember person) => person.Id == Me.Id || StaffRules.CanManage(Me.Role, person.Role);
+
+    private void StartAdd()
+    {
+        Target = null;
+        Form = new StaffForm { Role = EmployeeRole.Cashier };
+        Editing = Mode.Add;
+        Message = null;
+    }
+
+    private void StartEdit(StaffMember person)
+    {
+        Target = person;
+        Form = new StaffForm { Name = person.FullName, Role = person.Role, IsActive = person.IsActive };
+        Editing = Mode.Edit;
+        Message = null;
+    }
+
+    private void StartPin(StaffMember person)
+    {
+        Target = person;
+        Form = new StaffForm();
+        Editing = Mode.Pin;
+        Message = null;
+    }
+
+    private void Close()
+    {
+        Editing = Mode.None;
+        Target = null;
+        Form = new StaffForm();
+    }
+
+    private async Task SaveAsync()
+    {
+        if ((Editing is Mode.Add or Mode.Pin) && Form.Pin != Form.PinAgain)
+        {
+            Show("The two PINs don't match. Type them again.", true);
+            return;
+        }
+
+        Busy = true;
+        Message = null;
+        StateHasChanged();
+        try
+        {
+            var result = Editing switch
+            {
+                Mode.Add => await StaffService.AddAsync(Me, Form.Name, Form.Role, Form.Pin),
+                Mode.Edit => await StaffService.UpdateAsync(Me, Target!.Id, Form.Name, Form.Role, Form.IsActive),
+                _ => await StaffService.SetPinAsync(Me, Target!.Id, Form.Pin)
+            };
+
+            if (!result.Succeeded)
+            {
+                Show(result.Message, true);
+                return;
+            }
+
+            await Journal.WriteAsync(JournalEventType.StaffChanged, Editing switch
+            {
+                Mode.Add => $"Staff added: {Form.Name.Trim()} ({StaffRules.Describe(Form.Role)})",
+                Mode.Edit => $"Staff changed: {Form.Name.Trim()} ({StaffRules.Describe(Form.Role)}, {(Form.IsActive ? "can sign in" : "sign-in off")})",
+                _ => $"PIN changed for {Target!.FullName}"
+            });
+
+            Show(result.Message, false);
+            Close();
+            await LoadAsync();
+        }
+        catch (Exception)
+        {
+            Show("Could not save. Details are in the log file.", true);
+        }
+        finally
+        {
+            Busy = false;
+        }
+    }
+
+    private static string RoleNote(EmployeeRole role) => role switch
+    {
+        EmployeeRole.Cashier => "Sells at the register. No access to Manage.",
+        EmployeeRole.ShiftSupervisor => "A senior cashier. No access to Manage.",
+        EmployeeRole.Manager => "Everything in Manage, and cashiers' and supervisors' PINs.",
+        _ => "Everything, including managers and owners."
+    };
+
+    private static string Initials(string name)
+    {
+        var parts = name.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length switch
+        {
+            0 => "?",
+            1 => parts[0][..1].ToUpperInvariant(),
+            _ => (parts[0][..1] + parts[^1][..1]).ToUpperInvariant()
+        };
+    }
+
+    private void Show(string text, bool error) => (Message, IsError) = (text, error);
+
+    private sealed class StaffForm
+    {
+        public string Name { get; set; } = "";
+        public EmployeeRole Role { get; set; }
+        public bool IsActive { get; set; } = true;
+        public string Pin { get; set; } = "";
+        public string PinAgain { get; set; } = "";
+    }
+}

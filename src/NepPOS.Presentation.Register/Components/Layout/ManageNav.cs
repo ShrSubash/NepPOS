@@ -43,6 +43,7 @@ public static class ManageNav
         }),
         new ManageSection("Store setup", new[]
         {
+            new ManageItem("Staff & PINs", "Who can sign in, their role and their PIN", "manage/staff", "key"),
             new ManageItem("Receipt & printer", "Store details on receipts, printer and cash drawer", "manage/receipt-settings", "printer"),
             new ManageItem("Email", "Who gets the end-of-day report by email", "manage/email", "mail"),
             new ManageItem("Surcharges", "Sunday and public holiday surcharges", "manage/surcharges", "percent"),
@@ -81,6 +82,7 @@ public static class ManageNav
             "gift" => "<rect x=\"3\" y=\"8\" width=\"18\" height=\"4\" rx=\"1\"/><path d=\"M12 8v13\"/><path d=\"M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7\"/><path d=\"M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5\"/>",
             "swap" => "<path d=\"m16 3 4 4-4 4\"/><path d=\"M20 7H4\"/><path d=\"m8 21-4-4 4-4\"/><path d=\"M4 17h16\"/>",
             "globe" => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M2 12h20\"/><path d=\"M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z\"/>",
+            "key" => "<path d=\"M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>",
             "back" => "<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
             _ => "<circle cx=\"12\" cy=\"12\" r=\"9\"/>"
         }

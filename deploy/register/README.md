@@ -25,6 +25,16 @@ In PowerShell, in the NepPOS folder (the first time, `Set-ExecutionPolicy -Scope
 Use a higher version every time (1.0.1, 1.0.2, 1.1.0 …). Builds from Visual Studio (F5) don't update themselves;
 only installed copies do.
 
+## Staff and PINs
+
+**Manage → Staff & PINs.** A new register starts with two sign-ins: owner `123456` and cashier `1111`.
+Change both straight away (the page shows a warning until you do), then add a sign-in for each person.
+
+- Every person has their own 4–6 digit PIN; the PIN alone says who signed in, so two people can't share one.
+- Managers add and change cashiers and supervisors. Only an owner adds or changes managers and owners.
+  Everyone can change their own PIN.
+- When someone leaves, untick **Can sign in**. Their past sales stay in reports. Every change is in the Journal.
+
 ## Backups
 
 **Manage → Backups & updates.** NepPOS backs up the register once a day by itself while it is running, and on
