@@ -12,7 +12,8 @@ public sealed record StaffMember(
     string? Phone = null,
     string? Email = null,
     DateOnly? StartDate = null,
-    decimal? HourlyRate = null);
+    decimal? HourlyRate = null,
+    string? Avatar = null);
 
 /// <summary>What a manager types about a person. Phone, email, start date and pay are optional.</summary>
 public sealed record StaffProfile(
@@ -21,7 +22,8 @@ public sealed record StaffProfile(
     string? Phone = null,
     string? Email = null,
     DateOnly? StartDate = null,
-    decimal? HourlyRate = null);
+    decimal? HourlyRate = null,
+    string? Avatar = null);
 
 /// <summary>Who is making the change (the signed-in manager or owner).</summary>
 public sealed record StaffActor(int Id, EmployeeRole Role);
@@ -83,6 +85,14 @@ public static class StaffRules
         return null;
     }
 
+    /// <summary>The pictures staff can pick to show beside their name (one tap; no uploads to look after).</summary>
+    public static readonly IReadOnlyList<string> Avatars = new[]
+    {
+        "😀", "😎", "🤩", "🥳", "😇", "🙂", "🤗", "😺", "🐶", "🐼", "🦊", "🐯",
+        "🦁", "🐨", "🐸", "🐧", "🦋", "🌸", "🌻", "🌈", "⭐", "🔥", "⚡", "🍀",
+        "🍎", "🥭", "🍜", "☕", "🧁", "🎵", "⚽", "🏏", "🚀", "💎", "👑", "🙏"
+    };
+
     public const int MaxPhoneLength = 40;
     public const int MaxEmailLength = 200;
     public const decimal MaxHourlyRate = 1000m;
@@ -97,6 +107,8 @@ public static class StaffRules
             return "Enter the phone number with digits only, e.g. 0412 345 678.";
         if (email.Length > MaxEmailLength || (email.Length > 0 && (!email.Contains('@') || email.StartsWith('@') || email.EndsWith('@') || email.Contains(' '))))
             return "Check the email address.";
+        if (profile.Avatar is { Length: > 0 } avatar && !Avatars.Contains(avatar))
+            return "Pick one of the pictures.";
         if (profile.HourlyRate is < 0 or > MaxHourlyRate)
             return $"The hourly rate is between $0 and ${MaxHourlyRate:0}.";
         return null;

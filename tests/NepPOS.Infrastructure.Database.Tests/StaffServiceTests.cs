@@ -139,10 +139,10 @@ public sealed class StaffServiceTests : IDisposable
         var (staff, db) = Service();
         await using var _ = db;
 
-        var added = await staff.AddAsync(_owner, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, " 0412 345 678 ", "sita@example.com", new DateOnly(2026, 11, 2), 28.50m), "5807");
+        var added = await staff.AddAsync(_owner, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, " 0412 345 678 ", "sita@example.com", new DateOnly(2026, 11, 2), 28.50m, "🌸"), "5807");
         Assert.True(added.Succeeded, added.Message);
         var sita = (await staff.ListAsync()).Single(p => p.FullName == "Sita Gurung");
-        Assert.Equal(("0412 345 678", "sita@example.com", new DateOnly(2026, 11, 2), 28.50m), (sita.Phone, sita.Email, sita.StartDate, sita.HourlyRate));
+        Assert.Equal(("0412 345 678", "sita@example.com", new DateOnly(2026, 11, 2), 28.50m, "🌸"), (sita.Phone, sita.Email, sita.StartDate, sita.HourlyRate, sita.Avatar));
 
         Assert.False((await staff.UpdateAsync(_owner, sita.Id, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, Email: "not-an-email"), true)).Succeeded);
         Assert.False((await staff.UpdateAsync(_owner, sita.Id, new StaffProfile("Sita Gurung", EmployeeRole.Cashier, HourlyRate: -1), true)).Succeeded);

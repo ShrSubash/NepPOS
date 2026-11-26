@@ -357,3 +357,42 @@
     background: #e8f6ef;
     color: #17734a;
 }
+
+.avatar.emoji-face {
+    background: #f1f0ff;
+    font-size: 1.5rem;
+}
+
+.avatar-pick {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.pick-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #6b6f8e;
+}
+
+.emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+    gap: 0.4rem;
+}
+
+.emoji {
+    min-height: 44px;
+    border: 1px solid #e0e2ee;
+    border-radius: 10px;
+    background: #fff;
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #6a5cff;
+    cursor: pointer;
+}
+
+    .emoji.on {
+        border: 2px solid #6a5cff;
+        background: #f1f0ff;
+    }

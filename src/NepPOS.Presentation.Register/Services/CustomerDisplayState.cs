@@ -20,6 +20,10 @@ public sealed class CustomerDisplayState
     public decimal Paid { get; private set; }
     public decimal Change { get; private set; }
 
+    /// <summary>"Sita", or null when nobody is signed in.</summary>
+    public string? ServerName { get; private set; }
+    public string? ServerAvatar { get; private set; }
+
     public event Action? Changed;
 
     /// <summary>The basket as it is now. Ignored while the "thank you" screen is up, until the basket is cleared.</summary>
@@ -45,6 +49,20 @@ public sealed class CustomerDisplayState
     {
         lock (_gate)
             (Mode, Total, Paid, Change) = (DisplayMode.Paid, total, paid, change);
+        Changed?.Invoke();
+    }
+
+    /// <summary>Who is serving: their first name and picture, shown at the bottom of the display.</summary>
+    public void ServedBy(string? fullName, string? avatar)
+    {
+        var first = string.IsNullOrWhiteSpace(fullName) ? null : fullName.Trim().Split(' ')[0];
+        var picture = string.IsNullOrWhiteSpace(avatar) ? null : avatar;
+        lock (_gate)
+        {
+            if (first == ServerName && picture == ServerAvatar)
+                return;
+            (ServerName, ServerAvatar) = (first, picture);
+        }
         Changed?.Invoke();
     }
 

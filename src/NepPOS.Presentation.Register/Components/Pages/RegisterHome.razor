@@ -35,7 +35,7 @@
             {
                 <button class="manage-link" @onclick='() => Nav.NavigateTo("/manage")'>Manage</button>
             }
-            <span class="employee-name">@Session.Employee?.FullName</span>
+            <span class="employee-name">@(string.IsNullOrEmpty(Session.Employee?.Avatar) ? "" : Session.Employee.Avatar + " ")@Session.Employee?.FullName</span>
             <span class="employee-role-badge">@Session.Employee?.Role</span>
             @if (Licence.Claims?.Has(NepPOS.Contracts.Licensing.LicenceFeatures.Website) != false)
             {
@@ -646,6 +646,7 @@
         {
             var lines = CartLines.Select(l => new DisplayLine(l.Name, l.Quantity, l.Total)).ToList();
             Display.ShowBasket(lines, GrandTotal, DiscountTotal);
+            Display.ServedBy(Session.Employee?.FullName, Session.Employee?.Avatar);
         }
         catch (Exception)
         {
@@ -1050,6 +1051,7 @@
         // Journal first, while the employee is still signed in, so the entry is stamped with them.
         await Journal.WriteAsync(JournalEventType.SignOut, $"{Session.Employee?.FullName} signed out");
         Session.SignOut();
+        Display.ServedBy(null, null);
         Nav.NavigateTo("/login", replace: true);
     }
 

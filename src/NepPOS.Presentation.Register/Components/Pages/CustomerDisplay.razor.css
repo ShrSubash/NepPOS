@@ -1,4 +1,5 @@
 .cd-shell {
+    position: relative;
     height: calc(100vh / var(--z, 1));
     background: #14162b;
     color: #fff;
@@ -15,7 +16,7 @@
 .cd-lines {
     list-style: none;
     margin: 0;
-    padding: 4vh 3vw;
+    padding: 4vh 3vw 13vh;
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
@@ -110,4 +111,36 @@
     font-size: 12vh;
     font-weight: 800;
     color: #3ee0d8;
+}
+
+.cd-served {
+    position: absolute;
+    left: 3vw;
+    bottom: 3vh;
+    display: flex;
+    align-items: center;
+    gap: 1vw;
+    padding: 1vh 1.6vw 1vh 1vh;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    font-size: 2.8vh;
+    color: #e6e8f5;
+}
+
+.cd-served-face {
+    width: 6vh;
+    height: 6vh;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.16);
+    font-size: 3.6vh;
+    font-weight: 700;
+    animation: cd-wave 2.4s ease-in-out infinite;
+}
+
+@keyframes cd-wave {
+    0%, 70%, 100% { transform: rotate(0deg) scale(1); }
+    80% { transform: rotate(-10deg) scale(1.08); }
+    90% { transform: rotate(10deg) scale(1.08); }
 }

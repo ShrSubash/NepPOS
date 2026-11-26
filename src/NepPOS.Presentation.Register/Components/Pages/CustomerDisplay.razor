@@ -56,6 +56,14 @@
             </div>
             break;
     }
+
+    @if (State.ServerName is { } server)
+    {
+        <div class="cd-served">
+            <span class="cd-served-face">@(State.ServerAvatar ?? server[..1].ToUpperInvariant())</span>
+            <span>Served by <strong>@server</strong></span>
+        </div>
+    }
 </div>
 
 @code {
