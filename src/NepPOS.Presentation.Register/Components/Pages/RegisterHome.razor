@@ -37,9 +37,12 @@
             }
             <span class="employee-name">@Session.Employee?.FullName</span>
             <span class="employee-role-badge">@Session.Employee?.Role</span>
-            <button class="manage-link @(WebOrdersWaiting > 0 ? "attention" : "")" @onclick='() => Nav.NavigateTo("/orders")' disabled="@Paying">
-                Web orders@(WebOrdersWaiting > 0 ? $" ({WebOrdersWaiting})" : "")
-            </button>
+            @if (Licence.Claims?.Has(NepPOS.Contracts.Licensing.LicenceFeatures.Website) != false)
+            {
+                <button class="manage-link @(WebOrdersWaiting > 0 ? "attention" : "")" @onclick='() => Nav.NavigateTo("/orders")' disabled="@Paying">
+                    Web orders@(WebOrdersWaiting > 0 ? $" ({WebOrdersWaiting})" : "")
+                </button>
+            }
             <button class="manage-link" @onclick="() => ShowCustomer = true" disabled="@Paying">Customer</button>
             <button class="manage-link" @onclick="() => OpenReturn(null)" disabled="@Paying">Return</button>
             @if (Settings.PaymentTypes.GiftCards)

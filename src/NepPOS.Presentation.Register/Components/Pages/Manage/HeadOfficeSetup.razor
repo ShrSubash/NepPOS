@@ -179,16 +179,29 @@ else
                     </div>
                 </section>
 
-                <section class="card">
-                    <h2>Products <span class="hint">for the website</span></h2>
-                    <span class="field-note">
-                        Products you add or edit are sent by themselves. Send them all once after connecting,
-                        or after connecting to a different Head Office.
-                    </span>
-                    <div class="test-row">
-                        <button class="chip" disabled="@Busy" @onclick="SendAllProductsAsync">@(Busy ? "Queuing…" : "Send all products")</button>
-                    </div>
-                </section>
+                @if (Licence.Claims?.Has(LicenceFeatures.Website) != false)
+                {
+                    <section class="card">
+                        <h2>Products <span class="hint">for the website</span></h2>
+                        <span class="field-note">
+                            Products you add or edit are sent by themselves. Send them all once after connecting,
+                            or after connecting to a different Head Office.
+                        </span>
+                        <div class="test-row">
+                            <button class="chip" disabled="@Busy" @onclick="SendAllProductsAsync">@(Busy ? "Queuing…" : "Send all products")</button>
+                        </div>
+                    </section>
+                }
+                else
+                {
+                    <section class="card">
+                        <h2>Website and app <span class="hint">not in this plan</span></h2>
+                        <span class="field-note">
+                            Sales, stock, customers and gift cards still go to Head Office, so reports and your other registers stay up to date.
+                            To sell online with a website and app, ask NepPOS to add <strong>Website and app</strong> to your plan.
+                        </span>
+                    </section>
+                }
             }
         </div>
     </div>
