@@ -625,3 +625,8 @@
     background: #f59e0b;
     color: #1f1300;
 }
+
+.manage-link.on-shift {
+    background: #17734a;
+    color: #fff;
+}

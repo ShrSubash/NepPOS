@@ -13,4 +13,12 @@ public sealed class Employee
     public string PinSalt { get; set; } = string.Empty;
     public EmployeeRole Role { get; set; }
     public bool IsActive { get; set; } = true;
+
+    // Contact and payroll details (Manage → Staff & PINs). All optional.
+    public string? Phone { get; set; }
+    public string? Email { get; set; }
+    public DateOnly? StartDate { get; set; }
+
+    /// <summary>Pay per hour, used only to estimate wages on Timesheets.</summary>
+    public decimal? HourlyRate { get; set; }
 }

@@ -22,6 +22,8 @@ public sealed class WorkforceDbContext : DbContext
         {
             entity.HasIndex(e => e.PinHash);
             entity.Property(e => e.FullName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Phone).HasMaxLength(40);
+            entity.Property(e => e.Email).HasMaxLength(200);
         });
 
         modelBuilder.Entity<Shift>(entity =>
