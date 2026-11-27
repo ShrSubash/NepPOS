@@ -100,12 +100,14 @@ public static class MauiProgram
 
         // Session + auth wiring for the login flow
         builder.Services.AddSingleton<CurrentUserSession>();
+        builder.Services.AddSingleton<CustomerDisplayState>();
         builder.Services.AddSingleton<ICurrentOperator>(sp => sp.GetRequiredService<CurrentUserSession>());
         builder.Services.AddScoped<IAuthenticationService, PinAuthenticationService>();
         builder.Services.AddScoped<IStaffService, StaffService>();
         builder.Services.AddScoped<IShiftService, ShiftService>();
         builder.Services.AddScoped<IProductCatalogService, ProductCatalogService>();
         builder.Services.AddSingleton<OnScreenKeyboardService>();
+        builder.Services.AddScoped<IScanResolver, NepPOS.Infrastructure.Database.Scanning.PriceBarcodeScanResolver>();
         builder.Services.AddScoped<IScanResolver, ProductScanResolver>();
         builder.Services.AddScoped<IScanResolver, VoucherScanResolver>();
         builder.Services.AddScoped<IScanResolver, ReceiptScanResolver>();

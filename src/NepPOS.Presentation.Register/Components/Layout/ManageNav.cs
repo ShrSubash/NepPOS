@@ -49,6 +49,7 @@ public static class ManageNav
         }),
         new ManageSection("Store setup", new[]
         {
+            new ManageItem("Till options", "Customer display, price barcodes and email receipts", "manage/till-options", "monitor"),
             new ManageItem("Receipt & printer", "Store details on receipts, printer and cash drawer", "manage/receipt-settings", "printer"),
             new ManageItem("Email", "Who gets the end-of-day report by email", "manage/email", "mail"),
             new ManageItem("Surcharges", "Sunday and public holiday surcharges", "manage/surcharges", "percent"),
@@ -90,6 +91,7 @@ public static class ManageNav
             "key" => "<path d=\"M2.6 17.4A2 2 0 0 0 2 18.8V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.2a2 2 0 0 0 1.4-.6l.8-.8a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>",
             "clock" => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>",
             "activity" => "<path d=\"M22 12h-4l-3 9L9 3l-3 9H2\"/>",
+            "monitor" => "<rect width=\"20\" height=\"14\" x=\"2\" y=\"3\" rx=\"2\"/><path d=\"M8 21h8\"/><path d=\"M12 17v4\"/>",
             "back" => "<path d=\"m12 19-7-7 7-7\"/><path d=\"M19 12H5\"/>",
             _ => "<circle cx=\"12\" cy=\"12\" r=\"9\"/>"
         }

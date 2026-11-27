@@ -1,0 +1,104 @@
+@page "/customer-display"
+@using System.Globalization
+@using NepPOS.Application.Hardware
+@using NepPOS.Presentation.Register.Services
+@implements IDisposable
+@inject CustomerDisplayState State
+@inject IRegisterSettingsStore SettingsStore
+
+<div class="cd-shell">
+    @switch (State.Mode)
+    {
+        case CustomerDisplayState.DisplayMode.Selling:
+            <div class="cd-sale">
+                <ul class="cd-lines">
+                    @foreach (var line in State.Lines.TakeLast(9))
+                    {
+                        <li>
+                            <span class="cd-qty">@line.Quantity ×</span>
+                            <span class="cd-name">@line.Name</span>
+                            <span class="cd-amt">@line.Total.ToString("C", Aud)</span>
+                        </li>
+                    }
+                </ul>
+                <div class="cd-total-box">
+                    @if (State.Savings > 0)
+                    {
+                        <div class="cd-save">You save @State.Savings.ToString("C", Aud)</div>
+                    }
+                    <div class="cd-total-label">Total</div>
+                    <div class="cd-total">@State.Total.ToString("C", Aud)</div>
+                    <div class="cd-count">@State.Lines.Sum(l => l.Quantity) item(s)</div>
+                </div>
+            </div>
+            break;
+
+        case CustomerDisplayState.DisplayMode.Paid:
+            <div class="cd-centre">
+                <div class="cd-thanks">Thank you!</div>
+                <div class="cd-paid">Paid @State.Paid.ToString("C", Aud)</div>
+                @if (State.Change > 0)
+                {
+                    <div class="cd-change-label">Your change</div>
+                    <div class="cd-change">@State.Change.ToString("C", Aud)</div>
+                }
+            </div>
+            break;
+
+        default:
+            <div class="cd-centre">
+                <div class="cd-welcome">@Settings.Welcome</div>
+                @if (Messages.Count > 0)
+                {
+                    <div class="cd-message">@Messages[MessageIndex % Messages.Count]</div>
+                }
+                <div class="cd-store">@StoreName</div>
+            </div>
+            break;
+    }
+
+    @if (State.ServerName is { } server)
+    {
+        <div class="cd-served">
+            <span class="cd-served-face">@(State.ServerAvatar ?? server[..1].ToUpperInvariant())</span>
+            <span>Served by <strong>@server</strong></span>
+        </div>
+    }
+</div>
+
+@code {
+    private static readonly CultureInfo Aud = CultureInfo.GetCultureInfo("en-AU");
+
+    private CustomerDisplaySettings Settings = new();
+    private List<string> Messages = new();
+    private string StoreName = "";
+    private int MessageIndex;
+    private Timer? _rotate;
+
+    protected override void OnInitialized()
+    {
+        var settings = SettingsStore.Load();
+        Settings = settings.CustomerDisplay;
+        StoreName = settings.Store.BusinessName;
+        Messages = Settings.IdleMessages
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
+
+        State.Changed += OnChanged;
+        // While idle, show the next message every 6 seconds.
+        _rotate = new Timer(_ =>
+        {
+            if (State.Mode != CustomerDisplayState.DisplayMode.Idle || Messages.Count < 2) return;
+            MessageIndex++;
+            _ = InvokeAsync(StateHasChanged);
+        }, null, TimeSpan.FromSeconds(6), TimeSpan.FromSeconds(6));
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        State.Changed -= OnChanged;
+        _rotate?.Dispose();
+    }
+}

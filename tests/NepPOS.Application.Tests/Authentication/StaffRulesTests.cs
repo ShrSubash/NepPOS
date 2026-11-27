@@ -41,5 +41,13 @@ public class StaffRulesTests
     public void Cashiers_manage_nobody() => Assert.Empty(StaffRules.AssignableRoles(EmployeeRole.Cashier));
 
     [Fact]
+    public void Only_the_offered_pictures_can_be_picked()
+    {
+        Assert.Null(StaffRules.DetailsProblem(new StaffProfile("Sita", EmployeeRole.Cashier, Avatar: "🌸")));
+        Assert.Null(StaffRules.DetailsProblem(new StaffProfile("Sita", EmployeeRole.Cashier, Avatar: "")));
+        Assert.NotNull(StaffRules.DetailsProblem(new StaffProfile("Sita", EmployeeRole.Cashier, Avatar: "<b>hi</b>")));
+    }
+
+    [Fact]
     public void Names_are_required() => Assert.NotNull(StaffRules.NameProblem("   "));
 }

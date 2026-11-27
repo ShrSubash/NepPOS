@@ -58,6 +58,16 @@ else
 
                     @if (Editing != Mode.Pin)
                     {
+                        <div class="avatar-pick">
+                            <span class="pick-label">Picture <span class="hint">shown beside their name on the till and the customer display</span></span>
+                            <div class="emoji-grid">
+                                <button class="emoji @(string.IsNullOrEmpty(Form.Avatar) ? "on" : "")" title="Initials" @onclick='() => Form.Avatar = ""'>@Initials(Form.Name)</button>
+                                @foreach (var emoji in StaffRules.Avatars)
+                                {
+                                    <button class="emoji @(Form.Avatar == emoji ? "on" : "")" @onclick="() => Form.Avatar = emoji">@emoji</button>
+                                }
+                            </div>
+                        </div>
                         <div class="two-col">
                             <label>
                                 Mobile
@@ -133,7 +143,7 @@ else
                     {
                         <li class="@(person.IsActive ? "" : "off")">
                             <div class="who">
-                                <span class="avatar">@Initials(person.FullName)</span>
+                                <span class="avatar @(string.IsNullOrEmpty(person.Avatar) ? "" : "emoji-face")">@(string.IsNullOrEmpty(person.Avatar) ? Initials(person.FullName) : person.Avatar)</span>
                                 <div>
                                     <strong>@person.FullName</strong>
                                     @if (person.Id == Me.Id)
@@ -255,7 +265,8 @@ else
         {
             Name = person.FullName, Role = person.Role, IsActive = person.IsActive,
             Phone = person.Phone ?? "", Email = person.Email ?? "",
-            StartDate = person.StartDate?.ToDateTime(TimeOnly.MinValue), HourlyRate = person.HourlyRate
+            StartDate = person.StartDate?.ToDateTime(TimeOnly.MinValue), HourlyRate = person.HourlyRate,
+            Avatar = person.Avatar ?? ""
         };
         Editing = Mode.Edit;
         Message = null;
@@ -327,7 +338,8 @@ else
     private StaffProfile Profile() => new(
         Form.Name, Form.Role, Form.Phone, Form.Email,
         Form.StartDate is { } d ? DateOnly.FromDateTime(d) : null,
-        Me.Role == EmployeeRole.Owner ? Form.HourlyRate : Target?.HourlyRate);
+        Me.Role == EmployeeRole.Owner ? Form.HourlyRate : Target?.HourlyRate,
+        Form.Avatar);
 
     private static string RoleNote(EmployeeRole role) => role switch
     {
@@ -361,5 +373,6 @@ else
         public string Email { get; set; } = "";
         public DateTime? StartDate { get; set; }
         public decimal? HourlyRate { get; set; }
+        public string Avatar { get; set; } = "";
     }
 }

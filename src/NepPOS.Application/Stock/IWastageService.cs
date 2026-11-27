@@ -37,6 +37,12 @@ public interface IWastageService
 
 public static class Wastage
 {
+    /// <summary>The reason that sends stock back to a supplier (Manage → Wastage), instead of writing it off as a loss.</summary>
+    public const string SupplierReturn = "Supplier return";
+
+    /// <summary>"Supplier return: Metcash": the reason saved with a return, so history and reports show who it went to.</summary>
+    public static string SupplierReturnReason(string supplierName) => $"{SupplierReturn}: {supplierName.Trim()}";
+
     /// <summary>The reasons offered as buttons (any other can be typed).</summary>
     public static readonly IReadOnlyList<string> Reasons = new[]
     {

@@ -27,7 +27,7 @@ public sealed class StaffService : IStaffService
             .ThenBy(e => e.FullName)
             .Select(e => new StaffMember(e.Id, e.FullName, e.Role, e.IsActive,
                 e.IsActive && StaffRules.StartingPins.Any(pin => PinHasher.Verify(pin, e.PinSalt, e.PinHash)),
-                e.Phone, e.Email, e.StartDate, e.HourlyRate))
+                e.Phone, e.Email, e.StartDate, e.HourlyRate, e.Avatar))
             .ToList();
     }
 
@@ -126,6 +126,7 @@ public sealed class StaffService : IStaffService
         employee.Email = Blank(profile.Email);
         employee.StartDate = profile.StartDate;
         employee.HourlyRate = profile.HourlyRate;
+        employee.Avatar = Blank(profile.Avatar);
     }
 
     private static string? Blank(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

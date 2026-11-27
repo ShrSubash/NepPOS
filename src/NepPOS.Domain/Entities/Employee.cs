@@ -21,4 +21,7 @@ public sealed class Employee
 
     /// <summary>Pay per hour, used only to estimate wages on Timesheets.</summary>
     public decimal? HourlyRate { get; set; }
+
+    /// <summary>The emoji the person picked (Manage → Staff &amp; PINs), shown beside their name on the till and the customer display.</summary>
+    public string? Avatar { get; set; }
 }

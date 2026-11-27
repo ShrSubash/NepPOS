@@ -16,6 +16,8 @@ public static class ScreenMode
     public static void Apply(Microsoft.UI.Xaml.Window window)
     {
         ArgumentNullException.ThrowIfNull(window);
+        if (CustomerDisplayWindow.Opening)
+            return;   // the customer display places itself on the second monitor
         Set(window, Preferences.Default.Get(PreferenceKey, true));
     }
 
