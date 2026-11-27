@@ -49,3 +49,19 @@ public sealed record GiftCardChangeRequest(Guid RequestId, decimal Amount, strin
 
 /// <summary>What was taken or put back, and the balance now.</summary>
 public sealed record GiftCardChangeResult(string Code, decimal Amount, decimal Balance);
+
+/// <summary>
+/// One in-store sale (or refund, negative) with a customer on it, so the website can give them points.
+/// <c>ChangeNumber</c> is Head Office's number for the sale; it counts up.
+/// </summary>
+public sealed record CustomerPurchase(long ChangeNumber, Guid CustomerId, Guid SaleId, long InvoiceNumber, decimal Total, DateTime AtUtc, Guid StoreId);
+
+/// <summary>
+/// Answer to GET /api/v1/customers/purchases?after=N (website key): in-store sales with a customer, after change
+/// number N, oldest first. Keep <c>Next</c> and send it as <c>after</c> next time; while <c>More</c>, ask again.
+/// </summary>
+public sealed record CustomerPurchaseChanges(IReadOnlyList<CustomerPurchase> Purchases, long Next, bool More)
+{
+    /// <summary>Sales looked at per page (most have no customer, so a page of purchases is usually shorter).</summary>
+    public const int PageSize = 500;
+}

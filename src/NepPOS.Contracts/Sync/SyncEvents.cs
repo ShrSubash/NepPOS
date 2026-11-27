@@ -64,7 +64,8 @@ public sealed record SyncEvent(
 /// <summary>
 /// Version 1 of <c>sale.completed</c>. Money is in AUD, GST inclusive unless the name says otherwise.
 /// A return is the same event with negative lines (and a negative total for a refund) and
-/// <c>ReturnOfInvoice</c> set when it came back with a receipt.
+/// <c>ReturnOfInvoice</c> set when it came back with a receipt. <c>CustomerId</c> is the customer on the sale
+/// (from version 1.0.4 of the register), so it earns them points on the website.
 /// </summary>
 public sealed record SaleCompletedV1(
     Guid SaleId,
@@ -77,7 +78,8 @@ public sealed record SaleCompletedV1(
     decimal CashRounding,
     IReadOnlyList<SaleLineV1> Lines,
     IReadOnlyList<SalePaymentV1> Payments,
-    long? ReturnOfInvoice = null)
+    long? ReturnOfInvoice = null,
+    Guid? CustomerId = null)
 {
     public const int Version = 1;
 }
