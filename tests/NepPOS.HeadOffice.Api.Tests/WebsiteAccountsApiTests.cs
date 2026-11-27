@@ -187,6 +187,30 @@ public sealed class WebsiteAccountsApiTests : IDisposable
         Assert.Empty(other!.Purchases);
     }
 
+    [Fact]
+    public async Task The_Website_IssuesAStoreCredit_Once_AndEveryRegisterGetsIt()
+    {
+        var (register, website) = await BusinessAsync("Nep Grocery");
+        var request = new StoreCreditIssueRequest(Guid.NewGuid(), 5m, "500 points, customer 42");
+
+        var first = await (await website.PostAsJsonAsync("/api/v1/giftcards/store-credit", request, SyncJson.Options))
+            .Content.ReadFromJsonAsync<GiftCardView>(SyncJson.Options);
+        Assert.Matches("^SC-[0-9]{10}$", first!.Code);
+        Assert.Equal(("StoreCredit", 5m), (first.Kind, first.Balance));
+
+        // A retry (same request id) gives the same credit and doesn't add to it.
+        var retry = await (await website.PostAsJsonAsync("/api/v1/giftcards/store-credit", request, SyncJson.Options))
+            .Content.ReadFromJsonAsync<GiftCardView>(SyncJson.Options);
+        Assert.Equal((first.Code, 5m), (retry!.Code, retry.Balance));
+
+        var tooMuch = await website.PostAsJsonAsync("/api/v1/giftcards/store-credit", new StoreCreditIssueRequest(Guid.NewGuid(), 5000m, "x"), SyncJson.Options);
+        Assert.Equal(HttpStatusCode.BadRequest, tooMuch.StatusCode);
+
+        var shared = await register.GetFromJsonAsync<SharedEventsResponse>("/api/v1/sync/shared?after=0&afterWeb=0", SyncJson.Options);
+        var issued = Assert.Single(shared!.Events, e => e.FromWebsite).Event.Payload.Deserialize<GiftCardMovedV1>(SyncJson.Options);
+        Assert.Equal((first.Code, "StoreCredit", 5m), (issued!.Code, issued.Kind, issued.Amount));
+    }
+
     public void Dispose()
     {
         _admin.Dispose();
