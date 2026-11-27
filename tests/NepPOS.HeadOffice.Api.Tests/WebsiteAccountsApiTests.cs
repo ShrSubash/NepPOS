@@ -157,6 +157,36 @@ public sealed class WebsiteAccountsApiTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, (await otherWebsite.GetAsync("/api/v1/giftcards/GC-5555555555")).StatusCode);
     }
 
+    private SyncEvent Sale(decimal total, Guid? customerId, long invoice) =>
+        Event(SyncEventTypes.SaleCompleted, new SaleCompletedV1(Guid.NewGuid(), invoice, DateTimeOffset.UtcNow, 1, "Owner",
+            total, decimal.Round(total / 11, 2), 0,
+            new[] { new SaleLineV1("101", "Basmati Rice 5kg", "Grocery", 1, total, 0m, total) },
+            new[] { new SalePaymentV1("Cash", total, total, 0, null, null, null) },
+            CustomerId: customerId));
+
+    [Fact]
+    public async Task The_Website_ReadsInStoreSalesWithACustomer_OnceEach_ForPoints()
+    {
+        var (register, website) = await BusinessAsync("Nep Grocery");
+        var (_, otherWebsite) = await BusinessAsync("Other Shop");
+        var priya = Guid.NewGuid();
+        await SendAsync(register, Sale(20m, null, 1), Sale(45.50m, priya, 2), Sale(-5m, priya, 3), Sale(12m, null, 4));
+
+        var first = await website.GetFromJsonAsync<CustomerPurchaseChanges>("/api/v1/customers/purchases?after=0", SyncJson.Options);
+        Assert.Equal(new[] { (45.50m, 2L), (-5m, 3L) }, first!.Purchases.Select(p => (p.Total, p.InvoiceNumber)).ToArray());
+        Assert.All(first.Purchases, p => Assert.Equal(priya, p.CustomerId));
+        Assert.False(first.More);
+
+        // Sales without a customer still move the bookmark on, so nothing is read twice.
+        var again = await website.GetFromJsonAsync<CustomerPurchaseChanges>($"/api/v1/customers/purchases?after={first.Next}", SyncJson.Options);
+        Assert.Empty(again!.Purchases);
+        Assert.Equal(first.Next, again.Next);
+
+        // Another business never sees them.
+        var other = await otherWebsite.GetFromJsonAsync<CustomerPurchaseChanges>("/api/v1/customers/purchases?after=0", SyncJson.Options);
+        Assert.Empty(other!.Purchases);
+    }
+
     public void Dispose()
     {
         _admin.Dispose();

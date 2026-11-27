@@ -61,6 +61,26 @@ public class OutboxTests : IDisposable
     }
 
     [Fact]
+    public async Task CompletedSale_CarriesItsCustomer_SoTheyEarnPointsOnline()
+    {
+        var customerId = Guid.NewGuid();
+        var sale = new SaleTransaction("STORE-001", "REG-001", 1, "Owner");
+        sale.SetCustomer(customerId, "Priya");
+        sale.AddLineItem(new SaleLineItem("101", "Heineken 6-Pack", 1, 22.00m, 0.10m, "Beer"));
+        var tender = new TenderSession(sale.Id, sale.GrandTotal);
+        tender.AddEftpos(22.00m, new PaymentResult(true, "00", "APPROVED", "851898", "Mastercard", "....1025"));
+        sale.RecordPayments(tender.Payments, tender.RoundingAdjustment);
+        sale.Complete(1002);
+
+        await using (var db = new NepPosDbContext(_options))
+            await new SaleTransactionRepository(db).AddAsync(sale);
+
+        await using var check = new NepPosDbContext(_options);
+        var payload = JsonSerializer.Deserialize<SaleCompletedV1>(Assert.Single(await check.OutboxMessages.ToListAsync()).Payload, SyncJson.Options)!;
+        Assert.Equal(customerId, payload.CustomerId);
+    }
+
+    [Fact]
     public async Task FailedSave_WritesNeitherTheSaleNorItsEvent()
     {
         await using (var db = new NepPosDbContext(_options))

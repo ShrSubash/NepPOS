@@ -20,6 +20,7 @@ public static class WebsiteAccountEndpoints
     public static void MapWebsiteAccountEndpoints(this RouteGroupBuilder website)
     {
         website.MapGet("/customers/find", FindCustomerAsync);
+        website.MapGet("/customers/purchases", PurchasesAsync);
         website.MapPost("/customers", SignUpAsync);
         website.MapGet("/customers/{id:guid}/account", StatementAsync);
         website.MapGet("/giftcards/{code}", GetGiftCardAsync);
@@ -49,6 +50,41 @@ public static class WebsiteAccountEndpoints
                 .FirstOrDefault(c => new string(c.Phone!.Where(char.IsDigit).ToArray()) == digits);
 
         return customer is null ? Results.NotFound() : Results.Ok(await ViewAsync(db, customer, ct));
+    }
+
+    /// <summary>
+    /// In-store sales (and refunds) that had a customer on them, after change number <paramref name="after"/>, so the
+    /// website can give points for shopping in store. Sales without a customer are skipped but still move <c>Next</c>
+    /// on, so the website never reads them twice.
+    /// </summary>
+    internal static async Task<IResult> PurchasesAsync(long? after, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var tenantId = WebsiteApiKeyHandler.TenantOf(http.User);
+        var from = Math.Max(0, after ?? 0);
+        var take = CustomerPurchaseChanges.PageSize;
+
+        var rows = await db.ReceivedEvents.AsNoTracking()
+            .Where(e => e.TenantId == tenantId && e.Type == SyncEventTypes.SaleCompleted && e.Id > from)
+            .OrderBy(e => e.Id)
+            .Take(take + 1)
+            .Select(e => new { e.Id, e.StoreId, e.OccurredAtUtc, e.Payload })
+            .ToListAsync(ct);
+        var more = rows.Count > take;
+        var page = rows.Take(take).ToList();
+
+        var purchases = new List<CustomerPurchase>();
+        foreach (var row in page)
+        {
+            SaleCompletedV1? sale;
+            try { sale = JsonSerializer.Deserialize<SaleCompletedV1>(row.Payload, SyncJson.Options); }
+            catch (JsonException) { continue; }   // checked when it arrived; never expected
+            if (sale?.CustomerId is not { } customerId || customerId == Guid.Empty)
+                continue;
+            purchases.Add(new CustomerPurchase(row.Id, customerId, sale.SaleId, sale.InvoiceNumber, sale.Total,
+                Utc(row.OccurredAtUtc), row.StoreId));
+        }
+
+        return Results.Ok(new CustomerPurchaseChanges(purchases, page.Count > 0 ? page[^1].Id : from, more));
     }
 
     /// <summary>A website sign-up becomes a customer at every register (or links to the one with the same email).</summary>
