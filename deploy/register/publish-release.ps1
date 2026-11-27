@@ -10,7 +10,7 @@
 param(
     [Parameter(Mandatory = $true)][string] $Version,
     [Parameter(Mandatory = $true)][string] $Server,
-    [string] $UpdateUrl = "https://updates.hamrogrocery.com.au/neppos"
+    [string] $UpdateUrl = "https://updates.neppos.com.au/neppos"
 )
 
 $ErrorActionPreference = "Stop"

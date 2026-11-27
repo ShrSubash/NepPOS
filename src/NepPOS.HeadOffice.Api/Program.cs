@@ -55,13 +55,18 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<HeadOfficeDbContext>();
-    if (db.Database.IsSqlite())
+    if (db.Database.IsSqlite() && SqliteDevSchema.IsOldDeveloperDatabase(db))
     {
+        // A headoffice.db made on a developer PC before migrations existed: keep it working as before.
         db.Database.EnsureCreated();
         SqliteDevSchema.AddMissingTables(db, app.Logger);
     }
     else
+    {
+        // Every new database (the server, tests, a fresh developer PC) is built and upgraded by migrations
+        // (Data/Migrations), so a release that changes a table updates the live database without losing data.
         db.Database.Migrate();
+    }
 
     // Head Office's copy of customers, accounts and gift cards, built once from events stored before it existed.
     NepPOS.HeadOffice.Api.Accounts.SharedAccounts.RebuildIfEmptyAsync(db).GetAwaiter().GetResult();
