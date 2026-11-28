@@ -65,3 +65,14 @@ public sealed record CustomerPurchaseChanges(IReadOnlyList<CustomerPurchase> Pur
     /// <summary>Sales looked at per page (most have no customer, so a page of purchases is usually shorter).</summary>
     public const int PageSize = 500;
 }
+
+/// <summary>
+/// POST /api/v1/giftcards/store-credit (website key): issues a new store credit ("SC-" and ten digits) for
+/// <c>Amount</c>, e.g. when a customer turns loyalty points into credit. It can be spent at every register and on
+/// the website. <c>RequestId</c> makes a retry harmless: the same id always returns the same credit.
+/// </summary>
+public sealed record StoreCreditIssueRequest(Guid RequestId, decimal Amount, string Reference)
+{
+    /// <summary>The most one credit can be for.</summary>
+    public const decimal MaxAmount = 1000m;
+}

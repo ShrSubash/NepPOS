@@ -24,6 +24,7 @@ public static class WebsiteAccountEndpoints
         website.MapPost("/customers", SignUpAsync);
         website.MapGet("/customers/{id:guid}/account", StatementAsync);
         website.MapGet("/giftcards/{code}", GetGiftCardAsync);
+        website.MapPost("/giftcards/store-credit", IssueStoreCreditAsync);
         website.MapPost("/giftcards/{code}/redeem", (string code, GiftCardChangeRequest request, HttpContext http, HeadOfficeDbContext db, CancellationToken ct) =>
             ChangeGiftCardAsync(code, request, spend: true, http, db, ct));
         website.MapPost("/giftcards/{code}/refund", (string code, GiftCardChangeRequest request, HttpContext http, HeadOfficeDbContext db, CancellationToken ct) =>
@@ -147,6 +148,40 @@ public static class WebsiteAccountEndpoints
         return card is null
             ? Results.NotFound()
             : Results.Ok(new GiftCardView(card.Code, card.Kind, card.Balance, card.IsActive, card.LastUsedUtc is { } at ? Utc(at) : null));
+    }
+
+    /// <summary>
+    /// A new store credit from the website (e.g. loyalty points turned into credit). It reaches every register like
+    /// a credit issued at the counter. A retry with the same request id returns the same credit and changes nothing.
+    /// </summary>
+    internal static async Task<IResult> IssueStoreCreditAsync(StoreCreditIssueRequest request, HttpContext http, HeadOfficeDbContext db, CancellationToken ct)
+    {
+        var tenantId = WebsiteApiKeyHandler.TenantOf(http.User);
+        if (request.RequestId == Guid.Empty)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["requestId"] = new[] { "Send a requestId (a new GUID per credit)." } });
+        if (request.Amount <= 0 || request.Amount > StoreCreditIssueRequest.MaxAmount || decimal.Round(request.Amount, 2) != request.Amount)
+            return Results.ValidationProblem(new Dictionary<string, string[]> { ["amount"] = new[] { $"The amount must be more than $0 and at most {StoreCreditIssueRequest.MaxAmount:0}, in cents." } });
+
+        // Already issued (a retry): the same credit again.
+        var done = await db.SharedGiftCardLines.AsNoTracking().FirstOrDefaultAsync(l => l.EventId == request.RequestId && l.TenantId == tenantId, ct);
+        if (done is not null)
+        {
+            var issued = await db.SharedGiftCards.AsNoTracking().FirstAsync(g => g.TenantId == tenantId && g.Code == done.Code, ct);
+            return Results.Ok(new GiftCardView(issued.Code, issued.Kind, issued.Balance, issued.IsActive, issued.LastUsedUtc is { } used ? Utc(used) : null));
+        }
+
+        string code;
+        do code = "SC-" + RandomNumberGenerator.GetInt32(10000, 100000) + RandomNumberGenerator.GetInt32(0, 100000).ToString("D5");   // as the registers make them
+        while (await db.SharedGiftCards.AnyAsync(g => g.TenantId == tenantId && g.Code == code, ct));
+
+        var reference = (request.Reference ?? "").Trim();
+        var payload = new GiftCardMovedV1(code, "StoreCredit", request.Amount, null, null, DateTime.UtcNow,
+            "Issued online " + (reference.Length > 150 ? reference[..150] : reference));
+        await RecordAsync(db, http, tenantId, request.RequestId, SyncEventTypes.GiftCardMoved, payload, ct);
+        await db.SaveChangesAsync(ct);
+
+        var card = await db.SharedGiftCards.AsNoTracking().FirstAsync(g => g.TenantId == tenantId && g.Code == code, ct);
+        return Results.Ok(new GiftCardView(card.Code, card.Kind, card.Balance, card.IsActive, card.LastUsedUtc is { } at ? Utc(at) : null));
     }
 
     /// <summary>
