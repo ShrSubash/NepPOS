@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Stock;
 using NepPOS.Domain.Entities;
+using NepPOS.Domain.Enums;
 
 namespace NepPOS.Infrastructure.Database.Stock;
 
@@ -134,12 +135,27 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
         return posted;
     }
 
-    public async Task<IReadOnlyList<ReorderLevel>> ReorderLevelsAsync(int supplierId, CancellationToken cancellationToken = default) =>
-        await _db.Products.AsNoTracking()
+    public async Task<IReadOnlyList<ReorderLevel>> ReorderLevelsAsync(int supplierId, CancellationToken cancellationToken = default)
+    {
+        var levels = await _db.Products.AsNoTracking()
             .Where(p => p.IsActive && p.SupplierId == supplierId)
             .OrderBy(p => p.Name)
-            .Select(p => new ReorderLevel(p.Id, p.Name, p.StockOnHand, p.ReorderPoint, p.ReorderQuantity))
+            .Select(p => new ReorderLevel(p.Id, p.Name, p.StockOnHand, p.ReorderPoint, p.ReorderQuantity, 0m))
             .ToListAsync(cancellationToken);
+        if (levels.Count == 0)
+            return levels;
+
+        // Sold in the last four weeks (sales are negative movements, refunds positive).
+        var ids = levels.Select(l => l.ProductId).ToList();
+        var since = DateTime.UtcNow.AddDays(-ReorderMath.SalesDays);
+        var movements = await _db.StockMovements.AsNoTracking()
+            .Where(m => m.Type == StockMovementType.Sale && ids.Contains(m.ProductId) && m.AtUtc >= since)
+            .Select(m => new { m.ProductId, m.Quantity })
+            .ToListAsync(cancellationToken);
+        var sold = movements.GroupBy(m => m.ProductId).ToDictionary(g => g.Key, g => -g.Sum(m => m.Quantity));
+
+        return levels.Select(l => l with { SoldPerWeek = ReorderMath.SoldPerWeek(sold.GetValueOrDefault(l.ProductId)) }).ToList();
+    }
 
     public async Task SetReorderLevelAsync(int productId, decimal? reorderPoint, decimal? reorderQuantity, CancellationToken cancellationToken = default)
     {

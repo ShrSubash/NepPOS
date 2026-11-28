@@ -187,19 +187,21 @@ else
                             }
                         </select>
                     </label>
-                    <p class="field-note">When stock falls to the reorder point, the product is suggested on the next order. Order quantity is in singles; leave it blank to top up to twice the reorder point.</p>
+                    <p class="field-note">When stock falls to the reorder point, the product is suggested on the next order. Order quantity is in singles; leave it blank to top up to twice the reorder point.
+                        "Fill from sales" sets them from the last 4 weeks: reorder when a week's sales are left, order two weeks' worth. Check them, then save.</p>
                     @if (Levels.Count > 0)
                     {
                         <table class="gc-table">
-                            <thead><tr><th>Product</th><th class="num">In stock</th><th class="num">Reorder at</th><th class="num">Order qty</th><th></th></tr></thead>
+                            <thead><tr><th>Product</th><th class="num">In stock</th><th class="num">Sold / week</th><th class="num">Reorder at</th><th class="num">Order qty</th><th></th></tr></thead>
                             <tbody>
                                 @foreach (var r in Levels)
                                 {
                                     <tr>
                                         <td><strong>@r.ProductName</strong></td>
                                         <td class="num @(r.ReorderPoint is { } rp && r.StockOnHand <= rp ? "neg" : "")">@r.StockOnHand.ToString("0.##")</td>
-                                        <td class="num"><input class="st-qty" type="number" min="0" step="1" value="@r.ReorderPoint" @onchange="e => LevelEdits[r.ProductId] = (Parse(e.Value), LevelEdits.GetValueOrDefault(r.ProductId, (r.ReorderPoint, r.ReorderQuantity)).Item2)" /></td>
-                                        <td class="num"><input class="st-qty" type="number" min="1" step="1" value="@r.ReorderQuantity" @onchange="e => LevelEdits[r.ProductId] = (LevelEdits.GetValueOrDefault(r.ProductId, (r.ReorderPoint, r.ReorderQuantity)).Item1, Parse(e.Value))" /></td>
+                                        <td class="num">@(r.SoldPerWeek > 0 ? r.SoldPerWeek.ToString("0.#") : "–")</td>
+                                        <td class="num"><input class="st-qty" type="number" min="0" step="1" value="@(LevelEdits.TryGetValue(r.ProductId, out var e1) ? e1.Item1 : r.ReorderPoint)" @onchange="e => LevelEdits[r.ProductId] = (Parse(e.Value), LevelEdits.GetValueOrDefault(r.ProductId, (r.ReorderPoint, r.ReorderQuantity)).Item2)" /></td>
+                                        <td class="num"><input class="st-qty" type="number" min="1" step="1" value="@(LevelEdits.TryGetValue(r.ProductId, out var e2) ? e2.Item2 : r.ReorderQuantity)" @onchange="e => LevelEdits[r.ProductId] = (LevelEdits.GetValueOrDefault(r.ProductId, (r.ReorderPoint, r.ReorderQuantity)).Item1, Parse(e.Value))" /></td>
                                         <td>@(LevelEdits.ContainsKey(r.ProductId) ? "changed" : "")</td>
                                     </tr>
                                 }
@@ -207,6 +209,7 @@ else
                         </table>
                     }
                     <div class="test-row">
+                        <button class="chip" disabled="@(!Levels.Any(l => l.SoldPerWeek > 0))" @onclick="FillFromSales">Fill from sales</button>
                         <button class="save-btn" disabled="@(LevelEdits.Count == 0)" @onclick="SaveLevelsAsync">Save @LevelEdits.Count changes</button>
                         <button class="chip" @onclick="() => Levels = null">Close</button>
                     </div>
@@ -373,6 +376,21 @@ else
         LevelsSupplierId = id;
         LevelEdits.Clear();
         Levels = id == 0 ? Array.Empty<ReorderLevel>() : await Orders.ReorderLevelsAsync(id);
+    }
+
+    /// <summary>Puts sales-based reorder points in the boxes (not saved until Save), for products that sold.</summary>
+    private void FillFromSales()
+    {
+        if (Levels is null) return;
+        var filled = 0;
+        foreach (var r in Levels)
+        {
+            if (ReorderMath.FromSales(r.SoldPerWeek) is not { } fromSales) continue;
+            if (fromSales.ReorderPoint == r.ReorderPoint && fromSales.OrderQuantity == r.ReorderQuantity) continue;
+            LevelEdits[r.ProductId] = (fromSales.ReorderPoint, fromSales.OrderQuantity);
+            filled++;
+        }
+        (Message, IsError) = (filled == 0 ? "Nothing to change: the reorder points already match sales." : $"Filled {filled} from the last 4 weeks of sales. Check them, then save.", false);
     }
 
     private async Task SaveLevelsAsync()
