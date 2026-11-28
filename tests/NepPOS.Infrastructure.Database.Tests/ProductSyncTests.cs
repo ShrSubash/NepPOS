@@ -37,6 +37,34 @@ public class ProductSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task DeleteUnused_DeletesNeverUsedDeactivatedProducts_AndKeepsOnesWithHistory()
+    {
+        int unused, sold, active;
+        await using (var db = new NepPosDbContext(_options))
+        {
+            var service = new ProductManagementService(db, Terminal);
+            unused = (await service.CreateAsync(new Product { Name = "Typo product", Category = "Misc", Price = 1m, StockOnHand = 5 })).Id;   // opening stock only
+            sold = (await service.CreateAsync(new Product { Name = "Wai Wai 5 Pack", Category = "Noodles", Price = 3.95m })).Id;
+            active = (await service.CreateAsync(new Product { Name = "Rice 5kg", Category = "Rice", Price = 19.99m })).Id;
+            var soldProduct = await db.Products.FirstAsync(p => p.Id == sold);
+            db.StockMovements.Add(soldProduct.MoveStock(StockMovementType.Sale, -1, "Invoice 1", DateTime.UtcNow));
+            await db.SaveChangesAsync();
+            await service.DeactivateAsync(unused);
+            await service.DeactivateAsync(sold);
+        }
+
+        await using (var db = new NepPosDbContext(_options))
+        {
+            var (deleted, kept) = await new ProductManagementService(db, Terminal).DeleteUnusedAsync(new[] { unused, sold, active });
+            Assert.Equal((1, 1), (deleted, kept));   // the active one isn't a candidate at all
+        }
+
+        await using var check = new NepPosDbContext(_options);
+        Assert.Equal(new[] { "Rice 5kg", "Wai Wai 5 Pack" }, await check.Products.OrderBy(p => p.Name).Select(p => p.Name).ToListAsync());
+        Assert.False(await check.StockMovements.AnyAsync(m => m.ProductId == unused));
+    }
+
+    [Fact]
     public async Task Create_SendsTheWholeProduct_ButNotCostPrice()
     {
         await using (var db = new NepPosDbContext(_options))
