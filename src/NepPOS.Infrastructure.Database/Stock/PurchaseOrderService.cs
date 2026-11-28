@@ -23,10 +23,48 @@ public sealed class PurchaseOrderService : IPurchaseOrderService
     public Task<PurchaseOrder?> GetAsync(int id, CancellationToken cancellationToken = default) =>
         _db.PurchaseOrders.AsNoTracking().Include(o => o.Lines).FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
 
-    public async Task<IReadOnlyList<ReorderSuggestion>> SuggestAsync(int supplierId, CancellationToken cancellationToken = default)
+    public Task<IReadOnlyList<ReorderSuggestion>> SuggestAsync(int supplierId, CancellationToken cancellationToken = default) =>
+        SuggestAsync(supplierId, includeNoSupplier: true, cancellationToken);
+
+    public async Task<IReadOnlyList<PurchaseOrder>> DraftLowStockAsync(string? employeeName, CancellationToken cancellationToken = default)
+    {
+        var waiting = await _db.PurchaseOrders.AsNoTracking()
+            .Where(o => o.Status == PurchaseOrderStatus.Draft || o.Status == PurchaseOrderStatus.Sent)
+            .Select(o => o.SupplierId).Distinct().ToListAsync(cancellationToken);
+        // SQLite can't compare decimals in SQL, so "low" is worked out here.
+        var suppliers = (await _db.Products.AsNoTracking()
+                .Where(p => p.IsActive && p.SupplierId != null && p.ReorderPoint != null)
+                .Select(p => new { SupplierId = p.SupplierId!.Value, p.StockOnHand, ReorderPoint = p.ReorderPoint!.Value })
+                .ToListAsync(cancellationToken))
+            .Where(p => p.StockOnHand <= p.ReorderPoint)
+            .Select(p => p.SupplierId).Distinct().ToList();
+
+        var made = new List<PurchaseOrder>();
+        foreach (var supplierId in suppliers.Where(id => !waiting.Contains(id)).OrderBy(id => id))
+        {
+            // Only this supplier's own products: one with no supplier would land on every supplier's order.
+            var suggested = await SuggestAsync(supplierId, includeNoSupplier: false, cancellationToken);
+            if (suggested.Count == 0)
+                continue;
+            made.Add(await SaveDraftAsync(new PurchaseOrder
+            {
+                SupplierId = supplierId,
+                Note = AutoDraft.Note,
+                EmployeeName = employeeName,
+                Lines = suggested.Select(s => new PurchaseOrderLine
+                {
+                    ProductId = s.ProductId, ProductName = s.ProductName, PackName = s.PackName, PackUnits = s.PackUnits,
+                    Quantity = s.Packs, CostPerPack = s.CostPerPack
+                }).ToList()
+            }, cancellationToken));
+        }
+        return made;
+    }
+
+    private async Task<IReadOnlyList<ReorderSuggestion>> SuggestAsync(int supplierId, bool includeNoSupplier, CancellationToken cancellationToken)
     {
         var products = await _db.Products.AsNoTracking()
-            .Where(p => p.IsActive && p.ReorderPoint != null && (p.SupplierId == supplierId || p.SupplierId == null))
+            .Where(p => p.IsActive && p.ReorderPoint != null && (p.SupplierId == supplierId || (includeNoSupplier && p.SupplierId == null)))
             .ToListAsync(cancellationToken);
         var low = products.Where(p => p.StockOnHand <= p.ReorderPoint!.Value).ToList();
         var ids = low.Select(p => p.Id).ToList();

@@ -51,7 +51,7 @@ else
                                     <td><strong>@o.Number</strong><div class="sub">@o.CreatedUtc.ToLocalTime().ToString("d MMM yyyy")</div></td>
                                     <td>@o.SupplierName</td>
                                     <td class="num">@o.Total.ToString("C")</td>
-                                    <td>@o.Status</td>
+                                    <td>@if (AutoDraft.IsAuto(o)) { <span class="badge-warn">Check &amp; send</span> } else { @o.Status }</td>
                                 </tr>
                             }
                         </tbody>
@@ -241,6 +241,19 @@ else
     protected override async Task OnInitializedAsync()
     {
         Suppliers = await Receiving.GetSuppliersAsync();
+
+        // Low stock becomes draft orders by itself; nothing goes to a supplier until a manager checks and sends it.
+        try
+        {
+            var made = await Orders.DraftLowStockAsync(Session.Employee?.FullName);
+            if (made.Count > 0)
+                (Message, IsError) = ($"Stock is low: made {made.Count} draft order{(made.Count == 1 ? "" : "s")} ({string.Join(", ", made.Select(o => o.SupplierName))}). Check each one, then send it.", false);
+        }
+        catch (InvalidOperationException ex)
+        {
+            (Message, IsError) = ($"Couldn't make the low-stock orders: {ex.Message}", true);
+        }
+
         List = await Orders.ListAsync(ShowClosed);
     }
 
