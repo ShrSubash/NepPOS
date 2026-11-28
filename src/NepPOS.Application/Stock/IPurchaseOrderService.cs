@@ -6,8 +6,33 @@ namespace NepPOS.Application.Stock;
 public sealed record ReorderSuggestion(int ProductId, string ProductName, decimal StockOnHand, decimal ReorderPoint,
     string PackName, int PackUnits, decimal Packs, decimal CostPerPack);
 
-/// <summary>A product's reorder settings, for editing on the purchase order screen.</summary>
-public sealed record ReorderLevel(int ProductId, string ProductName, decimal StockOnHand, decimal? ReorderPoint, decimal? ReorderQuantity);
+/// <summary>
+/// A product's reorder settings, for editing on the purchase order screen, with how many it sells a week
+/// (the last <see cref="ReorderMath.SalesDays"/> days, refunds taken off).
+/// </summary>
+public sealed record ReorderLevel(int ProductId, string ProductName, decimal StockOnHand, decimal? ReorderPoint, decimal? ReorderQuantity,
+    decimal SoldPerWeek = 0);
+
+/// <summary>
+/// Reorder points from sales: reorder when a week's sales are left (time to order and deliver), and order two
+/// weeks' worth. Whole singles, rounded up, so a slow seller still gets 1.
+/// </summary>
+public static class ReorderMath
+{
+    /// <summary>Sales are averaged over the last four weeks, so one busy day doesn't swing it.</summary>
+    public const int SalesDays = 28;
+
+    public static decimal SoldPerWeek(decimal soldInPeriod, int days = SalesDays) =>
+        days <= 0 || soldInPeriod <= 0 ? 0m : Math.Round(soldInPeriod * 7m / days, 1, MidpointRounding.AwayFromZero);
+
+    /// <summary>The reorder point and order quantity for a product selling <paramref name="soldPerWeek"/>; null when it didn't sell.</summary>
+    public static (decimal ReorderPoint, decimal OrderQuantity)? FromSales(decimal soldPerWeek, decimal reorderWeeks = 1m, decimal orderWeeks = 2m)
+    {
+        if (soldPerWeek <= 0)
+            return null;
+        return (Math.Ceiling(soldPerWeek * reorderWeeks), Math.Max(1m, Math.Ceiling(soldPerWeek * orderWeeks)));
+    }
+}
 
 /// <summary>
 /// Purchase orders: suggested from reorder points, saved as drafts, printed or sent, then received — which posts a

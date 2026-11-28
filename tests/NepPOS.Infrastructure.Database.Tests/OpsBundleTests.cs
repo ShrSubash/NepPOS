@@ -130,6 +130,29 @@ public class OpsBundleTests : IDisposable
     }
 
     [Fact]
+    public async Task Reorder_levels_show_what_sold_a_week_over_the_last_four_weeks()
+    {
+        await using (var db = new NepPosDbContext(_options))
+        {
+            var asahi = await db.Products.FirstAsync(p => p.Id == _asahiId);
+            var now = DateTime.UtcNow;
+            db.StockMovements.AddRange(
+                asahi.MoveStock(StockMovementType.Sale, -30, "Invoice 1", now.AddDays(-3)),
+                asahi.MoveStock(StockMovementType.Sale, -30, "Invoice 2", now.AddDays(-20)),
+                asahi.MoveStock(StockMovementType.Sale, 4, "Refund", now.AddDays(-2)),             // a refund comes off
+                asahi.MoveStock(StockMovementType.Sale, -100, "Invoice 0", now.AddDays(-40)),     // too old
+                asahi.MoveStock(StockMovementType.Receipt, 48, "Invoice CUB-1", now.AddDays(-1))); // not a sale
+            await db.SaveChangesAsync();
+        }
+
+        await using var check = new NepPosDbContext(_options);
+        var level = Assert.Single(await new PurchaseOrderService(check).ReorderLevelsAsync(_supplierId));
+
+        Assert.Equal(14m, level.SoldPerWeek);   // 56 sold in 28 days
+        Assert.Equal((14m, 28m), NepPOS.Application.Stock.ReorderMath.FromSales(level.SoldPerWeek));
+    }
+
+    [Fact]
     public async Task Promotions_save_and_only_active_ones_reach_the_register()
     {
         await using var db = new NepPosDbContext(_options);
