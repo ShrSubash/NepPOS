@@ -47,6 +47,24 @@ else
             </div>
         }
 
+        <div class="plu-filter">
+            <label><input type="checkbox" checked="@ShowInactive" @onchange="e => ShowInactive = e.Value is true" />
+                Show deactivated (@Products.Count(p => !p.IsActive))</label>
+            @if (CanDeactivate && Products.Any(p => !p.IsActive))
+            {
+                if (ConfirmDelete)
+                {
+                    <span class="plu-warn">Delete the deactivated products that were never sold or stocked? Ones with history are kept.</span>
+                    <button class="danger" @onclick="DeleteUnusedAsync">Yes, delete</button>
+                    <button @onclick="() => ConfirmDelete = false">Cancel</button>
+                }
+                else
+                {
+                    <button @onclick="() => ConfirmDelete = true">Delete unused deactivated products</button>
+                }
+            }
+        </div>
+
         <div class="plu-table-wrap">
             <table class="plu-table">
                 <thead>
@@ -61,7 +79,7 @@ else
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var p in Products)
+                    @foreach (var p in Products.Where(p => ShowInactive || p.IsActive))
                     {
                         <tr>
                             <td>@p.Plu</td>
@@ -335,6 +353,10 @@ else
 
 @code {
     private List<Product> Products = new();
+
+    /// <summary>Deactivated products are hidden unless asked for, so the list shows what's on sale.</summary>
+    private bool ShowInactive;
+    private bool ConfirmDelete;
     private Product? Editing;
     private string ActiveTab = "details";
     private IReadOnlyList<ProductVariant> EditingPacks = Array.Empty<ProductVariant>();
@@ -575,6 +597,17 @@ else
     private async Task Deactivate(Product p)
     {
         await ProductService.DeactivateAsync(p.Id);
+        await LoadAsync();
+    }
+
+    private async Task DeleteUnusedAsync()
+    {
+        ConfirmDelete = false;
+        var (deleted, kept) = await ProductService.DeleteUnusedAsync(Products.Where(p => !p.IsActive).Select(p => p.Id).ToList());
+        CsvMessageIsError = false;
+        CsvMessage = kept == 0
+            ? $"Deleted {deleted} unused product{(deleted == 1 ? "" : "s")}."
+            : $"Deleted {deleted}. Kept {kept} deactivated because they have sales or stock history (needed for reports and GST).";
         await LoadAsync();
     }
 }

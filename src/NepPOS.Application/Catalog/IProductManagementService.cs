@@ -17,6 +17,13 @@ public interface IProductManagementService
     Task DeactivateAsync(int id);
 
     /// <summary>
+    /// Deletes deactivated products that were never used: never sold, no stock changes but their opening stock, never on a delivery,
+    /// order, count, transfer or web order. Anything with history is kept (deactivated) so reports and GST
+    /// records stay right. Returns how many were deleted and how many were kept.
+    /// </summary>
+    Task<(int Deleted, int Kept)> DeleteUnusedAsync(IReadOnlyCollection<int> ids);
+
+    /// <summary>
     /// Saves a confirmed CSV import (<see cref="ProductCsv.Plan"/>) in one go: every new and changed product,
     /// each with its event for Head Office. All or nothing.
     /// </summary>

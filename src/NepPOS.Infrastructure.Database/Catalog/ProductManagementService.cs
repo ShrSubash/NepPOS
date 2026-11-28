@@ -82,6 +82,38 @@ public sealed class ProductManagementService : IProductManagementService
         await _dbContext.SaveChangesAsync();
     }
 
+    public async Task<(int Deleted, int Kept)> DeleteUnusedAsync(IReadOnlyCollection<int> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        var candidates = await _dbContext.Products.Where(p => ids.Contains(p.Id) && !p.IsActive).ToListAsync();
+        if (candidates.Count == 0)
+            return (0, 0);
+
+        var idList = candidates.Select(p => p.Id).ToList();
+        var syncIds = candidates.Select(p => p.SyncId).ToList();
+        var used = new HashSet<int>();
+        used.UnionWith(await _dbContext.SaleLineItems.Where(l => l.ProductId != null && idList.Contains(l.ProductId.Value)).Select(l => l.ProductId!.Value).Distinct().ToListAsync());
+        // Opening stock alone (from an import or a new product) isn't history; any other movement is.
+        used.UnionWith(await _dbContext.StockMovements.Where(m => idList.Contains(m.ProductId) && m.Type != StockMovementType.Opening).Select(m => m.ProductId).Distinct().ToListAsync());
+        used.UnionWith(await _dbContext.StockReceiptLines.Where(l => idList.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync());
+        used.UnionWith(await _dbContext.PurchaseOrderLines.Where(l => idList.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync());
+        used.UnionWith(await _dbContext.StocktakeLines.Where(l => idList.Contains(l.ProductId)).Select(l => l.ProductId).Distinct().ToListAsync());
+        var usedSync = new HashSet<Guid>();
+        usedSync.UnionWith(await _dbContext.WebOrderLines.Where(l => l.ProductSyncId != null && syncIds.Contains(l.ProductSyncId.Value)).Select(l => l.ProductSyncId!.Value).Distinct().ToListAsync());
+        usedSync.UnionWith(await _dbContext.StockTransferLines.Where(l => syncIds.Contains(l.ProductSyncId)).Select(l => l.ProductSyncId).Distinct().ToListAsync());
+
+        var unused = candidates.Where(p => !used.Contains(p.Id) && !usedSync.Contains(p.SyncId)).ToList();
+        if (unused.Count > 0)
+        {
+            // Packs, extra barcodes and supplier item codes go with the product (cascade); its opening stock too.
+            var unusedIds = unused.Select(p => p.Id).ToList();
+            _dbContext.StockMovements.RemoveRange(await _dbContext.StockMovements.Where(m => unusedIds.Contains(m.ProductId)).ToListAsync());
+            _dbContext.Products.RemoveRange(unused);
+            await _dbContext.SaveChangesAsync();
+        }
+        return (unused.Count, candidates.Count - unused.Count);
+    }
+
     public async Task<(int Created, int Updated)> ImportAsync(ProductImportPlan plan)
     {
         ArgumentNullException.ThrowIfNull(plan);

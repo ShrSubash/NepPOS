@@ -452,3 +452,32 @@
 .pack-gp { display: grid; gap: .35rem; margin-bottom: .75rem; }
 .pack-gp > div { display: grid; grid-template-columns: 1fr auto 5rem; gap: .75rem; align-items: center; padding: .45rem .7rem; background: #f6f7fb; border-radius: 8px; }
 .pack-gp > div > .gp { justify-self: end; }
+
+/* Show deactivated / delete unused */
+.plu-filter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1.5rem;
+    font-size: 0.9rem;
+}
+
+    .plu-filter button {
+        padding: 0.35rem 0.8rem;
+        border-radius: 8px;
+        border: 1px solid #c9ccd8;
+        background: #fff;
+        cursor: pointer;
+    }
+
+        .plu-filter button.danger {
+            background: #c62828;
+            border-color: #c62828;
+            color: #fff;
+        }
+
+.plu-warn {
+    color: #8a1c1c;
+    font-weight: 600;
+}
