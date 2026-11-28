@@ -34,6 +34,14 @@ public static class ReorderMath
     }
 }
 
+/// <summary>Marks drafts made from low stock, so the screen can ask the manager to check them.</summary>
+public static class AutoDraft
+{
+    public const string Note = "Made from low stock. Check the quantities, then send.";
+
+    public static bool IsAuto(PurchaseOrder order) => order.Status == PurchaseOrderStatus.Draft && order.Note == Note;
+}
+
 /// <summary>
 /// Purchase orders: suggested from reorder points, saved as drafts, printed or sent, then received — which posts a
 /// normal delivery (stock, costs, the supplier's bill) for what actually arrived.
@@ -62,6 +70,13 @@ public interface IPurchaseOrderService
         string? employeeName, CancellationToken cancellationToken = default);
 
     Task<IReadOnlyList<ReorderLevel>> ReorderLevelsAsync(int supplierId, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Makes a draft order for each supplier with products at or below their reorder point (that supplier's own
+    /// products only), unless that supplier already has an order waiting (draft or sent). Nothing goes to the
+    /// supplier: a manager checks the draft and sends it. Returns the drafts made.
+    /// </summary>
+    Task<IReadOnlyList<PurchaseOrder>> DraftLowStockAsync(string? employeeName, CancellationToken cancellationToken = default);
 
     Task SetReorderLevelAsync(int productId, decimal? reorderPoint, decimal? reorderQuantity, CancellationToken cancellationToken = default);
 }

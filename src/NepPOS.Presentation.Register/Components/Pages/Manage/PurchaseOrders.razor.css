@@ -221,3 +221,14 @@
 .neg { color: #b42323; }
 .chip.small { min-height: 36px; padding: 0 .7rem; font-size: .85rem; }
 .pt-row input.st-qty { flex: 0 0 6.5rem; min-width: 0; }
+
+/* A draft made from low stock: waiting for a manager to check and send it. */
+.badge-warn {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: #fff3cd;
+    color: #7a5200;
+    font-size: 0.8rem;
+    font-weight: 600;
+}

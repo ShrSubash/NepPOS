@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using NepPOS.Application.Abstractions;
+using NepPOS.Application.Stock;
 using NepPOS.Contracts.Sync;
 using NepPOS.Domain.Entities;
 using NepPOS.Domain.Enums;
@@ -127,6 +128,25 @@ public class OpsBundleTests : IDisposable
 
         Assert.Equal((12m, 48m), (level.ReorderPoint, level.ReorderQuantity));
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetReorderLevelAsync(_asahiId, -1, null));
+    }
+
+    [Fact]
+    public async Task Low_stock_makes_one_draft_per_supplier_for_a_manager_to_check_and_only_once()
+    {
+        await using var db = new NepPosDbContext(_options);
+        var service = new PurchaseOrderService(db);
+        (await db.Products.FirstAsync(p => p.Id == _chipsId)).ReorderPoint = 20;   // low, but no supplier
+        await db.SaveChangesAsync();
+
+        var made = Assert.Single(await service.DraftLowStockAsync("Owner"));
+
+        Assert.Equal((PurchaseOrderStatus.Draft, "CUB", AutoDraft.Note), (made.Status, made.SupplierName, made.Note));
+        var line = Assert.Single(made.Lines);   // Asahi only: Chips has no supplier, so it's on nobody's draft
+        Assert.Equal(("Asahi Super Dry", 24, 3m), (line.ProductName, line.PackUnits, line.Quantity));   // 30 → 96 singles = 3 cases
+        Assert.True(AutoDraft.IsAuto(made));
+
+        // CUB already has an order waiting: nothing new until it's sent and received (or cancelled).
+        Assert.Empty(await service.DraftLowStockAsync("Owner"));
     }
 
     [Fact]
